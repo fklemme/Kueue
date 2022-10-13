@@ -3,19 +3,37 @@ pub mod stream;
 
 use serde::{Deserialize, Serialize};
 
+// HelloMessage helps the server to distinguish between client and worker
+#[derive(Serialize, Deserialize, Debug)]
+pub enum HelloMessage {
+    // Initiate client connection with this message, expect WelcomeClient
+    HelloFromClient,
+    // Initiate worker connection with this message, expect WelcomeWorker
+    HelloFromWorker { name: String },
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ClientMessage {
-    HelloFromClient,
     Bye,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ServerMessage {
-    Todo,
+    // Respond with WelcomeClient after HelloFromClient
+    WelcomeClient,
+    // Respond with WelcomeWorker after HelloFromWorker
+    WelcomeWorker,
+    OfferJob,
+    ConfirmJobOffer,
+    WithdrawJobOffer,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum WorkerMessage {
-    HelloFromWorker { worker_name: String },
+    UpdateHwStatus,
+    UpdateLoadStatus,
+    UpdateJobStatus,
+    AcceptJobOffer,
+    RejectJobOffer,
     Bye,
 }
