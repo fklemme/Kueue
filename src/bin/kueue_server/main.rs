@@ -1,8 +1,8 @@
 pub mod shared_state;
 
-use kueue::constants::*;
 use kueue::message::stream::MessageStream;
 use kueue::message::WorkerMessage;
+use kueue::{constants::*, message::error::MessageError};
 use shared_state::SharedState;
 use std::sync::{Arc, Mutex};
 use tokio::net::{TcpListener, TcpStream};
@@ -35,8 +35,12 @@ async fn process_connection(stream: TcpStream, _ss: Arc<Mutex<SharedState>>) {
     // for testing: read messages and print out!
     let mut message_stream = MessageStream::new(stream);
     loop {
-        match message_stream.read::<WorkerMessage>().await {
+        match message_stream.receive::<WorkerMessage>().await {
             Ok(message) => println!("Received message: {:?}", message),
+            Err(MessageError::ConnectionClosed) => {
+                println!("Connection closed!");
+                return;
+            }
             Err(e) => {
                 eprintln!("Error: {}", e);
                 return;

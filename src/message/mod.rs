@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ClientMessage {
-    Hello,
+    HelloFromClient,
     Bye,
 }
 
@@ -16,6 +16,6 @@ pub enum ServerMessage {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum WorkerMessage {
-    Hello { worker_name: String },
+    HelloFromWorker { worker_name: String },
     Bye,
 }

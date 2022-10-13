@@ -1,14 +1,28 @@
 #[derive(Debug)]
-pub enum Error {
+pub enum ParseError {
     EofWhileParsing,
     ParsingFailed,
-    ConnectionClosed,
 }
 
-impl std::fmt::Display for Error {
+impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for ParseError {}
+
+#[derive(Debug)]
+pub enum MessageError {
+    SendFailed,
+    ReceiveFailed,
+    ConnectionClosed,
+}
+
+impl std::fmt::Display for MessageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for MessageError {}
