@@ -30,8 +30,8 @@ pub enum ServerMessage {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum WorkerMessage {
-    UpdateHwStatus,
-    UpdateLoadStatus,
+    UpdateHwStatus {kernel:String, cpu_cores:usize, total_memory:u64},
+    UpdateLoadStatus {one: f64, five: f64, fifteen: f64},
     UpdateJobStatus,
     AcceptJobOffer,
     RejectJobOffer,

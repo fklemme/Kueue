@@ -1,6 +1,7 @@
 use kueue::message::stream::MessageStream;
 use kueue::message::{HelloMessage, ServerMessage, WorkerMessage};
 use std::sync::Arc;
+use sysinfo::{System, SystemExt};
 use tokio::net::TcpStream;
 use tokio::sync::Notify;
 use tokio::time::{sleep, Duration};
@@ -9,6 +10,7 @@ pub struct Worker {
     name: String,
     stream: MessageStream,
     notify_update: Arc<Notify>,
+    system: System,
 }
 
 impl Worker {
@@ -21,6 +23,7 @@ impl Worker {
             name,
             stream: MessageStream::new(stream),
             notify_update: Arc::new(Notify::new()),
+            system: System::new_all(),
         })
     }
 
@@ -56,7 +59,7 @@ impl Worker {
                 message = self.stream.receive::<ServerMessage>() => {
                     self.handle_message(message?).await;
                 }
-                // Or get active when notified
+                // Or, get active when notified
                 _ = self.notify_update.notified() => {
                     self.update_load_status().await?;
                     self.update_job_status().await?;
@@ -66,14 +69,34 @@ impl Worker {
     }
 
     async fn update_hw_status(&mut self) -> Result<(), kueue::message::error::MessageError> {
-        // TODO!
-        let hw_update = WorkerMessage::UpdateHwStatus;
+        // Read hardware information
+        let kernel = self.system.kernel_version().unwrap_or("n/a".into());
+        let cpu_cores = self.system.cpus().len();
+        let total_memory = self.system.total_memory();
+
+        // Put into message
+        let hw_update = WorkerMessage::UpdateHwStatus {
+            kernel,
+            cpu_cores,
+            total_memory,
+        };
+
+        // Send to server
         self.stream.send(&hw_update).await
     }
 
     async fn update_load_status(&mut self) -> Result<(), kueue::message::error::MessageError> {
-        // TODO!
-        let load_update = WorkerMessage::UpdateLoadStatus;
+        // Read load
+        let load_avg = self.system.load_average();
+
+        // Put into message
+        let load_update = WorkerMessage::UpdateLoadStatus {
+            one: load_avg.one,
+            five: load_avg.five,
+            fifteen: load_avg.fifteen,
+        };
+
+        // Send to server
         self.stream.send(&load_update).await
     }
 

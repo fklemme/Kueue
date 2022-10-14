@@ -1,12 +1,17 @@
-use kueue::message::{stream::MessageStream, ClientMessage, error::MessageError};
+use crate::shared_state::SharedState;
+use kueue::message::error::MessageError;
+use kueue::message::stream::MessageStream;
+use kueue::message::{ClientMessage, ServerMessage};
+use std::sync::{Arc, Mutex};
 
 pub struct Client {
     stream: MessageStream,
+    ss: Arc<Mutex<SharedState>>,
 }
 
 impl Client {
-    pub fn new(stream: MessageStream) -> Self {
-        Client { stream }
+    pub fn new(stream: MessageStream, ss: Arc<Mutex<SharedState>>) -> Self {
+        Client { stream, ss }
     }
 
     pub async fn run(&mut self) {
