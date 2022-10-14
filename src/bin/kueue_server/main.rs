@@ -7,12 +7,15 @@ use kueue::constants::*;
 use kueue::message::stream::MessageStream;
 use kueue::message::{HelloMessage, ServerMessage};
 use shared_state::SharedState;
+use simple_logger::SimpleLogger;
 use std::sync::{Arc, Mutex};
 use tokio::net::{TcpListener, TcpStream};
 use worker::Worker;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    SimpleLogger::new().init().unwrap();
+
     // TODO: Handle cli arguments
 
     // Initialize shared state
@@ -23,14 +26,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         let (stream, addr) = listener.accept().await?;
-        println!("New connection from {}", addr);
+        log::trace!("New connection from {}", addr);
 
-        // New reference-counted pointer to shared state (local shadow)
+        // New reference-counted pointer to shared state
         let ss = Arc::clone(&ss);
 
         tokio::spawn(async move {
             // Process each connection concurrently
             handle_connection(stream, ss).await;
+            log::trace!("Closed connection to {}", addr);
         });
     }
 }
@@ -43,24 +47,24 @@ async fn handle_connection(stream: TcpStream, ss: Arc<Mutex<SharedState>>) {
             // Handle client connection
             match stream.send(&ServerMessage::WelcomeClient).await {
                 Ok(()) => {
-                    println!("Established connection to client!");
+                    log::trace!("Established connection to client!");
                     let mut client = Client::new(stream, ss);
                     client.run().await;
                 }
-                Err(e) => eprintln!("Error: {}", e),
+                Err(e) => log::error!("Failed to send WelcomeClient: {}", e),
             }
         }
         Ok(HelloMessage::HelloFromWorker { name }) => {
             // Handle worker connection
             match stream.send(&ServerMessage::WelcomeWorker).await {
                 Ok(()) => {
-                    println!("Established connection to worker '{}'!", name);
+                    log::trace!("Established connection to worker '{}'!", name);
                     let mut worker = Worker::new(name, stream, ss);
                     worker.run().await;
                 }
-                Err(e) => eprintln!("Error: {}", e),
+                Err(e) => log::error!("Failed to send WelcomeWorker: {}", e),
             }
         }
-        Err(e) => eprintln!("Error while reading HelloMessage: {:?}", e),
+        Err(e) => log::error!("Failed to read HelloMessage: {}", e),
     }
 }

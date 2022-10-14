@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use kueue::constants::DEFAULT_PORT;
 use kueue::message::stream::MessageStream;
 use kueue::message::{ClientMessage, HelloMessage, ServerMessage};
+use simple_logger::SimpleLogger;
 use std::{net::Ipv4Addr, str::FromStr};
 use tokio::net::TcpStream;
 
@@ -22,18 +23,20 @@ struct Args {
 enum Command {
     /// Issue command to be off-loaded to remote workers.
     #[command(external_subcommand)]
-    Cmd(Vec<String>),
-    /// Query information about sheduled and running jobs.
-    Jobs,
+    Cmd(Vec<String>), // TODO: missing in help!
+    /// Query information about scheduled and running jobs.
+    ListJobs,
     /// Query infromation about available workers.
-    Workers,
+    ListWorkers,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    SimpleLogger::new().init().unwrap();
+
     // Read command line arguments
     let args = Args::parse();
-    println!("{:?}", args); // debug
+    log::debug!("{:?}", args);
 
     // Connect to server
     let server_addr = (Ipv4Addr::from_str(&args.server_address)?, args.server_port);
@@ -45,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Await welcoming response from server
     match stream.receive::<ServerMessage>().await? {
-        ServerMessage::WelcomeClient => println!("Established connection to server..."), // continue
+        ServerMessage::WelcomeClient => log::trace!("Established connection to server..."), // continue
         other => return Err(format!("Expected WelcomeClient, received: {:?}", other).into()),
     }
 
@@ -55,7 +58,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
         Command::Cmd(cmd) => {
             // Issue job
-            let cmd = cmd[1..].join(" ");
+            assert!(!cmd.is_empty());
+            let cmd = cmd.join(" ");
             let cwd = std::env::current_dir()?;
             let job = ClientMessage::IssueJob { cmd, cwd };
             stream.send(&job).await?;
@@ -63,16 +67,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Await acceptance
             match stream.receive::<ServerMessage>().await? {
                 ServerMessage::AcceptJob => {
-                    println!("Job submitted successfully!")
+                    log::debug!("Job submitted successfully!")
                 }
                 other => return Err(format!("Expected AcceptJob, received: {:?}", other).into()),
             }
         }
-        Command::Jobs => eprintln!("TODO: implement list jobs..."),
-        Command::Workers => eprintln!("TODO: implement list workers..."),
+        Command::ListJobs => {
+            // Query jobs
+            let list_jobs = ClientMessage::ListJobs;
+            stream.send(&list_jobs).await?;
+
+            // Await results
+            match stream.receive::<ServerMessage>().await? {
+                ServerMessage::JobList(job_list) => {
+                    for job_info in job_list {
+                        println!("Job: {}, State: {}", job_info.cmd, job_info.status);
+                    }
+                }
+                other => return Err(format!("Expected JobList, received: {:?}", other).into()),
+            }
+        }
+        Command::ListWorkers => log::warn!("TODO: implement list workers..."),
     }
 
-    // Say bye!
+    // Say bye to gracefully shut down connection.
     stream.send(&ClientMessage::Bye).await?;
 
     Ok(())

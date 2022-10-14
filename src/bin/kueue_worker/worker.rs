@@ -36,7 +36,7 @@ impl Worker {
 
         // Await welcoming response from server
         match self.stream.receive::<ServerMessage>().await? {
-            ServerMessage::WelcomeWorker => println!("Established connection to server..."), // continue
+            ServerMessage::WelcomeWorker => log::trace!("Established connection to server..."), // continue
             other => return Err(format!("Expected WelcomeWorker, received: {:?}", other).into()),
         }
 
@@ -108,6 +108,6 @@ impl Worker {
 
     async fn handle_message(&mut self, message: ServerMessage) {
         // TODO
-        println!("Debug: Received message: {:?}", message);
+        log::debug!("Received message: {:?}", message);
     }
 }

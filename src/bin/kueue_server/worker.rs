@@ -16,16 +16,14 @@ impl Worker {
     }
 
     pub async fn run(&mut self) {
+        // Hello/Welcome messages are already exchanged at this point.
+
         // for testing: read WorkerMessages and print out!
         loop {
             match self.stream.receive::<WorkerMessage>().await {
-                Ok(message) => println!("Received message: {:?}", message),
-                Err(MessageError::ConnectionClosed) => {
-                    println!("Connection closed!");
-                    return;
-                }
+                Ok(message) => log::debug!("Received message: {:?}", message),
                 Err(e) => {
-                    eprintln!("Error: {}", e);
+                    log::error!("{}", e);
                     return;
                 }
             }

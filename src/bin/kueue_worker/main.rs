@@ -1,11 +1,14 @@
 mod worker;
 
 use kueue::constants::DEFAULT_PORT;
+use simple_logger::SimpleLogger;
 use std::net::Ipv4Addr;
 use worker::Worker;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    SimpleLogger::new().init().unwrap();
+
     // TODO: Handle cli arguments
 
     // Start worker: Connect to server and process work
