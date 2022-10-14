@@ -28,7 +28,7 @@ impl Worker {
     }
 
     pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Send hello to server
+        // Send hello from worker
         let hello = HelloMessage::HelloFromWorker {
             name: self.name.clone(),
         };

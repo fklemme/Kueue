@@ -1,6 +1,7 @@
 pub mod error;
 pub mod stream;
 
+use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 // HelloMessage helps the server to distinguish between client and worker
@@ -14,6 +15,7 @@ pub enum HelloMessage {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ClientMessage {
+    IssueJob {cmd: String, cwd: PathBuf},
     Bye,
 }
 
@@ -21,6 +23,8 @@ pub enum ClientMessage {
 pub enum ServerMessage {
     // Respond with WelcomeClient after HelloFromClient
     WelcomeClient,
+    AcceptJob,
+    RejectJob,
     // Respond with WelcomeWorker after HelloFromWorker
     WelcomeWorker,
     OfferJob,
