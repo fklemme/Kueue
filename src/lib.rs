@@ -7,4 +7,5 @@ pub mod constants {
     pub const DEFAULT_PORT: u16 = 8765;
 }
 
-pub mod message;
+pub mod messages;
+pub mod structs;

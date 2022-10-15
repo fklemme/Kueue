@@ -1,19 +1,22 @@
-mod client;
+mod client_connection;
 mod shared_state;
-mod worker;
+mod worker_connection;
 
-use client::Client;
-use kueue::constants::*;
-use kueue::message::stream::MessageStream;
-use kueue::message::{HelloMessage, ServerMessage};
+use client_connection::ClientConnection;
+use kueue::{
+    constants::{DEFAULT_BIND_ADDR, DEFAULT_PORT},
+    messages::stream::MessageStream,
+    messages::{HelloMessage, ServerToClientMessage, ServerToWorkerMessage},
+};
 use shared_state::SharedState;
 use simple_logger::SimpleLogger;
 use std::sync::{Arc, Mutex};
 use tokio::net::{TcpListener, TcpStream};
-use worker::Worker;
+use worker_connection::WorkerConnection;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logger
     SimpleLogger::new().init().unwrap();
 
     // TODO: Handle cli arguments
@@ -45,10 +48,10 @@ async fn handle_connection(stream: TcpStream, ss: Arc<Mutex<SharedState>>) {
     match stream.receive::<HelloMessage>().await {
         Ok(HelloMessage::HelloFromClient) => {
             // Handle client connection
-            match stream.send(&ServerMessage::WelcomeClient).await {
+            match stream.send(&ServerToClientMessage::WelcomeClient).await {
                 Ok(()) => {
                     log::trace!("Established connection to client!");
-                    let mut client = Client::new(stream, ss);
+                    let mut client = ClientConnection::new(stream, ss);
                     client.run().await;
                 }
                 Err(e) => log::error!("Failed to send WelcomeClient: {}", e),
@@ -56,10 +59,10 @@ async fn handle_connection(stream: TcpStream, ss: Arc<Mutex<SharedState>>) {
         }
         Ok(HelloMessage::HelloFromWorker { name }) => {
             // Handle worker connection
-            match stream.send(&ServerMessage::WelcomeWorker).await {
+            match stream.send(&ServerToWorkerMessage::WelcomeWorker).await {
                 Ok(()) => {
                     log::trace!("Established connection to worker '{}'!", name);
-                    let mut worker = Worker::new(name, stream, ss);
+                    let mut worker = WorkerConnection::new(name, stream, ss);
                     worker.run().await;
                 }
                 Err(e) => log::error!("Failed to send WelcomeWorker: {}", e),

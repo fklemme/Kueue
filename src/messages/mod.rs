@@ -1,8 +1,7 @@
-pub mod error;
 pub mod stream;
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use crate::structs::{JobInfo, WorkerInfo, HwInfo, LoadInfo};
 
 // HelloMessage helps the server to distinguish between client and worker
 #[derive(Serialize, Deserialize, Debug)]
@@ -13,47 +12,44 @@ pub enum HelloMessage {
     HelloFromWorker { name: String },
 }
 
+// All messages sent by the client to the server
 #[derive(Serialize, Deserialize, Debug)]
-pub enum ClientMessage {
-    IssueJob { cmd: String, cwd: PathBuf },
+pub enum ClientToServerMessage {
+    IssueJob(JobInfo),
     ListJobs,
+    ListWorkers,
     Bye,
 }
 
+// All messages sent by the server to a client
 #[derive(Serialize, Deserialize, Debug)]
-pub enum ServerMessage {
+pub enum ServerToClientMessage {
     // Respond with WelcomeClient after HelloFromClient
     WelcomeClient,
-    AcceptJob,
+    AcceptJob(JobInfo),
     //RejectJob,
     JobList(Vec<JobInfo>),
+    WorkerList(Vec<WorkerInfo>),
+}
+
+// All messages sent by the server to a worker
+#[derive(Serialize, Deserialize, Debug)]
+pub enum ServerToWorkerMessage {
     // Respond with WelcomeWorker after HelloFromWorker
     WelcomeWorker,
-    OfferJob,
-    ConfirmJobOffer,
-    WithdrawJobOffer,
+    OfferJob(JobInfo),
+    ConfirmJobOffer(JobInfo),
+    WithdrawJobOffer(JobInfo),
 }
 
+// All messages sent by the worker to the server
 #[derive(Serialize, Deserialize, Debug)]
-pub enum WorkerMessage {
-    UpdateHwStatus {
-        kernel: String,
-        cpu_cores: usize,
-        total_memory: u64,
-    },
-    UpdateLoadStatus {
-        one: f64,
-        five: f64,
-        fifteen: f64,
-    },
+pub enum WorkerToServerMessage {
+    UpdateHwInfo(HwInfo),
+    UpdateLoadInfo(LoadInfo),
     UpdateJobStatus,
-    AcceptJobOffer,
-    RejectJobOffer,
+    AcceptParallelJobs(u32),
+    AcceptJobOffer(JobInfo),
+    RejectJobOffer(JobInfo),
     Bye,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct JobInfo {
-    pub cmd: String,
-    pub status: String,
 }

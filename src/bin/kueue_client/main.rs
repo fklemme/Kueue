@@ -1,7 +1,10 @@
 use clap::{Parser, Subcommand};
-use kueue::constants::DEFAULT_PORT;
-use kueue::message::stream::MessageStream;
-use kueue::message::{ClientMessage, HelloMessage, ServerMessage};
+use kueue::{
+    constants::DEFAULT_PORT,
+    messages::stream::MessageStream,
+    messages::{ClientToServerMessage, HelloMessage, ServerToClientMessage},
+    structs::{JobInfo, WorkerInfo},
+};
 use simple_logger::SimpleLogger;
 use std::{net::Ipv4Addr, str::FromStr};
 use tokio::net::TcpStream;
@@ -32,6 +35,7 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logger
     SimpleLogger::new().init().unwrap();
 
     // Read command line arguments
@@ -47,8 +51,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     stream.send(&HelloMessage::HelloFromClient).await?;
 
     // Await welcoming response from server
-    match stream.receive::<ServerMessage>().await? {
-        ServerMessage::WelcomeClient => log::trace!("Established connection to server..."), // continue
+    match stream.receive::<ServerToClientMessage>().await? {
+        ServerToClientMessage::WelcomeClient => log::trace!("Established connection to server..."), // continue
         other => return Err(format!("Expected WelcomeClient, received: {:?}", other).into()),
     }
 
@@ -61,37 +65,76 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             assert!(!cmd.is_empty());
             let cmd = cmd.join(" ");
             let cwd = std::env::current_dir()?;
-            let job = ClientMessage::IssueJob { cmd, cwd };
+            let job = ClientToServerMessage::IssueJob(JobInfo::new(cmd, cwd));
             stream.send(&job).await?;
 
             // Await acceptance
-            match stream.receive::<ServerMessage>().await? {
-                ServerMessage::AcceptJob => {
-                    log::debug!("Job submitted successfully!")
+            match stream.receive::<ServerToClientMessage>().await? {
+                ServerToClientMessage::AcceptJob(job_info) => {
+                    log::debug!("Job submitted successfully!");
+                    log::info!("Job ID: {}", job_info.id);
                 }
-                other => return Err(format!("Expected AcceptJob, received: {:?}", other).into()),
+                other => {
+                    return Err(format!("Expected AcceptJob, received: {:?}", other).into());
+                }
             }
         }
         Command::ListJobs => {
             // Query jobs
-            let list_jobs = ClientMessage::ListJobs;
+            let list_jobs = ClientToServerMessage::ListJobs;
             stream.send(&list_jobs).await?;
 
             // Await results
-            match stream.receive::<ServerMessage>().await? {
-                ServerMessage::JobList(job_list) => {
-                    for job_info in job_list {
-                        println!("Job: {}, State: {}", job_info.cmd, job_info.status);
-                    }
+            match stream.receive::<ServerToClientMessage>().await? {
+                ServerToClientMessage::JobList(job_list) => {
+                    print_job_list(job_list);
                 }
-                other => return Err(format!("Expected JobList, received: {:?}", other).into()),
+                other => {
+                    return Err(format!("Expected JobList, received: {:?}", other).into());
+                }
             }
         }
-        Command::ListWorkers => log::warn!("TODO: implement list workers..."),
+        Command::ListWorkers => {
+            // Query workers
+            let list_workers = ClientToServerMessage::ListWorkers;
+            stream.send(&list_workers).await?;
+
+            // Await results
+            match stream.receive::<ServerToClientMessage>().await? {
+                ServerToClientMessage::WorkerList(worker_list) => {
+                    print_worker_list(worker_list);
+                }
+                other => {
+                    return Err(format!("Expected WorkerList, received: {:?}", other).into());
+                }
+            }
+        }
     }
 
     // Say bye to gracefully shut down connection.
-    stream.send(&ClientMessage::Bye).await?;
+    stream.send(&ClientToServerMessage::Bye).await?;
 
     Ok(())
+}
+
+fn print_job_list(job_list: Vec<JobInfo>) {
+    // TODO: make nice and shiny
+    if job_list.is_empty() {
+        println!("No jobs listed on server!");
+    } else {
+        for job_info in job_list {
+            println!("{:?}", job_info);
+        }
+    }
+}
+
+fn print_worker_list(worker_list: Vec<WorkerInfo>) {
+    // TODO: make nice and shiny
+    if worker_list.is_empty() {
+        println!("No workers registered on server!");
+    } else {
+        for worker_info in worker_list {
+            println!("{:?}", worker_info);
+        }
+    }
 }
