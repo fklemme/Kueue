@@ -12,8 +12,15 @@ impl Job {
     }
 
     pub fn run(&mut self) {
-        self.info.status = JobStatus::Running {
-            started: Utc::now(),
+        let job_status = &self.info.status;
+        if let JobStatus::Offered { issued, to } = job_status {
+            self.info.status = JobStatus::Running {
+                issued: issued.clone(),
+                started: Utc::now(),
+                on: to.clone(),
+            };
+        } else {
+            // Can this happen?
         }
 
         // TODO: Do smart stuff here!

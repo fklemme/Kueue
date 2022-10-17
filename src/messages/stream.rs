@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -19,23 +20,27 @@ impl MessageStream {
         }
     }
 
-    pub async fn send<T: Serialize>(&mut self, message: &T) -> Result<(), MessageError> {
+    pub async fn send<T: Serialize + Debug>(&mut self, message: &T) -> Result<(), MessageError> {
+        log::trace!("Sending message: {:?}", message);
         let buffer = serde_json::to_vec(message).unwrap();
 
         match self.stream.write_all(&buffer).await {
             Ok(()) => Ok(()),
             Err(e) => {
-                eprintln!("Write error: {}", e); // for debugging
+                log::error!("Write error: {}", e);
                 Err(MessageError::SendFailed)
             }
         }
     }
 
-    pub async fn receive<T: for<'a> Deserialize<'a>>(&mut self) -> Result<T, MessageError> {
+    pub async fn receive<T: for<'a> Deserialize<'a> + Debug>(&mut self) -> Result<T, MessageError> {
         loop {
             // Parse message from message buffer
             match self.parse_message::<T>() {
-                Ok(message) => return Ok(message),
+                Ok(message) => {
+                    log::trace!("Received message: {:?}", message);
+                    return Ok(message);
+                }
                 Err(ParseError::EofWhileParsing) => {} // okay, continue reading from stream
                 Err(_) => return Err(MessageError::ReceiveFailed), // give up and propagate error
             }
@@ -48,7 +53,7 @@ impl MessageStream {
                     self.msg_buffer.extend(&self.read_buffer[..bytes_read]);
                 }
                 Err(e) => {
-                    eprintln!("Read error: {}", e); // for debugging
+                    log::error!("Read error: {}", e);
                     return Err(MessageError::ReceiveFailed);
                 }
             }
@@ -73,7 +78,7 @@ impl MessageStream {
                 }
                 Err(e) => {
                     // Bad things happend! We need to give up.
-                    eprintln!("Parse error: {}", e); // for debugging
+                    log::error!("Parse error: {}", e);
                     Err(ParseError::ParsingFailed)
                 }
             },

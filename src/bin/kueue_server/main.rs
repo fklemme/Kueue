@@ -21,15 +21,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // TODO: Handle cli arguments
 
-    // Initialize shared state
-    let ss = Arc::new(Mutex::new(SharedState::new()));
-
     // Start accepting incoming connections
     let listener = TcpListener::bind((DEFAULT_BIND_ADDR, DEFAULT_PORT)).await?;
 
+    // Initialize shared state
+    let ss = Arc::new(Mutex::new(SharedState::new()));
+
     loop {
         let (stream, addr) = listener.accept().await?;
-        log::trace!("New connection from {}", addr);
+        log::trace!("New connection from {}!", addr);
 
         // New reference-counted pointer to shared state
         let ss = Arc::clone(&ss);
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(async move {
             // Process each connection concurrently
             handle_connection(stream, ss).await;
-            log::trace!("Closed connection to {}", addr);
+            log::trace!("Closed connection to {}!", addr);
         });
     }
 }

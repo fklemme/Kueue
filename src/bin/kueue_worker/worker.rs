@@ -83,7 +83,6 @@ impl Worker {
                 message = self.stream.receive::<ServerToWorkerMessage>() => {
                     match message {
                         Ok(message) => {
-                            log::debug!("Received message: {:?}", message);
                             if let Err(e) = self.handle_message(message).await {
                                 log::error!("Failed to handle message: {}", e);
                                 self.connection_closed = true; // end worker session

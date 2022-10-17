@@ -27,8 +27,8 @@ impl JobInfo {
 pub enum JobStatus {
     Pending {issued: DateTime<Utc>},
     Offered {issued: DateTime<Utc>, to:String},
-    Running {started: DateTime<Utc>},
-    Finished{finished: DateTime<Utc>, return_code: i32}
+    Running {issued: DateTime<Utc>, started: DateTime<Utc>, on:String},
+    Finished{finished: DateTime<Utc>, return_code: i32, on:String}
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

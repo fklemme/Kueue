@@ -1,11 +1,7 @@
 use crate::shared_state::SharedState;
-use kueue::{
-    messages::{
-        stream::{MessageError, MessageStream},
-        ClientToServerMessage, ServerToClientMessage,
-    },
-    structs::JobInfo,
-};
+use kueue::messages::{
+    stream::{MessageError, MessageStream},
+    ClientToServerMessage, ServerToClientMessage};
 use std::sync::{Arc, Mutex};
 
 pub struct ClientConnection {
@@ -48,10 +44,12 @@ impl ClientConnection {
             ClientToServerMessage::IssueJob(job_info) => {
                 // Add new job. We create a new JobInfo instance to make sure to
                 // not adopt remote (non-unique) job ids or inconsistent states.
-                let job_info = JobInfo::new(job_info.cmd, job_info.cwd);
-                self.ss.lock().unwrap().add_job(job_info.clone());
+                let job = self.ss.lock().unwrap().add_new_job(job_info.cmd, job_info.cwd);
+                let job_info = job.lock().unwrap().info.clone();
 
-                // TODO: notify workers
+                // Notify workers
+                let new_jobs = self.ss.lock().unwrap().notify_new_jobs();
+                new_jobs.notify_waiters();
 
                 // Send response to client
                 self.stream

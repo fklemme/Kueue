@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Await welcoming response from server
     match stream.receive::<ServerToClientMessage>().await? {
-        ServerToClientMessage::WelcomeClient => log::trace!("Established connection to server..."), // continue
+        ServerToClientMessage::WelcomeClient => log::trace!("Established connection to server!"), // continue
         other => return Err(format!("Expected WelcomeClient, received: {:?}", other).into()),
     }
 
@@ -65,8 +65,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             assert!(!cmd.is_empty());
             let cmd = cmd.join(" ");
             let cwd = std::env::current_dir()?;
-            let job = ClientToServerMessage::IssueJob(JobInfo::new(cmd, cwd));
-            stream.send(&job).await?;
+            let message = ClientToServerMessage::IssueJob(JobInfo::new(cmd, cwd));
+            stream.send(&message).await?;
 
             // Await acceptance
             match stream.receive::<ServerToClientMessage>().await? {
@@ -81,8 +81,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Command::ListJobs => {
             // Query jobs
-            let list_jobs = ClientToServerMessage::ListJobs;
-            stream.send(&list_jobs).await?;
+            let message = ClientToServerMessage::ListJobs;
+            stream.send(&message).await?;
 
             // Await results
             match stream.receive::<ServerToClientMessage>().await? {
@@ -96,8 +96,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Command::ListWorkers => {
             // Query workers
-            let list_workers = ClientToServerMessage::ListWorkers;
-            stream.send(&list_workers).await?;
+            let message = ClientToServerMessage::ListWorkers;
+            stream.send(&message).await?;
 
             // Await results
             match stream.receive::<ServerToClientMessage>().await? {
