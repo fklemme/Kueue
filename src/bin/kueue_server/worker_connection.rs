@@ -27,7 +27,7 @@ impl WorkerConnection {
         // Hello/Welcome messages are already exchanged at this point.
 
         // Notify for newly available jobs
-        let new_jobs = self.ss.lock().unwrap().notify_new_jobs();
+        let new_jobs = self.ss.lock().unwrap().new_jobs();
 
         while !self.connection_closed {
             tokio::select! {
@@ -129,7 +129,7 @@ impl WorkerConnection {
                         self.ss.lock().unwrap().move_rejected_job_to_pending(job);
 
                         // Let other workers know that the job is available again.
-                        let new_jobs = self.ss.lock().unwrap().notify_new_jobs();
+                        let new_jobs = self.ss.lock().unwrap().new_jobs();
                         new_jobs.notify_waiters();
 
                         // TODO: Should we offere more jobs right after reject?

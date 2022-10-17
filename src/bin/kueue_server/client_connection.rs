@@ -47,14 +47,16 @@ impl ClientConnection {
                 let job = self.ss.lock().unwrap().add_new_job(job_info.cmd, job_info.cwd);
                 let job_info = job.lock().unwrap().info.clone();
 
-                // Notify workers
-                let new_jobs = self.ss.lock().unwrap().notify_new_jobs();
-                new_jobs.notify_waiters();
-
                 // Send response to client
                 self.stream
                     .send(&ServerToClientMessage::AcceptJob(job_info))
-                    .await
+                    .await?;
+
+                // Notify workers
+                let new_jobs = self.ss.lock().unwrap().new_jobs();
+                new_jobs.notify_waiters();
+
+                Ok(())
             }
             ClientToServerMessage::ListJobs => {
                 // Get job list
@@ -77,6 +79,7 @@ impl ClientConnection {
             ClientToServerMessage::Bye => {
                 log::trace!("Bye client!");
                 self.connection_closed = true;
+
                 Ok(())
             }
         }

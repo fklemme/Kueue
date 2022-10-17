@@ -1,10 +1,10 @@
 use chrono::Utc;
 use kueue::structs::{JobInfo, JobStatus, WorkerInfo};
-use tokio::sync::Notify;
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex, Weak},
 };
+use tokio::sync::Notify;
 
 type JobList = Vec<Arc<Mutex<Job>>>;
 type WorkerList = Vec<Weak<Mutex<Worker>>>;
@@ -17,7 +17,7 @@ pub struct SharedState {
     running_jobs: JobList,
     finished_jobs: JobList,
     workers: WorkerList,
-    new_jobs: Arc<Notify>
+    new_jobs: Arc<Notify>,
 }
 
 #[derive(Debug)]
@@ -46,7 +46,7 @@ impl SharedState {
         }
     }
 
-    pub fn notify_new_jobs(&self) -> Arc<Notify> {
+    pub fn new_jobs(&self) -> Arc<Notify> {
         Arc::clone(&self.new_jobs)
     }
 
@@ -104,6 +104,57 @@ impl SharedState {
         worker_info_list
     }
 
+    // Finds the job in the shared state based on the job's ID.
+    pub fn get_job_from_info(&self, job_info: JobInfo) -> Option<Arc<Mutex<Job>>> {
+        let target_list = match job_info.status {
+            JobStatus::Pending { .. } => &self.pending_jobs,
+            JobStatus::Offered { .. } => &self.offered_jobs,
+            JobStatus::Running { .. } => &self.running_jobs,
+            JobStatus::Finished { .. } => &self.finished_jobs,
+        };
+        let index = target_list
+            .iter()
+            .position(|job| job.lock().unwrap().info.id == job_info.id);
+        match index {
+            Some(index) => Some(Arc::clone(&target_list[index])),
+            None => None,
+        }
+    }
+
+    // Update job status and assigns the job to the corresponding job list.
+    fn update_job_status(&mut self, job: Arc<Mutex<Job>>, new_status: JobStatus) {
+        let old_status = job.lock().unwrap().info.status.clone();
+
+        // Remove from old list
+        let removed_job = {
+            let source_list = self.get_job_list(old_status);
+            let index = source_list.iter().position(|j| Arc::ptr_eq(j, &job));
+            if let Some(index) = index {
+                source_list.remove(index)
+            } else {
+                log::error!("Job not found in source list!");
+                return; // TODO: What to do?
+            }
+        };
+
+        // Update status
+        removed_job.lock().unwrap().info.status = new_status.clone();
+
+        // Move to new list
+        let target_list = self.get_job_list(new_status);
+        target_list.push(removed_job);
+    }
+
+    // Get job list based on the job's status.
+    fn get_job_list(&mut self, job_status: JobStatus) -> &mut JobList {
+        match job_status {
+            JobStatus::Pending { .. } => &mut self.pending_jobs,
+            JobStatus::Offered { .. } => &mut self.offered_jobs,
+            JobStatus::Running { .. } => &mut self.running_jobs,
+            JobStatus::Finished { .. } => &mut self.finished_jobs,
+        }
+    }
+
     // Finds a pending job, moves it to "offered" lists, and returns it.
     pub fn get_pending_job_and_make_offered(
         &mut self,
@@ -127,7 +178,7 @@ impl SharedState {
                     self.offered_jobs.push(Arc::clone(&job));
                     worker_lock.offered_jobs.push(Arc::clone(&job));
                     worker_lock.info.current_jobs += 1;
-                    drop(job_lock); // unlock job to move
+                    drop(job_lock); // unlock job for move
                     Some(job)
                 }
                 _ => {
@@ -138,97 +189,53 @@ impl SharedState {
         }
     }
 
-    // Finds the job in the shared state based on the job's ID.
-    pub fn get_job_from_info(&self, job_info: JobInfo) -> Option<Arc<Mutex<Job>>> {
-        let target_list = match job_info.status {
-            JobStatus::Pending { .. } => &self.pending_jobs,
-            JobStatus::Offered { .. } => &self.offered_jobs,
-            JobStatus::Running { .. } => &self.running_jobs,
-            JobStatus::Finished { .. } => &self.finished_jobs,
-        };
-        let index = target_list
-            .iter()
-            .position(|job| job.lock().unwrap().info.id == job_info.id);
-        match index {
-            Some(index) => Some(Arc::clone(&target_list[index])),
-            None => None,
-        }
-    }
-
     // Moves job from offered to running/assigned lists and updates info.
     pub fn move_accepted_job_to_running(&mut self, job: Arc<Mutex<Job>>) {
-        let option_worker = job.lock().unwrap().worker.clone();
-        if let Some(weak_worker) = option_worker {
-            if let Some(worker) = weak_worker.upgrade() {
-                log::debug!("lock worker");
-                let mut worker_lock = worker.lock().unwrap();
-                log::debug!("lock job");
-                let mut job_lock = job.lock().unwrap();
-                log::debug!("all locks aquired");
+        let (old_status, option_worker) = {
+            let job_lock = job.lock().unwrap();
+            (job_lock.info.status.clone(), job_lock.worker.clone())
+        };
 
-                // Update job status
-                if let JobStatus::Offered { issued, to } = &job_lock.info.status {
-                    job_lock.info.status = JobStatus::Running {
-                        issued: issued.clone(),
-                        started: Utc::now(),
-                        on: worker_lock.info.name.clone(),
-                    };
-                } else {
-                    log::error!("Expected status 'offered' for job: {:?}", job_lock.info);
-                    // TODO: what to do here?
-                }
+        if let JobStatus::Offered { issued, to } = old_status {
+            // Update job in shared state
+            let new_status = JobStatus::Running {
+                issued,
+                started: Utc::now(),
+                on: to,
+            };
+            self.update_job_status(Arc::clone(&job), new_status);
 
-                // Move from offered to assigned in worker
-                let job_index = worker_lock
-                    .offered_jobs
-                    .iter()
-                    .position(|j| Arc::as_ptr(j) == Arc::as_ptr(&job));
-                match job_index {
-                    Some(index) => {
-                        // Move job
+            // Move to new list inside worker
+            if let Some(weak_worker) = option_worker {
+                if let Some(worker) = weak_worker.upgrade() {
+                    let mut worker_lock = worker.lock().unwrap();
+                    let index = worker_lock
+                        .offered_jobs
+                        .iter()
+                        .position(|j| Arc::ptr_eq(j, &job));
+                    if let Some(index) = index {
                         let job = worker_lock.offered_jobs.remove(index);
                         worker_lock.assigned_jobs.push(job);
+                    } else {
+                        log::error!("Job not found in worker's offered list!");
+                        return; // TODO: what to do here?
                     }
-                    None => {
-                        log::error!(
-                            "Job not found in worker's offered list: {:?}",
-                            job_lock.info
-                        );
-                    }
-                }
-
-                // Move from offered to running in shared state
-                let job_index = self
-                    .offered_jobs
-                    .iter()
-                    .position(|j| Arc::as_ptr(j) == Arc::as_ptr(&job));
-                match job_index {
-                    Some(index) => {
-                        // Move job
-                        let job = self.offered_jobs.remove(index);
-                        self.running_jobs.push(job);
-                    }
-                    None => {
-                        log::error!(
-                            "Job not found in pending list: {:?}",
-                            job.lock().unwrap().info
-                        );
-                    }
+                } else {
+                    log::error!("Associated worker does not exists anymore!");
+                    return; // TODO: what to do here?
                 }
             } else {
-                log::error!(
-                    "Worker of job no longer valid: {:?}",
-                    job.lock().unwrap().info
-                );
-                // TODO: Can this happen? We could recover from this, sending the job back to pending list!
+                log::error!("Did not find associated worker!");
+                return; // TODO: what to do here?
             }
         } else {
-            log::error!("No worker assigned to job: {:?}", job.lock().unwrap().info);
+            log::error!("Expected job status to be offered, found: {:?}", old_status);
+            return; // TODO: what to do here?
         }
     }
 
     // Moves job from offered to pending list and updates info.
-    pub fn move_rejected_job_to_pending(&self, job: Arc<Mutex<Job>>) {
+    pub fn move_rejected_job_to_pending(&self, _job: Arc<Mutex<Job>>) {
         // TODO!
     }
 }
