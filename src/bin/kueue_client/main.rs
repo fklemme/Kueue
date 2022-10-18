@@ -63,7 +63,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Cmd(cmd) => {
             // Issue job
             assert!(!cmd.is_empty());
-            let cmd = cmd.join(" ");
             let cwd = std::env::current_dir()?;
             let message = ClientToServerMessage::IssueJob(JobInfo::new(cmd, cwd));
             stream.send(&message).await?;

@@ -1,8 +1,5 @@
 use crate::shared_state::{SharedState, Worker};
-use kueue::messages::{
-    stream::{MessageError, MessageStream},
-    ServerToWorkerMessage, WorkerToServerMessage,
-};
+use kueue::messages::{stream::MessageStream, ServerToWorkerMessage, WorkerToServerMessage};
 use std::sync::{Arc, Mutex};
 
 pub struct WorkerConnection {
@@ -67,7 +64,10 @@ impl WorkerConnection {
         self.worker.lock().unwrap().connected = false;
     }
 
-    async fn handle_message(&mut self, message: WorkerToServerMessage) -> Result<(), MessageError> {
+    async fn handle_message(
+        &mut self,
+        message: WorkerToServerMessage,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         match message {
             WorkerToServerMessage::UpdateHwInfo(hw_info) => {
                 // Update information in shared worker object
@@ -81,8 +81,12 @@ impl WorkerConnection {
 
                 Ok(()) // No response to worker needed.
             }
-            WorkerToServerMessage::UpdateJobStatus => {
-                // TODO!
+            WorkerToServerMessage::UpdateJobStatus(job_info) => {
+                // Update job info
+                let job = self.ss.lock().unwrap().get_job_from_info(job_info);
+
+                // TODO...
+
                 Ok(())
             }
             // This will also trigger the first jobs offered to the worker
@@ -103,7 +107,12 @@ impl WorkerConnection {
                 let job = self.ss.lock().unwrap().get_job_from_info(job_info.clone());
                 match job {
                     Some(job) => {
-                        self.ss.lock().unwrap().move_accepted_job_to_running(job);
+                        self.ss.lock().unwrap().move_accepted_job_to_running(Arc::clone(&job))?;
+                        
+                        // Confirm job -> Worker will start execution
+                        let job_info = job.lock().unwrap().info.clone();
+                        let message = ServerToWorkerMessage::ConfirmJobOffer(job_info);
+                        self.stream.send(&message).await?;
 
                         let free_slots = {
                             let worker_lock = self.worker.lock().unwrap();
@@ -126,7 +135,7 @@ impl WorkerConnection {
                 let job = self.ss.lock().unwrap().get_job_from_info(job_info.clone());
                 match job {
                     Some(job) => {
-                        self.ss.lock().unwrap().move_rejected_job_to_pending(job);
+                        self.ss.lock().unwrap().move_rejected_job_to_pending(job)?;
 
                         // Let other workers know that the job is available again.
                         let new_jobs = self.ss.lock().unwrap().new_jobs();
@@ -149,17 +158,18 @@ impl WorkerConnection {
         }
     }
 
-    async fn offer_pending_job_if_any(&mut self) -> Result<(), MessageError> {
+    async fn offer_pending_job_if_any(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let offered_job = self
             .ss
             .lock()
             .unwrap()
-            .get_pending_job_and_make_offered(Arc::clone(&self.worker));
+            .get_pending_job_and_make_offered(Arc::clone(&self.worker))?;
         match offered_job {
             Some(job) => {
                 let job_info = job.lock().unwrap().info.clone();
                 let job_offer = ServerToWorkerMessage::OfferJob(job_info);
-                self.stream.send(&job_offer).await // job offered
+                self.stream.send(&job_offer).await?;
+                Ok(()) // job offered
             }
             None => Ok(()), // no job offered
         }

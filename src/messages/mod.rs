@@ -47,7 +47,7 @@ pub enum ServerToWorkerMessage {
 pub enum WorkerToServerMessage {
     UpdateHwInfo(HwInfo),
     UpdateLoadInfo(LoadInfo),
-    UpdateJobStatus,
+    UpdateJobStatus(JobInfo),
     AcceptParallelJobs(u32),
     AcceptJobOffer(JobInfo),
     RejectJobOffer(JobInfo),

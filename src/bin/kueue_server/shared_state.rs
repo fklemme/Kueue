@@ -29,8 +29,9 @@ pub struct Job {
 #[derive(Debug)]
 pub struct Worker {
     pub info: WorkerInfo,
-    pub offered_jobs: Vec<Arc<Mutex<Job>>>,
-    pub assigned_jobs: Vec<Arc<Mutex<Job>>>,
+    pub offered_jobs: JobList,
+    pub accepted_jobs: JobList,
+    pub rejected_jobs: Vec<Weak<Mutex<Job>>>,
     pub connected: bool,
 }
 
@@ -51,7 +52,7 @@ impl SharedState {
     }
 
     // Add newly submitted job to list of pending jobs.
-    pub fn add_new_job(&mut self, cmd: String, cwd: PathBuf) -> Arc<Mutex<Job>> {
+    pub fn add_new_job(&mut self, cmd: Vec<String>, cwd: PathBuf) -> Arc<Mutex<Job>> {
         // Add new job. We create a new JobInfo instance to make sure to
         // not adopt remote (non-unique) job ids or inconsistent states.
         let job = Arc::new(Mutex::new(Job {
@@ -67,7 +68,8 @@ impl SharedState {
         let worker = Arc::new(Mutex::new(Worker {
             info: WorkerInfo::new(name),
             offered_jobs: Vec::new(),
-            assigned_jobs: Vec::new(),
+            accepted_jobs: Vec::new(),
+            rejected_jobs: Vec::new(),
             connected: true,
         }));
         self.workers.push(Arc::downgrade(&worker));
@@ -122,18 +124,25 @@ impl SharedState {
     }
 
     // Update job status and assigns the job to the corresponding job list.
-    fn update_job_status(&mut self, job: Arc<Mutex<Job>>, new_status: JobStatus) {
+    fn update_job_status(
+        &mut self,
+        job: Arc<Mutex<Job>>,
+        new_status: JobStatus,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let old_status = job.lock().unwrap().info.status.clone();
 
         // Remove from old list
         let removed_job = {
-            let source_list = self.get_job_list(old_status);
+            let source_list = self.get_job_list(old_status.clone());
             let index = source_list.iter().position(|j| Arc::ptr_eq(j, &job));
             if let Some(index) = index {
                 source_list.remove(index)
             } else {
-                log::error!("Job not found in source list!");
-                return; // TODO: What to do?
+                return Err(format!(
+                    "Job not found in corresponding source list: {:?}",
+                    old_status
+                )
+                .into());
             }
         };
 
@@ -143,6 +152,8 @@ impl SharedState {
         // Move to new list
         let target_list = self.get_job_list(new_status);
         target_list.push(removed_job);
+
+        Ok(())
     }
 
     // Get job list based on the job's status.
@@ -159,10 +170,11 @@ impl SharedState {
     pub fn get_pending_job_and_make_offered(
         &mut self,
         worker: Arc<Mutex<Worker>>,
-    ) -> Option<Arc<Mutex<Job>>> {
+    ) -> Result<Option<Arc<Mutex<Job>>>, Box<dyn std::error::Error>> {
         if self.pending_jobs.is_empty() {
-            None // no pending jobs
+            Ok(None) // no pending jobs
         } else {
+            // TODO: Check worker's rejected list!
             let job = self.pending_jobs.remove(0);
             let mut worker_lock = worker.lock().unwrap();
             let mut job_lock = job.lock().unwrap();
@@ -179,18 +191,22 @@ impl SharedState {
                     worker_lock.offered_jobs.push(Arc::clone(&job));
                     worker_lock.info.current_jobs += 1;
                     drop(job_lock); // unlock job for move
-                    Some(job)
+                    Ok(Some(job))
                 }
-                _ => {
-                    log::error!("Expected status 'pending' for job: {:?}", job_lock.info);
-                    None // TODO: what to do here?
-                }
+                _ => Err(format!(
+                    "Expected status 'pending' for job in pending list: {:?}",
+                    job_lock.info
+                )
+                .into()),
             }
         }
     }
 
     // Moves job from offered to running/assigned lists and updates info.
-    pub fn move_accepted_job_to_running(&mut self, job: Arc<Mutex<Job>>) {
+    pub fn move_accepted_job_to_running(
+        &mut self,
+        job: Arc<Mutex<Job>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let (old_status, option_worker) = {
             let job_lock = job.lock().unwrap();
             (job_lock.info.status.clone(), job_lock.worker.clone())
@@ -203,7 +219,7 @@ impl SharedState {
                 started: Utc::now(),
                 on: to,
             };
-            self.update_job_status(Arc::clone(&job), new_status);
+            self.update_job_status(Arc::clone(&job), new_status)?;
 
             // Move to new list inside worker
             if let Some(weak_worker) = option_worker {
@@ -215,27 +231,62 @@ impl SharedState {
                         .position(|j| Arc::ptr_eq(j, &job));
                     if let Some(index) = index {
                         let job = worker_lock.offered_jobs.remove(index);
-                        worker_lock.assigned_jobs.push(job);
+                        worker_lock.accepted_jobs.push(job);
+                        Ok(())
                     } else {
-                        log::error!("Job not found in worker's offered list!");
-                        return; // TODO: what to do here?
+                        Err("Job not found in worker's offered list!".into())
                     }
                 } else {
-                    log::error!("Associated worker does not exists anymore!");
-                    return; // TODO: what to do here?
+                    Err("Associated worker does not exists anymore!".into())
                 }
             } else {
-                log::error!("Did not find associated worker!");
-                return; // TODO: what to do here?
+                Err("Did not find associated worker!".into())
             }
         } else {
-            log::error!("Expected job status to be offered, found: {:?}", old_status);
-            return; // TODO: what to do here?
+            Err(format!("Expected job status to be offered, found: {:?}", old_status).into())
         }
     }
 
     // Moves job from offered to pending list and updates info.
-    pub fn move_rejected_job_to_pending(&self, _job: Arc<Mutex<Job>>) {
-        // TODO!
+    pub fn move_rejected_job_to_pending(
+        &mut self,
+        job: Arc<Mutex<Job>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (old_status, option_worker) = {
+            let job_lock = job.lock().unwrap();
+            (job_lock.info.status.clone(), job_lock.worker.clone())
+        };
+
+        if let JobStatus::Offered { issued, to: _ } = old_status {
+            // Update job in shared state
+            let new_status = JobStatus::Pending { issued };
+            self.update_job_status(Arc::clone(&job), new_status)?;
+            // Remove associated worker
+            job.lock().unwrap().worker = None;
+
+            // Move to rejected list on old worker
+            if let Some(weak_worker) = option_worker {
+                if let Some(worker) = weak_worker.upgrade() {
+                    let mut worker_lock = worker.lock().unwrap();
+                    let index = worker_lock
+                        .offered_jobs
+                        .iter()
+                        .position(|j| Arc::ptr_eq(j, &job));
+                    if let Some(index) = index {
+                        let job = worker_lock.offered_jobs.remove(index);
+                        worker_lock.rejected_jobs.push(Arc::downgrade(&job));
+                        Ok(())
+                    } else {
+                        Err("Job not found in worker's offered list!".into())
+                    }
+                } else {
+                    Err("Associated worker does not exists anymore!".into())
+                }
+            } else {
+                Err("Did not find associated worker!".into())
+            }
+        } else {
+            Err(format!("Expected job status to be offered, found: {:?}", old_status).into())
+        }
     }
 }

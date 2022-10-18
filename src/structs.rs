@@ -6,13 +6,13 @@ use std::{path::PathBuf, sync::atomic::{AtomicU64, Ordering}};
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct JobInfo {
     pub id: u64,
-    pub cmd: String,
+    pub cmd: Vec<String>,
     pub cwd: PathBuf,
     pub status: JobStatus,
 }
 
 impl JobInfo {
-    pub fn new(cmd: String, cwd: PathBuf) -> Self {
+    pub fn new(cmd: Vec<String>, cwd: PathBuf) -> Self {
         static JOB_COUNTER: AtomicU64 = AtomicU64::new(0);
         JobInfo {
             id: JOB_COUNTER.fetch_add(1, Ordering::Relaxed),

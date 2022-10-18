@@ -1,8 +1,9 @@
 use crate::job::Job;
+use chrono::Utc;
 use kueue::{
     messages::stream::{MessageError, MessageStream},
     messages::{HelloMessage, ServerToWorkerMessage, WorkerToServerMessage},
-    structs::{HwInfo, LoadInfo},
+    structs::{HwInfo, JobStatus, LoadInfo},
 };
 use std::{
     cmp::{max, min},
@@ -19,9 +20,11 @@ pub struct Worker {
     name: String,
     stream: MessageStream,
     notify_update: Arc<Notify>,
+    notify_job_status: Arc<Notify>,
     system: System,
     offered_jobs: Vec<Job>,
     running_jobs: Vec<Job>,
+    finished_jobs: Vec<Job>,
     max_parallel_jobs: u32,
     connection_closed: bool,
 }
@@ -36,9 +39,11 @@ impl Worker {
             name,
             stream: MessageStream::new(stream),
             notify_update: Arc::new(Notify::new()),
+            notify_job_status: Arc::new(Notify::new()),
             system: System::new_all(),
             offered_jobs: Vec::new(),
             running_jobs: Vec::new(),
+            finished_jobs: Vec::new(),
             max_parallel_jobs: 0,
             connection_closed: false,
         })
@@ -97,6 +102,8 @@ impl Worker {
                 // Or, get active when notified
                 _ = self.notify_update.notified() => {
                     self.update_load_status().await?;
+                }
+                _ = self.notify_job_status.notified() => {
                     self.update_job_status().await?;
                 }
             }
@@ -135,9 +142,33 @@ impl Worker {
     }
 
     async fn update_job_status(&mut self) -> Result<(), MessageError> {
-        // TODO!
-        let job_update = WorkerToServerMessage::UpdateJobStatus;
-        self.stream.send(&job_update).await
+        // We check all running processes for exit codes
+        let mut index = 0;
+        while index < self.running_jobs.len() {
+            let option_status = self.running_jobs[index].exit_status.lock().unwrap().clone();
+            if let Some(status) = option_status {
+                // Job has finished. Remove from list.
+                let mut job = self.running_jobs.remove(index);
+
+                // Update info
+                job.info.status = JobStatus::Finished {
+                    finished: Utc::now(),
+                    return_code: status,
+                    on: self.name.clone(),
+                };
+
+                // Send update to server
+                let job_update = WorkerToServerMessage::UpdateJobStatus(job.info.clone());
+                self.stream.send(&job_update).await?;
+
+                // Put job into finsished list
+                self.finished_jobs.push(job);
+            } else {
+                // Job still running... Next!
+                index += 1;
+            }
+        }
+        Ok(())
     }
 
     async fn accept_jobs_based_on_hw(&mut self) -> Result<(), MessageError> {
@@ -168,16 +199,21 @@ impl Worker {
                     < self.max_parallel_jobs
                 {
                     // Accept job offer
-                    self.offered_jobs.push(Job::new(job_info.clone())); // remember
+                    self.offered_jobs.push(Job::new(
+                        job_info.clone(),
+                        Arc::clone(&self.notify_job_status),
+                    )); // remember
                     self.stream
                         .send(&WorkerToServerMessage::AcceptJobOffer(job_info))
-                        .await
+                        .await?;
                 } else {
                     // Reject job offer
                     self.stream
                         .send(&WorkerToServerMessage::RejectJobOffer(job_info))
-                        .await
+                        .await?;
                 }
+
+                Ok(())
             }
             ServerToWorkerMessage::ConfirmJobOffer(job_info) => {
                 let offered_job_index = self
@@ -191,11 +227,20 @@ impl Worker {
                         self.running_jobs.push(job);
 
                         // Run job as child process
-                        self.running_jobs.last_mut().unwrap().run();
+                        match self.running_jobs.last_mut().unwrap().run() {
+                            Ok(()) => Ok(()),
+                            Err(e) => {
+                                log::error!("Failed to run job: {}", e);
+                                let job = self.running_jobs.last().unwrap();
+                                let mut status_lock = job.exit_status.lock().unwrap();
+                                *status_lock = Some(-42); // failed
+                                drop(status_lock); // unlock
+                                self.update_job_status().await
+                            }
+                        }
 
                         // TODO: There is some checking we could do here. We do
                         // not want jobs to remain in offered_jobs indefinitly!
-                        Ok(())
                     }
                     None => {
                         log::error!(
