@@ -6,7 +6,8 @@ use kueue::{
     structs::{JobInfo, WorkerInfo},
 };
 use simple_logger::SimpleLogger;
-use std::{net::Ipv4Addr, str::FromStr};
+use std::{io::Write, net::Ipv4Addr, str::FromStr};
+use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use tokio::net::TcpStream;
 
 #[derive(Parser, Debug)]
@@ -117,23 +118,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn print_job_list(job_list: Vec<JobInfo>) {
-    // TODO: make nice and shiny
+    let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+    let mut color_spec = ColorSpec::new();
+
+    // Set color.
+    color_spec.set_fg(Some(Color::Green));
+    stdout.set_color(&color_spec).unwrap();
+
     if job_list.is_empty() {
-        println!("No jobs listed on server!");
+        writeln!(&mut stdout, "No jobs listed on server!").unwrap();
     } else {
         for job_info in job_list {
-            println!("{:?}", job_info);
+            writeln!(&mut stdout, "{:?}", job_info).unwrap();
         }
     }
+
+    // Reset color.
+    color_spec.set_fg(None);
+    stdout.set_color(&color_spec).unwrap();
 }
 
 fn print_worker_list(worker_list: Vec<WorkerInfo>) {
-    // TODO: make nice and shiny
+    let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+    let mut color_spec = ColorSpec::new();
+
+    // Set color.
+    color_spec.set_fg(Some(Color::Green));
+    stdout.set_color(&color_spec).unwrap();
+
     if worker_list.is_empty() {
-        println!("No workers registered on server!");
+        writeln!(&mut stdout, "No workers registered on server!").unwrap();
     } else {
         for worker_info in worker_list {
-            println!("{:?}", worker_info);
+            writeln!(&mut stdout, "{:?}", worker_info).unwrap();
         }
     }
+
+    // Reset color.
+    color_spec.set_fg(None);
+    stdout.set_color(&color_spec).unwrap();
 }
