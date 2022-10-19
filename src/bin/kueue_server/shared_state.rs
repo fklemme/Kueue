@@ -292,47 +292,53 @@ impl SharedState {
         }
     }
 
-        // Moves job from running to finished list and updates info.
-        pub fn move_running_job_to_finished(
-            &mut self,
-            job: Arc<Mutex<Job>>, job_status: JobStatus
-        ) -> Result<(), Box<dyn std::error::Error>> {
-            if let JobStatus::Finished { .. } = job_status {} else {
-                return Err(format!("Expected new job status to be finished, found: {:?}", job_status).into());
-            }
+    // Moves job from running to finished list and updates info.
+    pub fn move_running_job_to_finished(
+        &mut self,
+        job: Arc<Mutex<Job>>,
+        job_status: JobStatus,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let JobStatus::Finished { .. } = job_status {
+        } else {
+            return Err(format!(
+                "Expected new job status to be finished, found: {:?}",
+                job_status
+            )
+            .into());
+        }
 
-            let (old_status, option_worker) = {
-                let job_lock = job.lock().unwrap();
-                (job_lock.info.status.clone(), job_lock.worker.clone())
-            };
-    
-            if let JobStatus::Running { .. } = old_status {
-                // Update job in shared state
-                self.update_job_status(Arc::clone(&job), job_status)?;
+        let (old_status, option_worker) = {
+            let job_lock = job.lock().unwrap();
+            (job_lock.info.status.clone(), job_lock.worker.clone())
+        };
 
-                // Move to new list inside worker
-                if let Some(weak_worker) = option_worker {
-                    if let Some(worker) = weak_worker.upgrade() {
-                        let mut worker_lock = worker.lock().unwrap();
-                        let index = worker_lock
-                            .running_jobs
-                            .iter()
-                            .position(|j| Arc::ptr_eq(j, &job));
-                        if let Some(index) = index {
-                            let job = worker_lock.offered_jobs.remove(index);
-                            worker_lock.finished_jobs.push(job);
-                            Ok(())
-                        } else {
-                            Err("Job not found in worker's running list!".into())
-                        }
+        if let JobStatus::Running { .. } = old_status {
+            // Update job in shared state
+            self.update_job_status(Arc::clone(&job), job_status)?;
+
+            // Move to new list inside worker
+            if let Some(weak_worker) = option_worker {
+                if let Some(worker) = weak_worker.upgrade() {
+                    let mut worker_lock = worker.lock().unwrap();
+                    let index = worker_lock
+                        .running_jobs
+                        .iter()
+                        .position(|j| Arc::ptr_eq(j, &job));
+                    if let Some(index) = index {
+                        let job = worker_lock.offered_jobs.remove(index);
+                        worker_lock.finished_jobs.push(job);
+                        Ok(())
                     } else {
-                        Err("Associated worker does not exists anymore!".into())
+                        Err("Job not found in worker's running list!".into())
                     }
                 } else {
-                    Err("Did not find associated worker!".into())
+                    Err("Associated worker does not exists anymore!".into())
                 }
             } else {
-                Err(format!("Expected job status to be offered, found: {:?}", old_status).into())
+                Err("Did not find associated worker!".into())
             }
+        } else {
+            Err(format!("Expected job status to be offered, found: {:?}", old_status).into())
         }
+    }
 }

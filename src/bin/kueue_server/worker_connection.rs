@@ -1,5 +1,8 @@
 use crate::shared_state::{SharedState, Worker};
-use kueue::{messages::{stream::MessageStream, ServerToWorkerMessage, WorkerToServerMessage}, structs::JobStatus};
+use kueue::{
+    messages::{stream::MessageStream, ServerToWorkerMessage, WorkerToServerMessage},
+    structs::JobStatus,
+};
 use std::sync::{Arc, Mutex};
 
 pub struct WorkerConnection {
@@ -81,14 +84,19 @@ impl WorkerConnection {
             }
             WorkerToServerMessage::UpdateJobStatus(job_info) => {
                 // Update job info
+                // TODO FIXME: Will not find, because old status is different!
                 let job = self.ss.lock().unwrap().get_job_from_info(job_info.clone());
 
-                if let JobStatus::Finished { ..} = job_info.status {
-                if let Some(job) = job {
-                    self.ss.lock().unwrap().move_running_job_to_finished(job, job_info.status)?;
-                } else {
-                    log::error!("Updated job not found: {:?}", job_info);
-                }}
+                if let JobStatus::Finished { .. } = job_info.status {
+                    if let Some(job) = job {
+                        self.ss
+                            .lock()
+                            .unwrap()
+                            .move_running_job_to_finished(job, job_info.status)?;
+                    } else {
+                        log::error!("Updated job not found: {:?}", job_info);
+                    }
+                }
                 Ok(()) // continue
             }
             // This will also trigger the first jobs offered to the worker
@@ -109,8 +117,11 @@ impl WorkerConnection {
                 let job = self.ss.lock().unwrap().get_job_from_info(job_info.clone());
                 match job {
                     Some(job) => {
-                        self.ss.lock().unwrap().move_accepted_job_to_running(Arc::clone(&job))?;
-                        
+                        self.ss
+                            .lock()
+                            .unwrap()
+                            .move_accepted_job_to_running(Arc::clone(&job))?;
+
                         // Confirm job -> Worker will start execution
                         let job_info = job.lock().unwrap().info.clone();
                         let message = ServerToWorkerMessage::ConfirmJobOffer(job_info);
