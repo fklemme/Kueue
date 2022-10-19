@@ -1,7 +1,7 @@
 pub mod stream;
 
+use crate::structs::{HwInfo, JobInfo, LoadInfo, WorkerInfo};
 use serde::{Deserialize, Serialize};
-use crate::structs::{JobInfo, WorkerInfo, HwInfo, LoadInfo};
 
 // HelloMessage helps the server to distinguish between client and worker
 #[derive(Serialize, Deserialize, Debug)]

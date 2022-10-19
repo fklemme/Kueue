@@ -1,24 +1,39 @@
-use crate::shared_state::{SharedState, Worker};
+use crate::job_manager::{Manager, Worker};
+use chrono::Utc;
 use kueue::{
-    messages::{stream::MessageStream, ServerToWorkerMessage, WorkerToServerMessage},
+    messages::{
+        stream::{MessageError, MessageStream},
+        ServerToWorkerMessage, WorkerToServerMessage,
+    },
     structs::JobStatus,
 };
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashSet,
+    error::Error,
+    sync::{Arc, Mutex},
+};
 
 pub struct WorkerConnection {
+    id: u64,
+    name: String,
     stream: MessageStream,
-    ss: Arc<Mutex<SharedState>>,
+    ss: Arc<Mutex<Manager>>,
     worker: Arc<Mutex<Worker>>,
+    rejected_jobs: HashSet<u64>,
     connection_closed: bool,
 }
 
 impl WorkerConnection {
-    pub fn new(name: String, stream: MessageStream, ss: Arc<Mutex<SharedState>>) -> Self {
-        let worker = ss.lock().unwrap().register_worker(name);
+    pub fn new(name: String, stream: MessageStream, ss: Arc<Mutex<Manager>>) -> Self {
+        let worker = ss.lock().unwrap().add_new_worker(name.clone());
+        let id = worker.lock().unwrap().id;
         WorkerConnection {
+            id,
+            name,
             stream,
             ss,
             worker,
+            rejected_jobs: HashSet::new(),
             connection_closed: false,
         }
     }
@@ -48,13 +63,10 @@ impl WorkerConnection {
                 }
                 // Or, get active when notified
                 _ = new_jobs.notified() => {
-                    let free_slots = {
-                        let worker_lock = self.worker.lock().unwrap();
-                        worker_lock.info.current_jobs < worker_lock.info.max_parallel_jobs
-                    };
+                    let free_slots = self.worker.lock().unwrap().info.free_slots();
 
                     if free_slots {
-                        if let Err(e) = self.offer_pending_job_if_any().await {
+                        if let Err(e) = self.offer_pending_job().await {
                             log::error!("Failed to offer new job: {}", e);
                             self.connection_closed = true; // end worker session
                         }
@@ -64,104 +76,153 @@ impl WorkerConnection {
         }
 
         // Before we leave, update shared worker
-        self.worker.lock().unwrap().connected = false;
+        // TODO: Was this needed anywhere?
+        //self.worker.lock().unwrap().connected = false;
     }
 
     async fn handle_message(
         &mut self,
         message: WorkerToServerMessage,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Box<dyn Error>> {
         match message {
             WorkerToServerMessage::UpdateHwInfo(hw_info) => {
-                // Update information in shared worker object
+                // Update information in shared worker object.
                 self.worker.lock().unwrap().info.hw = hw_info;
                 Ok(()) // No response to worker needed.
             }
             WorkerToServerMessage::UpdateLoadInfo(load_info) => {
-                // Update information in shared worker object
+                // Update information in shared worker object.
                 self.worker.lock().unwrap().info.load = load_info;
                 Ok(()) // No response to worker needed.
             }
             WorkerToServerMessage::UpdateJobStatus(job_info) => {
-                // Update job info
-                // TODO FIXME: Will not find, because old status is different!
-                let job = self.ss.lock().unwrap().get_job_from_info(job_info.clone());
+                // Update job info with whatever the worker sends us.
+                if let Some(job) = self.ss.lock().unwrap().get_job(job_info.id) {
+                    let mut job_lock = job.lock().unwrap();
 
-                if let JobStatus::Finished { .. } = job_info.status {
-                    if let Some(job) = job {
-                        self.ss
-                            .lock()
-                            .unwrap()
-                            .move_running_job_to_finished(job, job_info.status)?;
-                    } else {
-                        log::error!("Updated job not found: {:?}", job_info);
+                    // Just a small check: See if job is associated with worker.
+                    match job_lock.worker_id {
+                        Some(id) if id == self.id => {} // all good.
+                        _ => {
+                            return Err(format!(
+                                "Job not associated with worker {}: {:?}",
+                                self.name, job_lock.info
+                            )
+                            .into());
+                        }
                     }
+
+                    // Update status.
+                    let old_status = job_lock.info.status.clone();
+                    job_lock.info.status = job_info.status;
+
+                    // Update worker if the job has finished.
+                    if old_status.is_running() && job_lock.info.status.is_finished() {
+                        drop(job_lock); // unlock job before locking worker
+                        self.worker.lock().unwrap().info.jobs_running -= 1;
+                    }
+                } else {
+                    // Unexpected but we can continue running.
+                    log::error!("Updated job not found: {:?}", job_info);
                 }
-                Ok(()) // continue
+                Ok(())
             }
             // This will also trigger the first jobs offered to the worker
             WorkerToServerMessage::AcceptParallelJobs(num) => {
                 let free_slots = {
-                    let mut worker = self.worker.lock().unwrap();
-                    worker.info.max_parallel_jobs = num;
-                    worker.info.current_jobs < num
+                    let mut worker_lock = self.worker.lock().unwrap();
+                    worker_lock.info.max_parallel_jobs = num;
+                    worker_lock.info.free_slots()
                 };
 
                 if free_slots {
-                    self.offer_pending_job_if_any().await
-                } else {
-                    Ok(()) // Worker busy. Nothing to do.
+                    self.offer_pending_job().await?;
                 }
+                Ok(())
             }
             WorkerToServerMessage::AcceptJobOffer(job_info) => {
-                let job = self.ss.lock().unwrap().get_job_from_info(job_info.clone());
-                match job {
-                    Some(job) => {
-                        self.ss
-                            .lock()
-                            .unwrap()
-                            .move_accepted_job_to_running(Arc::clone(&job))?;
-
-                        // Confirm job -> Worker will start execution
-                        let job_info = job.lock().unwrap().info.clone();
-                        let message = ServerToWorkerMessage::ConfirmJobOffer(job_info);
-                        self.stream.send(&message).await?;
-
-                        let free_slots = {
-                            let worker_lock = self.worker.lock().unwrap();
-                            worker_lock.info.current_jobs < worker_lock.info.max_parallel_jobs
-                        };
-
-                        if free_slots {
-                            self.offer_pending_job_if_any().await
-                        } else {
-                            Ok(()) // Worker busy. Nothing to do.
+                let option_job = self.ss.lock().unwrap().get_job(job_info.id);
+                if let Some(job) = option_job {
+                    let job_info = {
+                        // Perform small check and update job status.
+                        let mut job_lock = job.lock().unwrap();
+                        match &job_lock.info.status {
+                            JobStatus::Offered { issued, to } if to == &self.name => {
+                                job_lock.info.status = JobStatus::Running {
+                                    issued: issued.clone(),
+                                    started: Utc::now(),
+                                    on: self.name.clone(),
+                                };
+                            }
+                            _ => {
+                                return Err(format!(
+                                    "Accepted job was not offered to worker {}: {:?}",
+                                    self.name, job_lock.info.status
+                                )
+                                .into());
+                            }
                         }
+                        job_lock.info.clone()
+                    };
+
+                    // Update worker.
+                    let free_slots = {
+                        let mut worker_lock = self.worker.lock().unwrap();
+                        worker_lock.info.jobs_reserved -= 1;
+                        worker_lock.info.jobs_running += 1;
+                        worker_lock.info.free_slots()
+                    };
+
+                    // Confirm job -> Worker will start execution
+                    let message = ServerToWorkerMessage::ConfirmJobOffer(job_info);
+                    self.stream.send(&message).await?;
+
+                    if free_slots {
+                        self.offer_pending_job().await?;
                     }
-                    None => {
-                        log::error!("Accepted job not found: {:?}", job_info);
-                        Ok(()) // Error but we can still continue.
-                    }
+                } else {
+                    return Err(format!("Accepted job not found: {:?}", job_info).into());
                 }
+                Ok(())
             }
             WorkerToServerMessage::RejectJobOffer(job_info) => {
-                let job = self.ss.lock().unwrap().get_job_from_info(job_info.clone());
-                match job {
-                    Some(job) => {
-                        self.ss.lock().unwrap().move_rejected_job_to_pending(job)?;
+                let option_job = self.ss.lock().unwrap().get_job(job_info.id);
+                if let Some(job) = option_job {
+                    // Perform small check and update job status.
+                    {
+                        let mut job_lock = job.lock().unwrap();
+                        match &job_lock.info.status {
+                            JobStatus::Offered { issued, to } if to == &self.name => {
+                                job_lock.info.status = JobStatus::Pending {
+                                    issued: issued.clone(),
+                                };
+                                // Remember reject and avoid fetching the same job again.
+                                self.rejected_jobs.insert(job_lock.info.id);
+                            }
+                            _ => {
+                                return Err(format!(
+                                    "Rejected job was not offered to worker {}: {:?}",
+                                    self.name, job_lock.info.status
+                                )
+                                .into());
+                            }
+                        }
+                    };
 
-                        // Let other workers know that the job is available again.
-                        let new_jobs = self.ss.lock().unwrap().new_jobs();
-                        new_jobs.notify_waiters();
+                    // Update worker.
+                    let free_slots = {
+                        let mut worker_lock = self.worker.lock().unwrap();
+                        worker_lock.info.jobs_reserved -= 1;
+                        worker_lock.info.free_slots()
+                    };
 
-                        // TODO: Should we offere more jobs right after reject?
-                        Ok(())
+                    if free_slots {
+                        self.offer_pending_job().await?;
                     }
-                    None => {
-                        log::error!("Rejected job not found: {:?}", job_info);
-                        Ok(()) // Error but we can still continue.
-                    }
+                } else {
+                    return Err(format!("Rejected job not found: {:?}", job_info).into());
                 }
+                Ok(())
             }
             WorkerToServerMessage::Bye => {
                 log::trace!("Bye worker!");
@@ -171,20 +232,48 @@ impl WorkerConnection {
         }
     }
 
-    async fn offer_pending_job_if_any(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let offered_job = self
+    async fn offer_pending_job(&mut self) -> Result<(), MessageError> {
+        let available_job = self
             .ss
             .lock()
             .unwrap()
-            .get_pending_job_and_make_offered(Arc::clone(&self.worker))?;
-        match offered_job {
-            Some(job) => {
-                let job_info = job.lock().unwrap().info.clone();
-                let job_offer = ServerToWorkerMessage::OfferJob(job_info);
-                self.stream.send(&job_offer).await?;
-                Ok(()) // job offered
-            }
-            None => Ok(()), // no job offered
+            .get_job_waiting_for_assignment(&self.rejected_jobs);
+
+        if let Some(job) = available_job {
+            let job_info = {
+                let mut job_lock = job.lock().unwrap();
+
+                // Update job status.
+                job_lock.info.status = if let JobStatus::Pending { issued } = job_lock.info.status {
+                    JobStatus::Offered {
+                        issued,
+                        to: self.name.clone(),
+                    }
+                } else {
+                    log::warn!(
+                        "Job waiting for assignment was not set to pending: {:?}",
+                        job_lock.info.status
+                    );
+                    JobStatus::Offered {
+                        issued: Utc::now(),
+                        to: self.name.clone(),
+                    }
+                };
+
+                // Set worker reference.
+                job_lock.worker_id = Some(self.id);
+
+                job_lock.info.clone()
+            };
+
+            // Worker has one more job reserved. Prevents over-offering.
+            self.worker.lock().unwrap().info.jobs_reserved += 1;
+
+            // Finally, send offer to worker.
+            let job_offer = ServerToWorkerMessage::OfferJob(job_info);
+            self.stream.send(&job_offer).await
+        } else {
+            Ok(()) // no job offered
         }
     }
 }

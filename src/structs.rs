@@ -1,6 +1,9 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, sync::atomic::{AtomicU64, Ordering}};
+use std::{
+    path::PathBuf,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 // Struct that are shared among crates and parts of messages.
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -18,17 +21,48 @@ impl JobInfo {
             id: JOB_COUNTER.fetch_add(1, Ordering::Relaxed),
             cmd,
             cwd,
-            status: JobStatus::Pending{issued: Utc::now()},
+            status: JobStatus::Pending { issued: Utc::now() },
         }
     }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum JobStatus {
-    Pending {issued: DateTime<Utc>},
-    Offered {issued: DateTime<Utc>, to:String},
-    Running {issued: DateTime<Utc>, started: DateTime<Utc>, on:String},
-    Finished{finished: DateTime<Utc>, return_code: i32, on:String}
+    Pending {
+        issued: DateTime<Utc>,
+    },
+    Offered {
+        issued: DateTime<Utc>,
+        to: String,
+    },
+    Running {
+        issued: DateTime<Utc>,
+        started: DateTime<Utc>,
+        on: String,
+    },
+    Finished {
+        finished: DateTime<Utc>,
+        return_code: i32,
+        on: String,
+    },
+}
+
+impl JobStatus {
+    pub fn is_pending(&self) -> bool {
+        matches!(self, Self::Pending { .. })
+    }
+
+    pub fn is_offered(&self) -> bool {
+        matches!(self, Self::Offered { .. })
+    }
+
+    pub fn is_running(&self) -> bool {
+        matches!(self, Self::Running { .. })
+    }
+
+    pub fn is_finished(&self) -> bool {
+        matches!(self, Self::Finished { .. })
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -36,7 +70,8 @@ pub struct WorkerInfo {
     pub name: String,
     pub hw: HwInfo,
     pub load: LoadInfo,
-    pub current_jobs: u32,
+    pub jobs_reserved: u32,
+    pub jobs_running: u32,
     pub max_parallel_jobs: u32,
 }
 
@@ -46,9 +81,15 @@ impl WorkerInfo {
             name,
             hw: HwInfo::default(),
             load: LoadInfo::default(),
-            current_jobs: 0,
+            jobs_reserved: 0,
+            jobs_running: 0,
             max_parallel_jobs: 0,
         }
+    }
+
+    pub fn free_slots(&self) -> bool {
+        let total = self.jobs_running + self.jobs_reserved;
+        total < self.max_parallel_jobs
     }
 }
 

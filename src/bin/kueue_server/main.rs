@@ -1,14 +1,14 @@
 mod client_connection;
-mod shared_state;
+mod job_manager;
 mod worker_connection;
 
 use client_connection::ClientConnection;
+use job_manager::Manager;
 use kueue::{
     constants::{DEFAULT_BIND_ADDR, DEFAULT_PORT},
     messages::stream::MessageStream,
     messages::{HelloMessage, ServerToClientMessage, ServerToWorkerMessage},
 };
-use shared_state::SharedState;
 use simple_logger::SimpleLogger;
 use std::sync::{Arc, Mutex};
 use tokio::net::{TcpListener, TcpStream};
@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind((DEFAULT_BIND_ADDR, DEFAULT_PORT)).await?;
 
     // Initialize shared state
-    let ss = Arc::new(Mutex::new(SharedState::new()));
+    let ss = Arc::new(Mutex::new(Manager::new()));
 
     loop {
         let (stream, addr) = listener.accept().await?;
@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-async fn handle_connection(stream: TcpStream, ss: Arc<Mutex<SharedState>>) {
+async fn handle_connection(stream: TcpStream, ss: Arc<Mutex<Manager>>) {
     // Read hello message to distinguish between client and worker
     let mut stream = MessageStream::new(stream);
     match stream.receive::<HelloMessage>().await {

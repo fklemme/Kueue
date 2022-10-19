@@ -10,7 +10,7 @@ use tokio::{process::Command, sync::Notify};
 pub struct Job {
     pub info: JobInfo,
     pub notify_job_status: Arc<Notify>,
-    pub exit_status: Arc<Mutex<JobExitStatus>>
+    pub exit_status: Arc<Mutex<JobExitStatus>>,
 }
 
 #[derive(Clone, Debug)]
@@ -24,7 +24,10 @@ impl Job {
         Job {
             info,
             notify_job_status,
-            exit_status: Arc::new(Mutex::new(JobExitStatus{finished: false, exit_code: -42}))
+            exit_status: Arc::new(Mutex::new(JobExitStatus {
+                finished: false,
+                exit_code: -42,
+            })),
         }
     }
 

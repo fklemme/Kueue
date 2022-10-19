@@ -99,7 +99,7 @@ impl Worker {
             ServerToWorkerMessage::WelcomeWorker => {
                 log::trace!("Established connection to server...");
                 Ok(()) // continue
-            } 
+            }
             other => Err(format!("Expected WelcomeWorker, received: {:?}", other).into()),
         }
     }
@@ -188,7 +188,9 @@ impl Worker {
             }
             ServerToWorkerMessage::OfferJob(job_info) => {
                 // TODO: Make some smart checks whether or not to accept the job offer
-                if ((self.running_jobs.len() + self.offered_jobs.len()) as u32) < self.max_parallel_jobs {
+                if ((self.running_jobs.len() + self.offered_jobs.len()) as u32)
+                    < self.max_parallel_jobs
+                {
                     // Accept job offer
                     self.offered_jobs.push(Job::new(
                         job_info.clone(),
