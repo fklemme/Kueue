@@ -26,7 +26,6 @@ pub struct Worker {
     running_jobs: Vec<Job>,
     finished_jobs: Vec<Job>,
     max_parallel_jobs: u32,
-    connection_closed: bool,
 }
 
 impl Worker {
@@ -45,19 +44,20 @@ impl Worker {
             running_jobs: Vec::new(),
             finished_jobs: Vec::new(),
             max_parallel_jobs: 0,
-            connection_closed: false,
         })
     }
 
     pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Do hello/welcome handshake.
         self.connect_to_server().await?;
 
-        // TODO: Implement encryption & authentification
+        // TODO: Implement encryption & authentification.
 
-        // Send hardware information to server (once)
+        // Send hardware information to server.
+        // We do it only once since it should not change.
         self.update_hw_status().await?;
 
-        // Notify worker regularly to send other updates
+        // Notify worker regularly to send updates.
         let notify_update = Arc::clone(&self.notify_update);
         tokio::spawn(async move {
             loop {
@@ -70,22 +70,11 @@ impl Worker {
         self.accept_jobs_based_on_hw().await?;
 
         // Main loop
-        while !self.connection_closed {
+        loop {
             tokio::select! {
                 // Read and handle incoming messages
                 message = self.stream.receive::<ServerToWorkerMessage>() => {
-                    match message {
-                        Ok(message) => {
-                            if let Err(e) = self.handle_message(message).await {
-                                log::error!("Failed to handle message: {}", e);
-                                self.connection_closed = true; // end worker session
-                            }
-                        }
-                        Err(e) => {
-                            log::error!("{}", e);
-                            self.connection_closed = true; // end worker session
-                        }
-                    }
+                    self.handle_message(message?).await?;
                 }
                 // Or, get active when notified
                 _ = self.notify_update.notified() => {
@@ -96,7 +85,6 @@ impl Worker {
                 }
             }
         }
-        Ok(()) // end of worker run
     }
 
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -150,15 +138,15 @@ impl Worker {
         // We check all running processes for exit codes
         let mut index = 0;
         while index < self.running_jobs.len() {
-            let option_status = self.running_jobs[index].exit_status.lock().unwrap().clone();
-            if let Some(status) = option_status {
+            let exit_status = self.running_jobs[index].exit_status.lock().unwrap().clone();
+            if exit_status.finished {
                 // Job has finished. Remove from list.
                 let mut job = self.running_jobs.remove(index);
 
                 // Update info
                 job.info.status = JobStatus::Finished {
                     finished: Utc::now(),
-                    return_code: status,
+                    return_code: exit_status.exit_code,
                     on: self.name.clone(),
                 };
 
@@ -195,14 +183,12 @@ impl Worker {
     async fn handle_message(&mut self, message: ServerToWorkerMessage) -> Result<(), MessageError> {
         match message {
             ServerToWorkerMessage::WelcomeWorker => {
-                log::warn!("Received duplicate welcome message");
+                log::warn!("Received duplicate welcome message!");
                 Ok(())
             }
             ServerToWorkerMessage::OfferJob(job_info) => {
                 // TODO: Make some smart checks whether or not to accept the job offer
-                if ((self.running_jobs.len() + self.offered_jobs.len()) as u32)
-                    < self.max_parallel_jobs
-                {
+                if ((self.running_jobs.len() + self.offered_jobs.len()) as u32) < self.max_parallel_jobs {
                     // Accept job offer
                     self.offered_jobs.push(Job::new(
                         job_info.clone(),
@@ -210,15 +196,13 @@ impl Worker {
                     )); // remember
                     self.stream
                         .send(&WorkerToServerMessage::AcceptJobOffer(job_info))
-                        .await?;
+                        .await
                 } else {
                     // Reject job offer
                     self.stream
                         .send(&WorkerToServerMessage::RejectJobOffer(job_info))
-                        .await?;
+                        .await
                 }
-
-                Ok(())
             }
             ServerToWorkerMessage::ConfirmJobOffer(job_info) => {
                 let offered_job_index = self
@@ -236,10 +220,11 @@ impl Worker {
                             Ok(()) => Ok(()),
                             Err(e) => {
                                 log::error!("Failed to run job: {}", e);
-                                let job = self.running_jobs.last().unwrap();
-                                let mut status_lock = job.exit_status.lock().unwrap();
-                                *status_lock = Some(-42); // failed
-                                drop(status_lock); // unlock
+                                let job = self.running_jobs.last_mut().unwrap();
+                                let mut job_lock = job.exit_status.lock().unwrap();
+                                job_lock.finished = true;
+                                job_lock.exit_code = -43;
+                                drop(job_lock); // unlock
                                 self.update_job_status().await
                             }
                         }

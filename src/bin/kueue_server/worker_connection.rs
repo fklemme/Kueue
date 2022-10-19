@@ -1,5 +1,5 @@
 use crate::shared_state::{SharedState, Worker};
-use kueue::messages::{stream::MessageStream, ServerToWorkerMessage, WorkerToServerMessage};
+use kueue::{messages::{stream::MessageStream, ServerToWorkerMessage, WorkerToServerMessage}, structs::JobStatus};
 use std::sync::{Arc, Mutex};
 
 pub struct WorkerConnection {
@@ -72,22 +72,24 @@ impl WorkerConnection {
             WorkerToServerMessage::UpdateHwInfo(hw_info) => {
                 // Update information in shared worker object
                 self.worker.lock().unwrap().info.hw = hw_info;
-
                 Ok(()) // No response to worker needed.
             }
             WorkerToServerMessage::UpdateLoadInfo(load_info) => {
                 // Update information in shared worker object
                 self.worker.lock().unwrap().info.load = load_info;
-
                 Ok(()) // No response to worker needed.
             }
             WorkerToServerMessage::UpdateJobStatus(job_info) => {
                 // Update job info
-                let job = self.ss.lock().unwrap().get_job_from_info(job_info);
+                let job = self.ss.lock().unwrap().get_job_from_info(job_info.clone());
 
-                // TODO...
-
-                Ok(())
+                if let JobStatus::Finished { ..} = job_info.status {
+                if let Some(job) = job {
+                    self.ss.lock().unwrap().move_running_job_to_finished(job, job_info.status)?;
+                } else {
+                    log::error!("Updated job not found: {:?}", job_info);
+                }}
+                Ok(()) // continue
             }
             // This will also trigger the first jobs offered to the worker
             WorkerToServerMessage::AcceptParallelJobs(num) => {

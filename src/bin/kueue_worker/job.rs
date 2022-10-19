@@ -10,7 +10,13 @@ use tokio::{process::Command, sync::Notify};
 pub struct Job {
     pub info: JobInfo,
     pub notify_job_status: Arc<Notify>,
-    pub exit_status: Arc<Mutex<Option<i32>>>,
+    pub exit_status: Arc<Mutex<JobExitStatus>>
+}
+
+#[derive(Clone, Debug)]
+pub struct JobExitStatus {
+    pub finished: bool,
+    pub exit_code: i32,
 }
 
 impl Job {
@@ -18,7 +24,7 @@ impl Job {
         Job {
             info,
             notify_job_status,
-            exit_status: Arc::new(Mutex::new(None)),
+            exit_status: Arc::new(Mutex::new(JobExitStatus{finished: false, exit_code: -42}))
         }
     }
 
@@ -56,12 +62,14 @@ impl Job {
             match result {
                 Ok(exit_status) => {
                     let mut status_lock = status.lock().unwrap();
-                    *status_lock = Some(exit_status.code().unwrap_or(-42));
+                    status_lock.finished = true;
+                    status_lock.exit_code = exit_status.code().unwrap_or(-44);
                 }
                 Err(e) => {
                     log::error!("Error while waiting for child process: {}", e);
                     let mut status_lock = status.lock().unwrap();
-                    *status_lock = Some(-42);
+                    status_lock.finished = true;
+                    status_lock.exit_code = -45;
                 }
             }
 
