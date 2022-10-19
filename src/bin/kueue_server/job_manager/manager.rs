@@ -115,7 +115,7 @@ mod tests {
         let mut manager = Manager::new();
         let cmd = vec!["ls".to_string(), "-la".to_string()];
         let cwd: PathBuf = "/tmp".into();
-        let _job = manager.add_new_job(cmd, cwd);
+        manager.add_new_job(cmd, cwd);
         assert_eq!(manager.get_all_job_infos().len(), 1);
     }
 
@@ -124,21 +124,22 @@ mod tests {
         let mut manager = Manager::new();
         let cmd = vec!["ls".to_string(), "-la".to_string()];
         let cwd: PathBuf = "/tmp".into();
-        let _job = manager.add_new_job(cmd, cwd);
+        let job = manager.add_new_job(cmd, cwd);
 
-        // We don't want job #0.
+        // Put job on exclude list.
         let mut exclude = HashSet::new();
-        exclude.insert(0 as u64);
-        // We should not get it.
+        exclude.insert(job.lock().unwrap().info.id);
+
+        // Now, we should not get it.
         let job = manager.get_job_waiting_for_assignment(&exclude);
         assert!(job.is_none());
 
-        // We want any job. One is waiting to be assigned.
+        // Now we want any job. One is waiting to be assigned.
         exclude.clear();
         let job = manager.get_job_waiting_for_assignment(&exclude);
         assert!(job.is_some());
 
-        // We want any job, again. None left.
+        // We want any job, again. But none are left.
         let job = manager.get_job_waiting_for_assignment(&exclude);
         assert!(job.is_none());
     }
