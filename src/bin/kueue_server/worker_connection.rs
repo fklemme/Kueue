@@ -97,29 +97,42 @@ impl WorkerConnection {
             }
             WorkerToServerMessage::UpdateJobStatus(job_info) => {
                 // Update job info with whatever the worker sends us.
-                if let Some(job) = self.ss.lock().unwrap().get_job(job_info.id) {
-                    let mut job_lock = job.lock().unwrap();
+                let option_job = self.ss.lock().unwrap().get_job(job_info.id);
+                if let Some(job) = option_job {
+                    let (old_status, new_status_finished) = {
+                        let mut job_lock = job.lock().unwrap();
 
-                    // Just a small check: See if job is associated with worker.
-                    match job_lock.worker_id {
-                        Some(id) if id == self.id => {} // all good.
-                        _ => {
-                            return Err(format!(
-                                "Job not associated with worker {}: {:?}",
-                                self.name, job_lock.info
-                            )
-                            .into());
+                        // Just a small check: See if job is associated with worker.
+                        match job_lock.worker_id {
+                            Some(id) if id == self.id => {} // all good.
+                            _ => {
+                                return Err(format!(
+                                    "Job not associated with worker {}: {:?}",
+                                    self.name, job_lock.info
+                                )
+                                .into());
+                            }
                         }
-                    }
 
-                    // Update status.
-                    let old_status = job_lock.info.status.clone();
-                    job_lock.info.status = job_info.status;
+                        // Update status.
+                        let old_status = job_lock.info.status.clone();
+                        job_lock.info.status = job_info.status;
+
+                        (old_status, job_lock.info.status.is_finished())
+                    };
 
                     // Update worker if the job has finished.
-                    if old_status.is_running() && job_lock.info.status.is_finished() {
-                        drop(job_lock); // unlock job before locking worker
-                        self.worker.lock().unwrap().info.jobs_running -= 1;
+                    if old_status.is_running() && new_status_finished {
+                        let free_slots = {
+                            let mut worker_lock = self.worker.lock().unwrap();
+                            worker_lock.info.jobs_running -= 1;
+                            worker_lock.info.free_slots()
+                        };
+
+                        // Offer further jobs.
+                        if free_slots {
+                            self.offer_pending_job().await?;
+                        }
                     }
                 } else {
                     // Unexpected but we can continue running.
@@ -135,6 +148,7 @@ impl WorkerConnection {
                     worker_lock.info.free_slots()
                 };
 
+                // Start offering jobs.
                 if free_slots {
                     self.offer_pending_job().await?;
                 }
@@ -177,6 +191,7 @@ impl WorkerConnection {
                     let message = ServerToWorkerMessage::ConfirmJobOffer(job_info);
                     self.stream.send(&message).await?;
 
+                    // Offer further jobs.
                     if free_slots {
                         self.offer_pending_job().await?;
                     }
@@ -216,6 +231,7 @@ impl WorkerConnection {
                         worker_lock.info.free_slots()
                     };
 
+                    // Offer further jobs.
                     if free_slots {
                         self.offer_pending_job().await?;
                     }
