@@ -50,19 +50,7 @@ impl Worker {
     }
 
     pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Send hello from worker
-        let hello = HelloMessage::HelloFromWorker {
-            name: self.name.clone(),
-        };
-        self.stream.send(&hello).await?;
-
-        // Await welcoming response from server
-        match self.stream.receive::<ServerToWorkerMessage>().await? {
-            ServerToWorkerMessage::WelcomeWorker => {
-                log::trace!("Established connection to server...")
-            } // continue
-            other => return Err(format!("Expected WelcomeWorker, received: {:?}", other).into()),
-        }
+        self.connect_to_server().await?;
 
         // TODO: Implement encryption & authentification
 
@@ -109,6 +97,23 @@ impl Worker {
             }
         }
         Ok(()) // end of worker run
+    }
+
+    async fn connect_to_server(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Send hello from worker
+        let hello = HelloMessage::HelloFromWorker {
+            name: self.name.clone(),
+        };
+        self.stream.send(&hello).await?;
+
+        // Await welcoming response from server
+        match self.stream.receive::<ServerToWorkerMessage>().await? {
+            ServerToWorkerMessage::WelcomeWorker => {
+                log::trace!("Established connection to server...");
+                Ok(()) // continue
+            } 
+            other => Err(format!("Expected WelcomeWorker, received: {:?}", other).into()),
+        }
     }
 
     async fn update_hw_status(&mut self) -> Result<(), MessageError> {
