@@ -135,9 +135,8 @@ fn print_job_list(job_list: Vec<JobInfo>) {
 fn print_worker_list(worker_list: Vec<WorkerInfo>) {
     let mut stdout = StandardStream::stdout(ColorChoice::Auto);
 
-    // Set color
-    // color_spec.set_fg(Some(Color::Green));
-    // stdout.set_color(&color_spec).unwrap();
+    // TODO: Check out terminon as an easier(?) alternative
+    //       https://crates.io/crates/termion
 
     if worker_list.is_empty() {
         writeln!(&mut stdout, "No workers registered on server!").unwrap();
