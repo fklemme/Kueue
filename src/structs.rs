@@ -70,8 +70,8 @@ pub struct WorkerInfo {
     pub name: String,
     pub hw: HwInfo,
     pub load: LoadInfo,
-    pub jobs_reserved: u32,
     pub jobs_running: u32,
+    pub jobs_reserved: u32,
     pub max_parallel_jobs: u32,
 }
 
@@ -81,8 +81,8 @@ impl WorkerInfo {
             name,
             hw: HwInfo::default(),
             load: LoadInfo::default(),
-            jobs_reserved: 0,
             jobs_running: 0,
+            jobs_reserved: 0,
             max_parallel_jobs: 0,
         }
     }
@@ -90,6 +90,10 @@ impl WorkerInfo {
     pub fn free_slots(&self) -> bool {
         let total = self.jobs_running + self.jobs_reserved;
         total < self.max_parallel_jobs
+    }
+
+    pub fn jobs_total(&self) -> u32 {
+        self.jobs_running + self.jobs_reserved
     }
 }
 
