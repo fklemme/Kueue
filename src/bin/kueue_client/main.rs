@@ -4,7 +4,7 @@ use kueue::{
     constants::DEFAULT_PORT,
     messages::stream::MessageStream,
     messages::{ClientToServerMessage, HelloMessage, ServerToClientMessage},
-    structs::{JobInfo, WorkerInfo},
+    structs::{JobInfo, JobStatus, WorkerInfo},
 };
 use simple_logger::SimpleLogger;
 use std::{net::Ipv4Addr, str::FromStr};
@@ -38,7 +38,10 @@ enum Command {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logger
-    SimpleLogger::new().init().unwrap();
+    SimpleLogger::new()
+        .with_level(log::LevelFilter::Info)
+        .init()
+        .unwrap();
 
     // Read command line arguments
     let args = Args::parse();
@@ -123,8 +126,93 @@ fn print_job_list(job_list: Vec<JobInfo>) {
     if job_list.is_empty() {
         println!("No jobs listed on server!");
     } else {
+        let default_col_space: usize = 20;
+        let space_other_cols: usize = 17;
+
+        // Try to detect terminal size
+        let term_size = terminal_size();
+        let (cwd_col, cmd_col, status_col) = if let Some(size) = term_size {
+            let term_width = size.0 .0 as usize;
+            if term_width > space_other_cols + 3 * 15 {
+                let available_space = term_width - space_other_cols;
+                let cwd_col = available_space / 4;
+                let status_col = (available_space - cwd_col) / 2;
+                let cmd_col = available_space - cwd_col - status_col;
+                (cwd_col, cmd_col, status_col)
+            } else {
+                (default_col_space, default_col_space, default_col_space)
+            }
+        } else {
+            (default_col_space, default_col_space, default_col_space)
+        };
+
+        // Print header
+        println!(
+            "| {: ^4} | {: <cwd_col$} | {: <cmd_col$} | {: <status_col$} |",
+            style("id").bold().underlined(),
+            style("working dir").bold().underlined(),
+            style("command").bold().underlined(),
+            style("status").bold().underlined(),
+        );
+
         for job_info in job_list {
-            println!("{:?}", job_info);
+            // working dir
+            let working_dir = job_info.cwd.to_string_lossy().to_string();
+            let working_dir = if working_dir.len() <= cwd_col {
+                working_dir
+            } else {
+                "...".to_string() + &working_dir[(working_dir.len() - (cwd_col - 3))..]
+            };
+
+            // command
+            let command = job_info.cmd.join(" ");
+            let command = if command.len() <= cmd_col {
+                command
+            } else {
+                command[..(cmd_col - 3)].to_string() + "..."
+            };
+
+            // status
+            let resize_status = |status: String| {
+                if status.len() <= status_col {
+                    status
+                } else {
+                    status[..(status_col - 3)].to_string() + "..."
+                }
+            };
+            let status = match job_info.status {
+                JobStatus::Pending { issued } => {
+                    style(resize_status(format!("pending - issued {}", issued)))
+                }
+                JobStatus::Offered { issued: _, to } => {
+                    style(resize_status(format!("offered to {}", to)))
+                }
+                JobStatus::Running {
+                    issued: _,
+                    started,
+                    on,
+                } => style(resize_status(format!(
+                    "Running on {}, started {}",
+                    on, started
+                ))),
+                JobStatus::Finished {
+                    finished: _,
+                    return_code,
+                    on: _,
+                } => {
+                    if return_code == 0 {
+                        style(resize_status("finished".to_string())).green()
+                    } else {
+                        style(resize_status(format!("failed, code: {return_code}",))).red()
+                    }
+                }
+            };
+
+            // Print line
+            println!(
+                "| {: >4} | {: <cwd_col$} | {: <cmd_col$} | {: <status_col$} |",
+                job_info.id, working_dir, command, status
+            );
         }
     }
 }
@@ -141,9 +229,11 @@ fn print_worker_list(worker_list: Vec<WorkerInfo>) {
         let term_size = terminal_size();
         let (worker_col, os_col) = if let Some(size) = term_size {
             let term_width = size.0 .0 as usize;
-            if term_width > space_other_cols {
-                let col_space = (term_width - space_other_cols) as usize / 2;
-                (col_space, col_space)
+            if term_width > space_other_cols + 2 * 16 {
+                let available_space = term_width - space_other_cols;
+                let worker_col = available_space / 2;
+                let os_col = available_space - worker_col;
+                (worker_col, os_col)
             } else {
                 (default_col_space, default_col_space)
             }
@@ -164,17 +254,17 @@ fn print_worker_list(worker_list: Vec<WorkerInfo>) {
 
         for info in worker_list {
             // worker name
-            let worker_name = if info.name.len() <= 25 {
+            let worker_name = if info.name.len() <= worker_col {
                 info.name.clone()
             } else {
-                info.name[..22].to_string() + "..."
+                info.name[..(worker_col - 3)].to_string() + "..."
             };
 
             // operating system
-            let operation_system = if info.hw.distribution.len() <= 25 {
+            let operation_system = if info.hw.distribution.len() <= os_col {
                 info.hw.distribution.clone()
             } else {
-                info.hw.distribution[..22].to_string() + "..."
+                info.hw.distribution[..(os_col - 3)].to_string() + "..."
             };
 
             // cpu cores
