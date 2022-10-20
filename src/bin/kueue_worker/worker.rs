@@ -138,18 +138,21 @@ impl Worker {
         // We check all running processes for exit codes
         let mut index = 0;
         while index < self.running_jobs.len() {
-            let exit_status = self.running_jobs[index].exit_status.lock().unwrap().clone();
-            if exit_status.finished {
+            let finished = self.running_jobs[index].result.lock().unwrap().finished;
+            if finished {
                 // Job has finished. Remove from list.
                 let mut job = self.running_jobs.remove(index);
 
-                // Update info
-                job.info.status = JobStatus::Finished {
-                    finished: Utc::now(),
-                    return_code: exit_status.exit_code,
-                    on: self.name.clone(),
-                    run_time_seconds: exit_status.run_time.num_seconds() as u64,
-                };
+                {
+                    // Update info
+                    let result_lock = job.result.lock().unwrap();
+                    job.info.status = JobStatus::Finished {
+                        finished: Utc::now(),
+                        return_code: result_lock.exit_code,
+                        on: self.name.clone(),
+                        run_time_seconds: result_lock.run_time.num_seconds() as u64,
+                    };
+                }
 
                 // Send update to server
                 let job_update = WorkerToServerMessage::UpdateJobStatus(job.info.clone());
@@ -224,10 +227,10 @@ impl Worker {
                             Err(e) => {
                                 log::error!("Failed to run job: {}", e);
                                 let job = self.running_jobs.last_mut().unwrap();
-                                let mut job_lock = job.exit_status.lock().unwrap();
-                                job_lock.finished = true;
-                                job_lock.exit_code = -43;
-                                drop(job_lock); // unlock
+                                let mut result_lock = job.result.lock().unwrap();
+                                result_lock.finished = true;
+                                result_lock.exit_code = -43;
+                                drop(result_lock); // unlock
                                 self.update_job_status().await
                             }
                         }

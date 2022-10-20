@@ -7,15 +7,15 @@ use std::sync::{Arc, Mutex};
 
 pub struct ClientConnection {
     stream: MessageStream,
-    ss: Arc<Mutex<Manager>>,
+    manager: Arc<Mutex<Manager>>,
     connection_closed: bool,
 }
 
 impl ClientConnection {
-    pub fn new(stream: MessageStream, ss: Arc<Mutex<Manager>>) -> Self {
+    pub fn new(stream: MessageStream, manager: Arc<Mutex<Manager>>) -> Self {
         ClientConnection {
             stream,
-            ss,
+            manager,
             connection_closed: false,
         }
     }
@@ -46,7 +46,7 @@ impl ClientConnection {
                 // Add new job. We create a new JobInfo instance to make sure to
                 // not adopt remote (non-unique) job ids or inconsistent states.
                 let job = self
-                    .ss
+                    .manager
                     .lock()
                     .unwrap()
                     .add_new_job(job_info.cmd, job_info.cwd);
@@ -58,14 +58,14 @@ impl ClientConnection {
                     .await?;
 
                 // Notify workers
-                let new_jobs = self.ss.lock().unwrap().new_jobs();
+                let new_jobs = self.manager.lock().unwrap().new_jobs();
                 new_jobs.notify_waiters();
 
                 Ok(())
             }
             ClientToServerMessage::ListJobs => {
                 // Get job list
-                let job_list = self.ss.lock().unwrap().get_all_job_infos();
+                let job_list = self.manager.lock().unwrap().get_all_job_infos();
 
                 // Send response to client
                 self.stream
@@ -74,7 +74,7 @@ impl ClientConnection {
             }
             ClientToServerMessage::ListWorkers => {
                 // Get worker list
-                let worker_list = self.ss.lock().unwrap().get_all_worker_infos();
+                let worker_list = self.manager.lock().unwrap().get_all_worker_infos();
 
                 // Send response to client
                 self.stream

@@ -1,7 +1,8 @@
 use crate::job_manager::{Job, Worker};
-use kueue::structs::{JobInfo, WorkerInfo};
+use chrono::{Duration, Utc};
+use kueue::structs::{JobInfo, JobStatus, WorkerInfo};
 use std::{
-    collections::{BTreeSet, BTreeMap},
+    collections::{BTreeMap, BTreeSet},
     path::PathBuf,
     sync::{Arc, Mutex, Weak},
 };
@@ -95,6 +96,64 @@ impl Manager {
                 return Some(Arc::clone(self.jobs.get(&job_id).unwrap()));
             }
             None // no job fulfilling requirements
+        }
+    }
+
+    /// Inspect every job and "repair" if needed.
+    pub fn run_maintenance(&mut self) {
+        for (job_id, job) in &self.jobs {
+            let info = job.lock().unwrap().info.clone();
+            match &info.status {
+                JobStatus::Pending { .. } => {
+                    // Pending jobs should be available for workers
+                    let newly_inserted = self.jobs_waiting_for_assignment.insert(job_id.clone());
+                    if newly_inserted {
+                        log::warn!("Job {} was pending but not available for workers!", job_id);
+                    }
+                }
+                JobStatus::Offered {
+                    issued,
+                    offered,
+                    to,
+                } => {
+                    // A job should only be briefly in this state
+                    let offer_timed_out = (Utc::now() - offered.clone()).num_minutes() > 5;
+                    let worker_id = job.lock().unwrap().worker_id;
+                    let worker_alive = match worker_id {
+                        Some(id) => match self.workers.get(&id) {
+                            Some(weak_worker) => {
+                                // Worker is still with us.
+                                weak_worker.upgrade().is_some()
+                            }
+                            None => false,
+                        },
+                        None => false,
+                    };
+
+                    // Recover if offer timed out of worker died
+                    if offer_timed_out || !worker_alive {
+                        log::warn!("Job {:?} got stuck in offered state. Recover...", info);
+                        let mut job_lock = job.lock().unwrap();
+                        job_lock.info.status = JobStatus::Pending {
+                            issued: issued.clone(),
+                        };
+                        job_lock.worker_id = None;
+                        self.jobs_waiting_for_assignment.insert(job_id.clone());
+                    }
+                }
+                // TODO: Finish implementation...
+                JobStatus::Running {
+                    issued,
+                    started,
+                    on,
+                } => {}
+                JobStatus::Finished {
+                    finished,
+                    return_code,
+                    on,
+                    run_time_seconds,
+                } => {}
+            }
         }
     }
 }

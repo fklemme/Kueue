@@ -33,6 +33,7 @@ pub enum JobStatus {
     },
     Offered {
         issued: DateTime<Utc>,
+        offered: DateTime<Utc>,
         to: String,
     },
     Running {

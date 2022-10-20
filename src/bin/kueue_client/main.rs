@@ -185,9 +185,11 @@ fn print_job_list(job_list: Vec<JobInfo>) {
                     "pending, issued {}",
                     issued.format("%Y-%m-%d %H:%M:%S").to_string()
                 ))),
-                JobStatus::Offered { issued: _, to } => {
-                    style(resize_status(format!("offered to {}", to))).dim()
-                }
+                JobStatus::Offered {
+                    issued: _,
+                    offered: _,
+                    to,
+                } => style(resize_status(format!("offered to {}", to))).dim(),
                 JobStatus::Running {
                     issued: _,
                     started,

@@ -1,7 +1,8 @@
-use chrono::{Utc, Duration};
+use chrono::{Duration, Utc};
 use kueue::structs::{JobInfo, JobStatus};
 use std::{
     error::Error,
+    process::Stdio,
     sync::{Arc, Mutex},
 };
 use tokio::{process::Command, sync::Notify};
@@ -10,14 +11,16 @@ use tokio::{process::Command, sync::Notify};
 pub struct Job {
     pub info: JobInfo,
     pub notify_job_status: Arc<Notify>,
-    pub exit_status: Arc<Mutex<JobExitStatus>>,
+    pub result: Arc<Mutex<JobResult>>,
 }
 
 #[derive(Clone, Debug)]
-pub struct JobExitStatus {
+pub struct JobResult {
     pub finished: bool,
     pub exit_code: i32,
-    pub run_time: Duration
+    pub run_time: Duration,
+    pub stdout: String,
+    pub stderr: String,
 }
 
 impl Job {
@@ -25,10 +28,12 @@ impl Job {
         Job {
             info,
             notify_job_status,
-            exit_status: Arc::new(Mutex::new(JobExitStatus {
+            result: Arc::new(Mutex::new(JobResult {
                 finished: false,
                 exit_code: -42,
-                run_time: Duration::min_value()
+                run_time: Duration::min_value(),
+                stdout: String::new(),
+                stderr: String::new(),
             })),
         }
     }
@@ -36,7 +41,12 @@ impl Job {
     pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
         // Update job status
         let job_status = &self.info.status;
-        if let JobStatus::Offered { issued, to } = job_status {
+        if let JobStatus::Offered {
+            issued,
+            offered: _,
+            to,
+        } = job_status
+        {
             self.info.status = JobStatus::Running {
                 issued: issued.clone(),
                 started: Utc::now(),
@@ -55,30 +65,38 @@ impl Job {
         cmd.current_dir(self.info.cwd.clone());
         cmd.args(&self.info.cmd[1..]);
 
-        let mut child = cmd.spawn()?;
+        // Spawn child process and capture output
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+        let child = cmd.spawn()?;
+
         let notify = Arc::clone(&self.notify_job_status);
-        let status = Arc::clone(&self.exit_status);
+        let result = Arc::clone(&self.result);
 
         tokio::spawn(async move {
             log::trace!("Waiting for job to finish...");
-            let result = child.wait().await;
+            let output = child.wait_with_output().await;
             log::trace!("Job finished!");
             let finish_time = Utc::now();
 
             // When done, set exit status
-            match result {
-                Ok(exit_status) => {
-                    let mut status_lock = status.lock().unwrap();
-                    status_lock.finished = true;
-                    status_lock.exit_code = exit_status.code().unwrap_or(-44);
-                    status_lock.run_time = finish_time - start_time;
+            match output {
+                Ok(output) => {
+                    let mut result_lock = result.lock().unwrap();
+                    result_lock.finished = true;
+                    result_lock.exit_code = output.status.code().unwrap_or(-44);
+                    result_lock.run_time = finish_time - start_time;
+                    result_lock.stdout =
+                        String::from_utf8(output.stdout).unwrap_or("failed to parse utf-8".into());
+                    result_lock.stderr =
+                        String::from_utf8(output.stderr).unwrap_or("failed to parse utf-8".into());
                 }
                 Err(e) => {
                     log::error!("Error while waiting for child process: {}", e);
-                    let mut status_lock = status.lock().unwrap();
-                    status_lock.finished = true;
-                    status_lock.exit_code = -45;
-                    status_lock.run_time = finish_time - start_time;
+                    let mut result_lock = result.lock().unwrap();
+                    result_lock.finished = true;
+                    result_lock.exit_code = -45;
+                    result_lock.run_time = finish_time - start_time;
                 }
             }
 

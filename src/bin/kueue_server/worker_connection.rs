@@ -8,29 +8,30 @@ use kueue::{
     structs::JobStatus,
 };
 use std::{
+    collections::BTreeSet,
     error::Error,
-    sync::{Arc, Mutex}, collections::BTreeSet,
+    sync::{Arc, Mutex},
 };
 
 pub struct WorkerConnection {
     id: u64,
     name: String,
     stream: MessageStream,
-    ss: Arc<Mutex<Manager>>,
+    manager: Arc<Mutex<Manager>>,
     worker: Arc<Mutex<Worker>>,
     rejected_jobs: BTreeSet<u64>,
     connection_closed: bool,
 }
 
 impl WorkerConnection {
-    pub fn new(name: String, stream: MessageStream, ss: Arc<Mutex<Manager>>) -> Self {
-        let worker = ss.lock().unwrap().add_new_worker(name.clone());
+    pub fn new(name: String, stream: MessageStream, manager: Arc<Mutex<Manager>>) -> Self {
+        let worker = manager.lock().unwrap().add_new_worker(name.clone());
         let id = worker.lock().unwrap().id;
         WorkerConnection {
             id,
             name,
             stream,
-            ss,
+            manager,
             worker,
             rejected_jobs: BTreeSet::new(),
             connection_closed: false,
@@ -41,7 +42,7 @@ impl WorkerConnection {
         // Hello/Welcome messages are already exchanged at this point.
 
         // Notify for newly available jobs
-        let new_jobs = self.ss.lock().unwrap().new_jobs();
+        let new_jobs = self.manager.lock().unwrap().new_jobs();
 
         while !self.connection_closed {
             tokio::select! {
@@ -96,7 +97,7 @@ impl WorkerConnection {
             }
             WorkerToServerMessage::UpdateJobStatus(job_info) => {
                 // Update job info with whatever the worker sends us.
-                let option_job = self.ss.lock().unwrap().get_job(job_info.id);
+                let option_job = self.manager.lock().unwrap().get_job(job_info.id);
                 if let Some(job) = option_job {
                     let (old_status, new_status_finished) = {
                         let mut job_lock = job.lock().unwrap();
@@ -154,13 +155,17 @@ impl WorkerConnection {
                 Ok(())
             }
             WorkerToServerMessage::AcceptJobOffer(job_info) => {
-                let option_job = self.ss.lock().unwrap().get_job(job_info.id);
+                let option_job = self.manager.lock().unwrap().get_job(job_info.id);
                 if let Some(job) = option_job {
                     let job_info = {
                         // Perform small check and update job status.
                         let mut job_lock = job.lock().unwrap();
                         match &job_lock.info.status {
-                            JobStatus::Offered { issued, to } if to == &self.name => {
+                            JobStatus::Offered {
+                                issued,
+                                offered: _,
+                                to,
+                            } if to == &self.name => {
                                 job_lock.info.status = JobStatus::Running {
                                     issued: issued.clone(),
                                     started: Utc::now(),
@@ -200,16 +205,21 @@ impl WorkerConnection {
                 Ok(())
             }
             WorkerToServerMessage::RejectJobOffer(job_info) => {
-                let option_job = self.ss.lock().unwrap().get_job(job_info.id);
+                let option_job = self.manager.lock().unwrap().get_job(job_info.id);
                 if let Some(job) = option_job {
                     // Perform small check and update job status.
                     {
                         let mut job_lock = job.lock().unwrap();
                         match &job_lock.info.status {
-                            JobStatus::Offered { issued, to } if to == &self.name => {
+                            JobStatus::Offered {
+                                issued,
+                                offered: _,
+                                to,
+                            } if to == &self.name => {
                                 job_lock.info.status = JobStatus::Pending {
                                     issued: issued.clone(),
                                 };
+                                job_lock.worker_id = None;
                                 // Remember reject and avoid fetching the same job again.
                                 self.rejected_jobs.insert(job_lock.info.id);
                             }
@@ -249,7 +259,7 @@ impl WorkerConnection {
 
     async fn offer_pending_job(&mut self) -> Result<(), MessageError> {
         let available_job = self
-            .ss
+            .manager
             .lock()
             .unwrap()
             .get_job_waiting_for_assignment(&self.rejected_jobs);
@@ -262,6 +272,7 @@ impl WorkerConnection {
                 job_lock.info.status = if let JobStatus::Pending { issued } = job_lock.info.status {
                     JobStatus::Offered {
                         issued,
+                        offered: Utc::now(),
                         to: self.name.clone(),
                     }
                 } else {
@@ -271,6 +282,7 @@ impl WorkerConnection {
                     );
                     JobStatus::Offered {
                         issued: Utc::now(),
+                        offered: Utc::now(),
                         to: self.name.clone(),
                     }
                 };
