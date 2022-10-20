@@ -91,8 +91,11 @@ impl WorkerConnection {
                 Ok(()) // No response to worker needed.
             }
             WorkerToServerMessage::UpdateLoadInfo(load_info) => {
+                let mut worker_lock = self.worker.lock().unwrap();
                 // Update information in shared worker object.
-                self.worker.lock().unwrap().info.load = load_info;
+                worker_lock.info.load = load_info;
+                // This happens regularily, indicating that the worker is still alive.
+                worker_lock.info.last_updated = Utc::now();
                 Ok(()) // No response to worker needed.
             }
             WorkerToServerMessage::UpdateJobStatus(job_info) => {

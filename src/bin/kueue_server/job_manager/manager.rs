@@ -1,5 +1,5 @@
 use crate::job_manager::{Job, Worker};
-use chrono::{Duration, Utc};
+use chrono::Utc;
 use kueue::structs::{JobInfo, JobStatus, WorkerInfo};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -101,11 +101,17 @@ impl Manager {
 
     /// Inspect every job and "repair" if needed.
     pub fn run_maintenance(&mut self) {
+        const OFFER_TIMEOUT_MINUTES: i64 = 5;
+        const WORKER_TIMEOUT_MINUTES: i64 = 15;
+        const CLEANUP_JOB_AFTER_HOURS: i64 = 48;
+
+        let mut jobs_to_be_removed: Vec<u64> = Vec::new();
+
         for (job_id, job) in &self.jobs {
             let info = job.lock().unwrap().info.clone();
             match &info.status {
                 JobStatus::Pending { .. } => {
-                    // Pending jobs should be available for workers
+                    // Pending jobs should be available for workers.
                     let newly_inserted = self.jobs_waiting_for_assignment.insert(job_id.clone());
                     if newly_inserted {
                         log::warn!("Job {} was pending but not available for workers!", job_id);
@@ -114,23 +120,32 @@ impl Manager {
                 JobStatus::Offered {
                     issued,
                     offered,
-                    to,
+                    to: _,
                 } => {
-                    // A job should only be briefly in this state
-                    let offer_timed_out = (Utc::now() - offered.clone()).num_minutes() > 5;
+                    // A job should only be briefly in this state.
+                    let offer_timed_out =
+                        (Utc::now() - offered.clone()).num_minutes() > OFFER_TIMEOUT_MINUTES;
                     let worker_id = job.lock().unwrap().worker_id;
                     let worker_alive = match worker_id {
                         Some(id) => match self.workers.get(&id) {
-                            Some(weak_worker) => {
-                                // Worker is still with us.
-                                weak_worker.upgrade().is_some()
-                            }
+                            Some(weak_worker) => match weak_worker.upgrade() {
+                                Some(worker) => {
+                                    let last_updated =
+                                        worker.lock().unwrap().info.last_updated.clone();
+                                    let worker_timed_out = (Utc::now() - last_updated)
+                                        .num_minutes()
+                                        > WORKER_TIMEOUT_MINUTES;
+                                    // Worker is still with us.
+                                    !worker_timed_out
+                                }
+                                None => false,
+                            },
                             None => false,
                         },
                         None => false,
                     };
 
-                    // Recover if offer timed out of worker died
+                    // Recover if offer timed out of worker died.
                     if offer_timed_out || !worker_alive {
                         log::warn!("Job {:?} got stuck in offered state. Recover...", info);
                         let mut job_lock = job.lock().unwrap();
@@ -141,19 +156,67 @@ impl Manager {
                         self.jobs_waiting_for_assignment.insert(job_id.clone());
                     }
                 }
-                // TODO: Finish implementation...
                 JobStatus::Running {
                     issued,
-                    started,
+                    started: _,
                     on,
-                } => {}
+                } => {
+                    // If the job is running, the worker should still be alive.
+                    let worker_id = job.lock().unwrap().worker_id;
+                    let worker_alive = match worker_id {
+                        Some(id) => match self.workers.get(&id) {
+                            Some(weak_worker) => match weak_worker.upgrade() {
+                                Some(worker) => {
+                                    let last_updated =
+                                        worker.lock().unwrap().info.last_updated.clone();
+                                    let worker_timed_out = (Utc::now() - last_updated)
+                                        .num_minutes()
+                                        > WORKER_TIMEOUT_MINUTES;
+                                    // Worker is still with us.
+                                    !worker_timed_out
+                                }
+                                None => false,
+                            },
+                            None => false,
+                        },
+                        None => false,
+                    };
+
+                    // Recover if worker died while the job was still running.
+                    if !worker_alive {
+                        log::warn!(
+                            "Worker {} died while job {:?} was still running. Recover...",
+                            on,
+                            info
+                        );
+                        let mut job_lock = job.lock().unwrap();
+                        job_lock.info.status = JobStatus::Pending {
+                            issued: issued.clone(),
+                        };
+                        job_lock.worker_id = None;
+                        self.jobs_waiting_for_assignment.insert(job_id.clone());
+                    }
+                }
                 JobStatus::Finished {
                     finished,
-                    return_code,
-                    on,
-                    run_time_seconds,
-                } => {}
+                    return_code: _,
+                    on: _,
+                    run_time_seconds: _,
+                } => {
+                    // Finished jobs should be cleaned up after some time.
+                    let cleanup_job =
+                        (Utc::now() - finished.clone()).num_hours() > CLEANUP_JOB_AFTER_HOURS;
+                    if cleanup_job {
+                        log::debug!("Clean up old finished job: {:?}", info);
+                        jobs_to_be_removed.push(info.id);
+                    }
+                }
             }
+        }
+
+        // Clean up jobs
+        for id in jobs_to_be_removed {
+            self.jobs.remove(&id);
         }
     }
 }
