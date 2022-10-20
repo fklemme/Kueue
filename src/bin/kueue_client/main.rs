@@ -8,6 +8,7 @@ use kueue::{
 };
 use simple_logger::SimpleLogger;
 use std::{net::Ipv4Addr, str::FromStr};
+use terminal_size::terminal_size;
 use tokio::net::TcpStream;
 
 #[derive(Parser, Debug)]
@@ -133,14 +134,21 @@ fn print_worker_list(worker_list: Vec<WorkerInfo>) {
     if worker_list.is_empty() {
         println!("No workers registered on server!");
     } else {
-        // Try to detect terminal size (TODO: needs fine tuning)
-        let (term_width, _term_height) = console::Term::stdout().size();
-        let space_other_cols = 50;
-        let (worker_col, os_col) = if term_width > space_other_cols + 20 {
-            let col_space = (term_width - space_other_cols) as usize / 2;
-            (col_space, col_space)
+        let default_col_space: usize = 20;
+        let space_other_cols: usize = 55;
+
+        // Try to detect terminal size
+        let term_size = terminal_size();
+        let (worker_col, os_col) = if let Some(size) = term_size {
+            let term_width = size.0 .0 as usize;
+            if term_width > space_other_cols {
+                let col_space = (term_width - space_other_cols) as usize / 2;
+                (col_space, col_space)
+            } else {
+                (default_col_space, default_col_space)
+            }
         } else {
-            (20, 20)
+            (default_col_space, default_col_space)
         };
 
         // Print header
