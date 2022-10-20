@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use console::style;
 use kueue::{
-    constants::DEFAULT_PORT,
+    constants::{DEFAULT_PORT, DEFAULT_SERVER_ADDR},
     messages::stream::MessageStream,
     messages::{ClientToServerMessage, HelloMessage, ServerToClientMessage},
     structs::{JobInfo, JobStatus, WorkerInfo},
@@ -15,7 +15,7 @@ use tokio::net::TcpStream;
 #[command(author, version, about)]
 struct Args {
     /// Address of server to connect to.
-    #[arg(short = 'a', long, default_value_t = String::from("127.0.0.1"))]
+    #[arg(short = 'a', long, default_value_t = DEFAULT_SERVER_ADDR.to_string())]
     server_address: String,
     /// Port of server to connect to.
     #[arg(short = 'p', long, default_value_t = DEFAULT_PORT)]

@@ -1,9 +1,8 @@
 pub mod job;
 mod worker;
 
-use kueue::constants::DEFAULT_PORT;
+use kueue::constants::{DEFAULT_PORT, DEFAULT_SERVER_ADDR};
 use simple_logger::SimpleLogger;
-use std::net::Ipv4Addr;
 use worker::Worker;
 
 #[tokio::main]
@@ -21,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::debug!("Worker name: {}", worker_name);
 
     // Connect to server and process work
-    let server_addr = (Ipv4Addr::LOCALHOST, DEFAULT_PORT);
+    let server_addr = (DEFAULT_SERVER_ADDR, DEFAULT_PORT);
     let mut worker = Worker::new(worker_name, server_addr).await?;
     worker.run().await // do worker things
 }
