@@ -8,9 +8,8 @@ use kueue::{
     structs::JobStatus,
 };
 use std::{
-    collections::HashSet,
     error::Error,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex}, collections::BTreeSet,
 };
 
 pub struct WorkerConnection {
@@ -19,7 +18,7 @@ pub struct WorkerConnection {
     stream: MessageStream,
     ss: Arc<Mutex<Manager>>,
     worker: Arc<Mutex<Worker>>,
-    rejected_jobs: HashSet<u64>,
+    rejected_jobs: BTreeSet<u64>,
     connection_closed: bool,
 }
 
@@ -33,7 +32,7 @@ impl WorkerConnection {
             stream,
             ss,
             worker,
-            rejected_jobs: HashSet::new(),
+            rejected_jobs: BTreeSet::new(),
             connection_closed: false,
         }
     }

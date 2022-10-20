@@ -1,25 +1,25 @@
 use crate::job_manager::{Job, Worker};
 use kueue::structs::{JobInfo, WorkerInfo};
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{BTreeSet, BTreeMap},
     path::PathBuf,
     sync::{Arc, Mutex, Weak},
 };
 use tokio::sync::Notify;
 
 pub struct Manager {
-    jobs: HashMap<u64, Arc<Mutex<Job>>>,
+    jobs: BTreeMap<u64, Arc<Mutex<Job>>>,
     jobs_waiting_for_assignment: BTreeSet<u64>,
-    workers: HashMap<u64, Weak<Mutex<Worker>>>,
+    workers: BTreeMap<u64, Weak<Mutex<Worker>>>,
     new_jobs: Arc<Notify>,
 }
 
 impl Manager {
     pub fn new() -> Self {
         Manager {
-            jobs: HashMap::new(),
+            jobs: BTreeMap::new(),
             jobs_waiting_for_assignment: BTreeSet::new(),
-            workers: HashMap::new(),
+            workers: BTreeMap::new(),
             new_jobs: Arc::new(Notify::new()),
         }
     }
@@ -79,7 +79,7 @@ impl Manager {
     /// Get a job to be assigned to a worker.
     pub fn get_job_waiting_for_assignment(
         &mut self,
-        exclude: &HashSet<u64>,
+        exclude: &BTreeSet<u64>,
     ) -> Option<Arc<Mutex<Job>>> {
         if self.jobs_waiting_for_assignment.is_empty() {
             None // no jobs marked waiting for assignment
@@ -127,7 +127,7 @@ mod tests {
         let job = manager.add_new_job(cmd, cwd);
 
         // Put job on exclude list.
-        let mut exclude = HashSet::new();
+        let mut exclude = BTreeSet::new();
         exclude.insert(job.lock().unwrap().info.id);
 
         // Now, we should not get it.
