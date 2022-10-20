@@ -5,12 +5,10 @@ mod worker_connection;
 use client_connection::ClientConnection;
 use job_manager::Manager;
 use kueue::{
-    constants::{DEFAULT_BIND_ADDR, DEFAULT_PORT},
     messages::stream::MessageStream,
-    messages::{HelloMessage, ServerToClientMessage, ServerToWorkerMessage},
-};
+    messages::{HelloMessage, ServerToClientMessage, ServerToWorkerMessage}, config::Config};
 use simple_logger::SimpleLogger;
-use std::sync::{Arc, Mutex};
+use std::{sync::{Arc, Mutex}, net::Ipv4Addr, str::FromStr};
 use tokio::{
     net::{TcpListener, TcpStream},
     time::{sleep, Duration},
@@ -19,15 +17,21 @@ use worker_connection::WorkerConnection;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logger
+    // Initialize logger.
     SimpleLogger::new().init().unwrap();
 
-    // TODO: Handle cli arguments
+    // Read configuration from file or defaults.
+    let config = Config::new()?;
+    // If there is no config file, create template.
+    config.create_default_config();
 
-    // Start accepting incoming connections
-    let listener = TcpListener::bind((DEFAULT_BIND_ADDR, DEFAULT_PORT)).await?;
+    // Start accepting incoming connections.
+    let bind_addr = (
+        Ipv4Addr::from_str(&config.server_bind_address)?,
+        config.server_port);
+    let listener = TcpListener::bind(bind_addr).await?;
 
-    // Initialize job manager
+    // Initialize job manager.
     let manager = Arc::new(Mutex::new(Manager::new()));
 
     // Maintain job manager, re-issuing job of died workers, etc.

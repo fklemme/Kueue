@@ -3,7 +3,7 @@ use chrono::Utc;
 use kueue::{
     messages::stream::{MessageError, MessageStream},
     messages::{HelloMessage, ServerToWorkerMessage, WorkerToServerMessage},
-    structs::{HwInfo, JobStatus, LoadInfo},
+    structs::{HwInfo, JobStatus, LoadInfo}, config::Config,
 };
 use std::{
     cmp::{max, min},
@@ -18,6 +18,7 @@ use tokio::{
 
 pub struct Worker {
     name: String,
+    config: Config,
     stream: MessageStream,
     notify_update: Arc<Notify>,
     notify_job_status: Arc<Notify>,
@@ -31,11 +32,13 @@ pub struct Worker {
 impl Worker {
     pub async fn new<T: tokio::net::ToSocketAddrs>(
         name: String,
+        config: Config,
         addr: T,
     ) -> Result<Self, std::io::Error> {
         let stream = TcpStream::connect(addr).await?;
         Ok(Worker {
             name,
+            config,
             stream: MessageStream::new(stream),
             notify_update: Arc::new(Notify::new()),
             notify_job_status: Arc::new(Notify::new()),
