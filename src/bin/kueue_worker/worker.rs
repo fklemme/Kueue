@@ -148,6 +148,7 @@ impl Worker {
                     finished: Utc::now(),
                     return_code: exit_status.exit_code,
                     on: self.name.clone(),
+                    run_time_seconds: exit_status.run_time.num_seconds() as u64,
                 };
 
                 // Send update to server

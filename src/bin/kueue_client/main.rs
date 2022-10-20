@@ -202,11 +202,18 @@ fn print_job_list(job_list: Vec<JobInfo>) {
                     finished: _,
                     return_code,
                     on: _,
+                    run_time_seconds,
                 } => {
                     if return_code == 0 {
-                        style(resize_status("finished".to_string())).green()
+                        let h = run_time_seconds / 3600;
+                        let m = (run_time_seconds % 3600) / 60;
+                        let s = run_time_seconds % 60;
+                        style(resize_status(format!(
+                            "finished, took {h}h:{m:02}m:{s:02}s"
+                        )))
+                        .green()
                     } else {
-                        style(resize_status(format!("failed, code: {return_code}",))).red()
+                        style(resize_status(format!("failed, code {return_code}",))).red()
                     }
                 }
             };

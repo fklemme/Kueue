@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{Utc, Duration};
 use kueue::structs::{JobInfo, JobStatus};
 use std::{
     error::Error,
@@ -17,6 +17,7 @@ pub struct Job {
 pub struct JobExitStatus {
     pub finished: bool,
     pub exit_code: i32,
+    pub run_time: Duration
 }
 
 impl Job {
@@ -27,6 +28,7 @@ impl Job {
             exit_status: Arc::new(Mutex::new(JobExitStatus {
                 finished: false,
                 exit_code: -42,
+                run_time: Duration::min_value()
             })),
         }
     }
@@ -48,6 +50,7 @@ impl Job {
         // Run command as sub-process
         assert!(!self.info.cmd.is_empty()); // TODO
         log::trace!("Running command: {}", self.info.cmd.join(" "));
+        let start_time = Utc::now();
         let mut cmd = Command::new(self.info.cmd.first().unwrap());
         cmd.current_dir(self.info.cwd.clone());
         cmd.args(&self.info.cmd[1..]);
@@ -60,6 +63,7 @@ impl Job {
             log::trace!("Waiting for job to finish...");
             let result = child.wait().await;
             log::trace!("Job finished!");
+            let finish_time = Utc::now();
 
             // When done, set exit status
             match result {
@@ -67,12 +71,14 @@ impl Job {
                     let mut status_lock = status.lock().unwrap();
                     status_lock.finished = true;
                     status_lock.exit_code = exit_status.code().unwrap_or(-44);
+                    status_lock.run_time = finish_time - start_time;
                 }
                 Err(e) => {
                     log::error!("Error while waiting for child process: {}", e);
                     let mut status_lock = status.lock().unwrap();
                     status_lock.finished = true;
                     status_lock.exit_code = -45;
+                    status_lock.run_time = finish_time - start_time;
                 }
             }
 

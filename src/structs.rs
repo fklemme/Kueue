@@ -44,6 +44,7 @@ pub enum JobStatus {
         finished: DateTime<Utc>,
         return_code: i32,
         on: String,
+        run_time_seconds: u64,
     },
 }
 
