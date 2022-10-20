@@ -5,10 +5,16 @@ mod worker_connection;
 use client_connection::ClientConnection;
 use job_manager::Manager;
 use kueue::{
+    config::Config,
     messages::stream::MessageStream,
-    messages::{HelloMessage, ServerToClientMessage, ServerToWorkerMessage}, config::Config};
+    messages::{HelloMessage, ServerToClientMessage, ServerToWorkerMessage},
+};
 use simple_logger::SimpleLogger;
-use std::{sync::{Arc, Mutex}, net::Ipv4Addr, str::FromStr};
+use std::{
+    net::Ipv4Addr,
+    str::FromStr,
+    sync::{Arc, Mutex},
+};
 use tokio::{
     net::{TcpListener, TcpStream},
     time::{sleep, Duration},
@@ -23,12 +29,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read configuration from file or defaults.
     let config = Config::new()?;
     // If there is no config file, create template.
-    config.create_default_config();
+    if let Err(e) = config.create_default_config() {
+        log::error!("Could not create default config: {}", e);
+    }
 
     // Start accepting incoming connections.
     let bind_addr = (
         Ipv4Addr::from_str(&config.server_bind_address)?,
-        config.server_port);
+        config.server_port,
+    );
     let listener = TcpListener::bind(bind_addr).await?;
 
     // Initialize job manager.

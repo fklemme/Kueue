@@ -22,7 +22,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read configuration from file or defaults.
     let config = Config::new()?;
     // If there is no config file, create template.
-    config.create_default_config();
+    if let Err(e) = config.create_default_config() {
+        log::error!("Could not create default config: {}", e);
+    }
 
     // Connect to server and process work.
     let server_addr = (

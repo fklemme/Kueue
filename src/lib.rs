@@ -3,8 +3,13 @@
 pub mod config {
     use directories::ProjectDirs;
     use rand::{distributions::Alphanumeric, thread_rng, Rng};
-    use serde::Deserialize;
-    use std::path::PathBuf;
+    use serde::{Deserialize, Serialize};
+    use std::{
+        error::Error,
+        fs::{create_dir_all, File},
+        io::Write,
+        path::PathBuf,
+    };
 
     pub fn default_path() -> PathBuf {
         let config_file_name = "config.toml";
@@ -14,7 +19,7 @@ pub mod config {
         config_file_name.into()
     }
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Serialize, Deserialize, Debug)]
     pub struct Config {
         pub server_bind_address: String,
         pub server_address: String,
@@ -24,7 +29,7 @@ pub mod config {
 
     impl Config {
         pub fn new() -> Result<Self, config::ConfigError> {
-            let config_path:String = default_path().to_string_lossy().into();
+            let config_path: String = default_path().to_string_lossy().into();
 
             let random_secret: String = thread_rng()
                 .sample_iter(&Alphanumeric)
@@ -43,8 +48,22 @@ pub mod config {
             s.try_deserialize()
         }
 
-        pub fn create_default_config(&self) {
-            // TODO!
+        pub fn create_default_config(&self) -> Result<(), Box<dyn Error>> {
+            let config_path = default_path();
+            let toml = toml::to_vec(&self)?;
+
+            if let Some(config_dir) = config_path.parent() {
+                if !config_dir.is_dir() {
+                    create_dir_all(config_dir)?;
+                }
+            }
+
+            if !config_path.is_file() {
+                let mut file = File::create(config_path)?;
+                file.write_all(&toml)?;
+            }
+
+            Ok(())
         }
     }
 }

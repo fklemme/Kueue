@@ -2,9 +2,10 @@ mod print;
 
 use clap::{Parser, Subcommand};
 use kueue::{
+    config::{default_path, Config},
     messages::stream::MessageStream,
     messages::{ClientToServerMessage, HelloMessage, ServerToClientMessage},
-    structs::JobInfo, config::{Config, default_path},
+    structs::JobInfo,
 };
 use simple_logger::SimpleLogger;
 use std::{net::Ipv4Addr, str::FromStr};
@@ -46,12 +47,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read configuration from file or defaults.
     let config = Config::new()?;
     // If there is no config file, create template.
-    config.create_default_config();
+    if let Err(e) = config.create_default_config() {
+        log::error!("Could not create default config: {}", e);
+    }
 
     // Connect to server.
     let server_addr = (
         Ipv4Addr::from_str(&config.server_address)?,
-        config.server_port);
+        config.server_port,
+    );
     let stream = TcpStream::connect(server_addr).await?;
     let mut stream = MessageStream::new(stream);
 
