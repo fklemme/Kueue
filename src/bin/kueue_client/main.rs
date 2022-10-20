@@ -181,20 +181,23 @@ fn print_job_list(job_list: Vec<JobInfo>) {
                 }
             };
             let status = match job_info.status {
-                JobStatus::Pending { issued } => {
-                    style(resize_status(format!("pending - issued {}", issued)))
-                }
+                JobStatus::Pending { issued } => style(resize_status(format!(
+                    "pending, issued {}",
+                    issued.format("%Y-%m-%d %H:%M:%S").to_string()
+                ))),
                 JobStatus::Offered { issued: _, to } => {
-                    style(resize_status(format!("offered to {}", to)))
+                    style(resize_status(format!("offered to {}", to))).dim()
                 }
                 JobStatus::Running {
                     issued: _,
                     started,
                     on,
                 } => style(resize_status(format!(
-                    "Running on {}, started {}",
-                    on, started
-                ))),
+                    "running on {}, started {}",
+                    on,
+                    started.format("%Y-%m-%d %H:%M:%S").to_string()
+                )))
+                .blue(),
                 JobStatus::Finished {
                     finished: _,
                     return_code,
