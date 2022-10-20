@@ -13,8 +13,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // TODO: Handle cli arguments
 
-    // Generate unique name
-    let hostname: String = gethostname::gethostname().to_string_lossy().into();
+    // Generate unique name from hostname and random suffix
+    let fqdn: String = gethostname::gethostname().to_string_lossy().into();
+    let hostname = fqdn.split(|c| c == '.').next().unwrap().to_string();
     let mut generator = names::Generator::default();
     let name_suffix = generator.next().unwrap_or("default".into());
     let worker_name = format!("{}-{}", hostname, name_suffix);
