@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use console::style;
 use kueue::{
     constants::DEFAULT_PORT,
     messages::stream::MessageStream,
@@ -6,9 +7,7 @@ use kueue::{
     structs::{JobInfo, WorkerInfo},
 };
 use simple_logger::SimpleLogger;
-use std::{io::Write, net::Ipv4Addr, str::FromStr};
-use termcolor::{Color, ColorChoice, StandardStream};
-use termcolor_output::colored;
+use std::{net::Ipv4Addr, str::FromStr};
 use tokio::net::TcpStream;
 
 #[derive(Parser, Debug)]
@@ -120,146 +119,101 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Print jobs to screen.
 fn print_job_list(job_list: Vec<JobInfo>) {
-    let mut stdout = StandardStream::stdout(ColorChoice::Auto);
-
     if job_list.is_empty() {
-        writeln!(&mut stdout, "No jobs listed on server!").unwrap();
+        println!("No jobs listed on server!");
     } else {
         for job_info in job_list {
-            writeln!(&mut stdout, "{:?}", job_info).unwrap();
+            println!("{:?}", job_info);
         }
     }
 }
 
 /// Print workers to screen.
 fn print_worker_list(worker_list: Vec<WorkerInfo>) {
-    let mut stdout = StandardStream::stdout(ColorChoice::Auto);
-
-    // TODO: Check out terminon as an easier(?) alternative
-    //       https://crates.io/crates/termion
-
     if worker_list.is_empty() {
-        writeln!(&mut stdout, "No workers registered on server!").unwrap();
+        println!("No workers registered on server!");
     } else {
+        // Try to detect terminal size (TODO: needs fine tuning)
+        let (term_width, _term_height) = console::Term::stdout().size();
+        let space_other_cols = 50;
+        let (worker_col, os_col) = if term_width > space_other_cols + 20 {
+            let col_space = (term_width - space_other_cols) as usize / 2;
+            (col_space, col_space)
+        } else {
+            (20, 20)
+        };
+
         // Print header
-        colored!(
-            &mut stdout,
-            "| {}{}worker name{}{}               ",
-            bold!(true),
-            underline!(true),
-            bold!(false),
-            underline!(false)
-        )
-        .unwrap();
-        colored!(
-            &mut stdout,
-            "| {}{}operating system{}{}          ",
-            bold!(true),
-            underline!(true),
-            bold!(false),
-            underline!(false)
-        )
-        .unwrap();
-        colored!(
-            &mut stdout,
-            "|  {}{}cpu{}{}  ",
-            bold!(true),
-            underline!(true),
-            bold!(false),
-            underline!(false)
-        )
-        .unwrap();
-        colored!(
-            &mut stdout,
-            "|  {}{}memory{}{}   ",
-            bold!(true),
-            underline!(true),
-            bold!(false),
-            underline!(false)
-        )
-        .unwrap();
-        colored!(
-            &mut stdout,
-            "|  {}{}jobs{}{}   ",
-            bold!(true),
-            underline!(true),
-            bold!(false),
-            underline!(false)
-        )
-        .unwrap();
-        colored!(
-            &mut stdout,
-            "|  {}{}load{}{} (1/5/15) |\n",
-            bold!(true),
-            underline!(true),
-            bold!(false),
-            underline!(false)
-        )
-        .unwrap();
+        println!(
+            "| {: <worker_col$} | {: <os_col$} | {: ^5} | {: ^10} | {: ^7} | {: ^14} |",
+            style("worker name").bold().underlined(),
+            style("operating system").bold().underlined(),
+            style("cpu").bold().underlined(),
+            style("memory").bold().underlined(),
+            style("jobs").bold().underlined(),
+            style("load 1/5/15m").bold().underlined(),
+        );
 
         for info in worker_list {
-            // Print worker name
+            // worker name
             let worker_name = if info.name.len() <= 25 {
                 info.name.clone()
             } else {
                 info.name[..22].to_string() + "..."
             };
-            write!(&mut stdout, "| {: <25} ", worker_name).unwrap();
 
-            // Print os
-            let dist = if info.hw.distribution.len() <= 25 {
+            // operating system
+            let operation_system = if info.hw.distribution.len() <= 25 {
                 info.hw.distribution.clone()
             } else {
                 info.hw.distribution[..22].to_string() + "..."
             };
-            write!(&mut stdout, "| {: <25} ", dist).unwrap();
 
-            // Print cpu
+            // cpu cores
             let cpu_cores = format!("{} x", info.hw.cpu_cores);
-            write!(&mut stdout, "| {: >5} ", cpu_cores).unwrap();
 
-            // Print memory
-            let mem_mb = info.hw.total_memory / 1024 / 1024;
-            let mem_mb = format!("{} MB", mem_mb);
-            write!(&mut stdout, "| {: >9} ", mem_mb).unwrap();
+            // memory
+            let memory_mb = info.hw.total_memory / 1024 / 1024;
+            let memory_mb = format!("{} MB", memory_mb);
 
-            // Running jobs color
-            let color = if info.jobs_total() * 2 < info.max_parallel_jobs {
-                Some(Color::Green)
+            // running jobs
+            let running_jobs = format!("{} / {}", info.jobs_total(), info.max_parallel_jobs);
+            let running_jobs = if info.jobs_total() * 2 < info.max_parallel_jobs {
+                style(running_jobs).green()
             } else if info.jobs_total() < info.max_parallel_jobs {
-                Some(Color::Yellow)
+                style(running_jobs).yellow()
             } else {
-                Some(Color::Red)
+                style(running_jobs).red()
             };
 
-            // Print running jobs
-            let running = format!("{} / {}", info.jobs_total(), info.max_parallel_jobs);
-            colored!(
-                &mut stdout,
-                "| {}{: ^7}{} | ",
-                fg!(color),
-                running,
-                fg!(None)
-            )
-            .unwrap();
-
-            for load in [info.load.one, info.load.five, info.load.fifteen] {
-                // Load color
-                let color = if load < 1.0 {
-                    Some(Color::Green)
+            // loads
+            let load_style = |load| {
+                let load_fmt = format!("{:.1}", load);
+                if load < 1.0 {
+                    style(load_fmt).green()
                 } else if load < 10.0 {
-                    Some(Color::Yellow)
+                    style(load_fmt).yellow()
                 } else {
-                    Some(Color::Red)
-                };
+                    style(load_fmt).red()
+                }
+            };
 
-                // Print load
-                let load = format!("{:.1}", load);
-                colored!(&mut stdout, "{}{: >4}{} ", fg!(color), load, fg!(None)).unwrap();
-            }
+            let load_one = load_style(info.load.one);
+            let load_five = load_style(info.load.five);
+            let load_fifteen = load_style(info.load.fifteen);
 
-            // End of line
-            writeln!(&mut stdout, "|").unwrap();
+            // Print line
+            println!(
+                "| {: <worker_col$} | {: <os_col$} | {: >5} | {: >10} | {: ^7} | {: >4} {: >4} {: >4} |",
+                worker_name,
+                operation_system,
+                cpu_cores,
+                memory_mb,
+                running_jobs,
+                load_one,
+                load_five,
+                load_fifteen
+            );
         }
     }
 }
