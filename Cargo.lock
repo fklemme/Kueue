@@ -545,7 +545,7 @@ dependencies = [
 
 [[package]]
 name = "kueue"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "chrono",
  "clap 4.0.17",

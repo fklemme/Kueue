@@ -1,7 +1,9 @@
 [package]
 name = "kueue"
-version = "0.2.1"
+version = "0.2.2"
+authors = ["Florian Klemme <mail@florianklemme.de>"]
 edition = "2021"
+description = "A robust, user-level, work-stealing distributed task scheduler."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
