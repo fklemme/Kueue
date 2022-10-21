@@ -1,5 +1,5 @@
 use console::style;
-use kueue::structs::{JobInfo, WorkerInfo, JobStatus};
+use kueue::structs::{JobInfo, JobStatus, WorkerInfo};
 use terminal_size::terminal_size;
 
 /// Print jobs to screen.
@@ -84,7 +84,7 @@ pub fn job_list(job_list: Vec<JobInfo>) {
                 JobStatus::Finished {
                     finished: _,
                     return_code,
-                    on: _,
+                    on,
                     run_time_seconds,
                 } => {
                     if return_code == 0 {
@@ -92,11 +92,16 @@ pub fn job_list(job_list: Vec<JobInfo>) {
                         let m = (run_time_seconds % 3600) / 60;
                         let s = run_time_seconds % 60;
                         style(resize_status(format!(
-                            "finished, took {h}h:{m:02}m:{s:02}s"
+                            "finished on {}, took {}h:{:02}m:{:02}s",
+                            on, h, m, s
                         )))
                         .green()
                     } else {
-                        style(resize_status(format!("failed, code {return_code}",))).red()
+                        style(resize_status(format!(
+                            "failed on {}, code {}",
+                            on, return_code
+                        )))
+                        .red()
                     }
                 }
             };
