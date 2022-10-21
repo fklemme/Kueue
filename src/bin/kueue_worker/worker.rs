@@ -1,10 +1,12 @@
 use crate::job::Job;
 use chrono::Utc;
 use kueue::{
+    config::Config,
     messages::stream::{MessageError, MessageStream},
     messages::{HelloMessage, ServerToWorkerMessage, WorkerToServerMessage},
-    structs::{HwInfo, JobStatus, LoadInfo}, config::Config,
+    structs::{HwInfo, JobStatus, LoadInfo},
 };
+use sha2::{Digest, Sha256};
 use std::{
     cmp::{max, min},
     sync::Arc,
@@ -54,7 +56,8 @@ impl Worker {
         // Do hello/welcome handshake.
         self.connect_to_server().await?;
 
-        // TODO: Implement encryption & authentification.
+        // Do challenge-response authentification.
+        self.authenticate().await?;
 
         // Send hardware information to server.
         // We do it only once since it should not change.
@@ -91,19 +94,41 @@ impl Worker {
     }
 
     async fn connect_to_server(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Send hello from worker
+        // Send hello from worker.
         let hello = HelloMessage::HelloFromWorker {
             name: self.name.clone(),
         };
         self.stream.send(&hello).await?;
 
-        // Await welcoming response from server
+        // Await welcoming response from server.
         match self.stream.receive::<ServerToWorkerMessage>().await? {
             ServerToWorkerMessage::WelcomeWorker => {
                 log::trace!("Established connection to server...");
                 Ok(()) // continue
             }
             other => Err(format!("Expected WelcomeWorker, received: {:?}", other).into()),
+        }
+    }
+
+    async fn authenticate(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Authentification challenge is sent automatically after welcome.
+        match self.stream.receive::<ServerToWorkerMessage>().await? {
+            ServerToWorkerMessage::AuthChallenge(salt) => {
+                // Calculate response.
+                let salted_secret = self.config.shared_secret.clone() + &salt;
+                let salted_secret = salted_secret.into_bytes();
+                let mut hasher = Sha256::new();
+                hasher.update(salted_secret);
+                let response = hasher.finalize().to_vec();
+                let response = base64::encode(response);
+
+                // Send response back to server.
+                let message = WorkerToServerMessage::AuthResponse(response);
+                self.stream.send(&message).await?;
+
+                Ok(()) // done
+            }
+            other => Err(format!("Expected AuthChallenge, received: {:?}", other).into()),
         }
     }
 
@@ -190,7 +215,13 @@ impl Worker {
     async fn handle_message(&mut self, message: ServerToWorkerMessage) -> Result<(), MessageError> {
         match message {
             ServerToWorkerMessage::WelcomeWorker => {
+                // This is already handled before the main loop begins.
                 log::warn!("Received duplicate welcome message!");
+                Ok(())
+            }
+            ServerToWorkerMessage::AuthChallenge(_challenge) => {
+                // This is already handled before the main loop begins.
+                log::warn!("Received duplicate authentification challenge!");
                 Ok(())
             }
             ServerToWorkerMessage::OfferJob(job_info) => {

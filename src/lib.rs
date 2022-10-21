@@ -12,14 +12,19 @@ pub mod config {
     };
 
     pub fn default_path() -> PathBuf {
-        let config_file_name = "config.toml";
+        let config_file_name = if cfg!(debug_assertions) {
+            "config-devel.toml"
+        } else {
+            "config.toml"
+        };
+
         if let Some(project_dirs) = ProjectDirs::from("", "", "kueue") {
             return project_dirs.config_dir().join(config_file_name);
         }
         config_file_name.into()
     }
 
-    #[derive(Serialize, Deserialize, Debug)]
+    #[derive(Clone, Serialize, Deserialize, Debug)]
     pub struct Config {
         pub server_bind_address: String,
         pub server_address: String,
