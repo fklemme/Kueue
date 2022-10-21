@@ -91,10 +91,9 @@ impl Job {
                     result_lock.stderr = String::from_utf8(output.stderr)
                         .unwrap_or("failed to parse stderr into utf-8 string".into());
 
-                    if result_lock.exit_code != 0 {
-                        // Debugging only. Maybe should be removed in the future.
-                        log::debug!("Job failed! Stderr: {}", result_lock.stderr);
-                    }
+                    // Debugging only. Maybe should be removed in the future.
+                    log::debug!("Job finished! Stdout: {}", result_lock.stdout);
+                    log::debug!("Job finished! Stderr: {}", result_lock.stderr);
                 }
                 Err(e) => {
                     log::error!("Error while waiting for child process: {}", e);
