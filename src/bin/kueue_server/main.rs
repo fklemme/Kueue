@@ -11,9 +11,10 @@ use kueue::{
 };
 use simple_logger::SimpleLogger;
 use std::{
+    error::Error,
     net::Ipv4Addr,
     str::FromStr,
-    sync::{Arc, Mutex}, error::Error,
+    sync::{Arc, Mutex},
 };
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -23,15 +24,18 @@ use worker_connection::WorkerConnection;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    // Initialize logger.
-    SimpleLogger::new().init().unwrap();
-
     // Read configuration from file or defaults.
     let config = Config::new()?;
     // If there is no config file, create template.
     if let Err(e) = config.create_default_config() {
         log::error!("Could not create default config: {}", e);
     }
+
+    // Initialize logger.
+    SimpleLogger::new()
+        .with_level(config.get_log_level().to_level_filter())
+        .init()
+        .unwrap();
 
     // Start accepting incoming connections.
     let bind_addr = (

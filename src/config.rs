@@ -5,7 +5,7 @@ use std::{
     error::Error,
     fs::{create_dir_all, File},
     io::Write,
-    net::{Ipv4Addr, SocketAddr, IpAddr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     path::PathBuf,
     str::FromStr,
 };
@@ -26,6 +26,7 @@ pub fn default_path() -> PathBuf {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Config {
+    pub log_level: String,
     pub server_bind_address: String,
     pub server_address: String,
     pub server_port: u16,
@@ -43,6 +44,13 @@ impl Config {
     pub fn new() -> Result<Self, config::ConfigError> {
         let config_path: String = default_path().to_string_lossy().into();
 
+        // TODO: Raise default levels when more mature.
+        let default_log_level = if cfg!(debug_assertions) {
+            "trace"
+        } else {
+            "info"
+        };
+
         let random_secret: String = thread_rng()
             .sample_iter(&Alphanumeric)
             .take(30)
@@ -50,8 +58,9 @@ impl Config {
             .collect();
 
         let s = config::Config::builder()
+            .set_default("log_level", default_log_level)?
             .set_default("server_bind_address", "0.0.0.0")?
-            .set_default("server_address", "127.0.0.1")?
+            .set_default("server_address", "localhost")?
             .set_default("server_port", 11236)?
             .set_default("shared_secret", random_secret)?
             .add_source(config::File::with_name(&config_path).required(false))
@@ -77,13 +86,25 @@ impl Config {
 
         Ok(())
     }
+    pub fn get_log_level(&self) -> log::Level {
+        if self.log_level.to_lowercase() == "trace" {
+            log::Level::Trace
+        } else if self.log_level.to_lowercase() == "debug" {
+            log::Level::Debug
+        } else if self.log_level.to_lowercase() == "info" {
+            log::Level::Info
+        } else if self.log_level.to_lowercase() == "warn" {
+            log::Level::Warn
+        } else if self.log_level.to_lowercase() == "error" {
+            log::Level::Error
+        } else {
+            log::Level::Info // default
+        }
+    }
 
     pub async fn get_server_address(&self) -> Result<SocketAddr, Box<dyn Error>> {
         match Ipv4Addr::from_str(&self.server_address) {
-            Ok(ip_address) => Ok(SocketAddr::new(
-                IpAddr::V4(ip_address),
-                self.server_port,
-            )),
+            Ok(ip_address) => Ok(SocketAddr::new(IpAddr::V4(ip_address), self.server_port)),
             Err(_e) => {
                 // Let's try to look up hostname
                 let host = format!("{}:{}", self.server_address, self.server_port);

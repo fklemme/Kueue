@@ -1,17 +1,23 @@
-use std::{error::Error, io::Read, net::TcpStream};
-
 use kueue::config::Config;
+use simple_logger::SimpleLogger;
 use ssh2::Session;
+use std::{error::Error, io::Read, net::TcpStream};
 
 fn main() {
     // Read configuration from file or defaults.
     let config = Config::new().expect("Failed to load config!");
-    let ssh_user = config.restart_workers.ssh_user;
+    let ssh_user = config.restart_workers.ssh_user.clone();
     let workers: Vec<_> = config
         .restart_workers
         .hostnames
         .split_whitespace()
         .collect();
+
+    // Initialize logger.
+    SimpleLogger::new()
+        .with_level(config.get_log_level().to_level_filter())
+        .init()
+        .unwrap();
 
     for worker in workers {
         if let Err(e) = process_worker(worker, &ssh_user) {
@@ -23,7 +29,8 @@ fn main() {
 fn process_worker(worker: &str, ssh_user: &str) -> Result<(), Box<dyn Error>> {
     log::trace!("Processing worker {}...", worker);
 
-    // TODO: Requires some kind of "ssh-add ~/.ssh/id_rsa"?
+    // TODO: Requires some kind of "ssh-add ~/.ssh/id_rsa"
+    //       If agent not started: "eval `ssh-agent -s`"
     let mut session = Session::new()?;
 
     // Connect to worker

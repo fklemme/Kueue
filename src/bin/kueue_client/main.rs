@@ -35,12 +35,6 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    // Initialize logger.
-    SimpleLogger::new()
-        .with_level(log::LevelFilter::Info)
-        .init()
-        .unwrap();
-
     // Read command line arguments.
     let args = Args::parse();
     log::debug!("{:?}", args);
@@ -51,6 +45,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     if let Err(e) = config.create_default_config() {
         log::error!("Could not create default config: {}", e);
     }
+
+    // Initialize logger.
+    SimpleLogger::new()
+        .with_level(config.get_log_level().to_level_filter())
+        .init()
+        .unwrap();
 
     // Connect to server.
     let server_addr = config.get_server_address().await?;

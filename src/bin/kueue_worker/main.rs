@@ -7,8 +7,18 @@ use worker::Worker;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Read configuration from file or defaults.
+    let config = Config::new()?;
+    // If there is no config file, create template.
+    if let Err(e) = config.create_default_config() {
+        log::error!("Could not create default config: {}", e);
+    }
+
     // Initialize logger.
-    SimpleLogger::new().init().unwrap();
+    SimpleLogger::new()
+        .with_level(config.get_log_level().to_level_filter())
+        .init()
+        .unwrap();
 
     // Generate unique name from hostname and random suffix.
     let fqdn: String = gethostname::gethostname().to_string_lossy().into();
@@ -17,13 +27,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let name_suffix = generator.next().unwrap_or("default".into());
     let worker_name = format!("{}-{}", hostname, name_suffix);
     log::debug!("Worker name: {}", worker_name);
-
-    // Read configuration from file or defaults.
-    let config = Config::new()?;
-    // If there is no config file, create template.
-    if let Err(e) = config.create_default_config() {
-        log::error!("Could not create default config: {}", e);
-    }
 
     // Connect to server and process work.
     let server_addr = config.get_server_address().await?;
