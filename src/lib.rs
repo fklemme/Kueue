@@ -13,7 +13,7 @@ pub mod config {
 
     pub fn default_path() -> PathBuf {
         let config_file_name = "config.toml";
-        if let Some(project_dirs) = ProjectDirs::from("", "star", "kueue") {
+        if let Some(project_dirs) = ProjectDirs::from("", "", "kueue") {
             return project_dirs.config_dir().join(config_file_name);
         }
         config_file_name.into()
