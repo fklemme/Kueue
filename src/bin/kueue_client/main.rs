@@ -9,7 +9,7 @@ use kueue::{
 };
 use sha2::{Digest, Sha256};
 use simple_logger::SimpleLogger;
-use std::error::Error;
+use std::{error::Error, fs::canonicalize};
 use tokio::net::TcpStream;
 
 #[derive(Parser, Debug)]
@@ -75,6 +75,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // Issue job.
             assert!(!cmd.is_empty());
             let cwd = std::env::current_dir()?;
+            let cwd = canonicalize(cwd)?;
             let message = ClientToServerMessage::IssueJob(JobInfo::new(cmd, cwd));
             stream.send(&message).await?;
 

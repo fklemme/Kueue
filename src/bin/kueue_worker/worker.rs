@@ -225,10 +225,12 @@ impl Worker {
                 Ok(())
             }
             ServerToWorkerMessage::OfferJob(job_info) => {
-                // TODO: Make some smart checks whether or not to accept the job offer
-                if ((self.running_jobs.len() + self.offered_jobs.len()) as u32)
-                    < self.max_parallel_jobs
-                {
+                // Make some smart checks whether or not to accept the job offer.
+                let free_slots = ((self.running_jobs.len() + self.offered_jobs.len()) as u32)
+                    < self.max_parallel_jobs;
+                let cwd_available = job_info.cwd.is_dir();
+
+                if free_slots && cwd_available {
                     // Accept job offer
                     self.offered_jobs.push(Job::new(
                         job_info.clone(),
