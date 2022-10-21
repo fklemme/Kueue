@@ -9,7 +9,7 @@ use kueue::{
 };
 use sha2::{Digest, Sha256};
 use simple_logger::SimpleLogger;
-use std::{error::Error, net::Ipv4Addr, str::FromStr};
+use std::error::Error;
 use tokio::net::TcpStream;
 
 #[derive(Parser, Debug)]
@@ -53,10 +53,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Connect to server.
-    let server_addr = (
-        Ipv4Addr::from_str(&config.server_address)?,
-        config.server_port,
-    );
+    let server_addr = config.get_server_address().await?;
     let stream = TcpStream::connect(server_addr).await?;
     let mut stream = MessageStream::new(stream);
 

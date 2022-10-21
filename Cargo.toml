@@ -1,6 +1,6 @@
 [package]
 name = "kueue"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Florian Klemme <mail@florianklemme.de>"]
 edition = "2021"
 description = "A robust, user-level, work-stealing distributed task scheduler."
@@ -22,6 +22,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 simple_logger = "2.3"
+ssh2 = "0.9"
 sysinfo = "0.26"
 terminal_size = "0.2"
 tokio = { version = "1.21", features = ["full"] }

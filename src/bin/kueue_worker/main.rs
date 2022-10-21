@@ -3,7 +3,6 @@ mod worker;
 
 use kueue::config::Config;
 use simple_logger::SimpleLogger;
-use std::{net::Ipv4Addr, str::FromStr};
 use worker::Worker;
 
 #[tokio::main]
@@ -27,10 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Connect to server and process work.
-    let server_addr = (
-        Ipv4Addr::from_str(&config.server_address)?,
-        config.server_port,
-    );
+    let server_addr = config.get_server_address().await?;
     let mut worker = Worker::new(worker_name, config, server_addr).await?;
     worker.run().await // do worker things
 }

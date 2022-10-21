@@ -13,7 +13,7 @@ use simple_logger::SimpleLogger;
 use std::{
     net::Ipv4Addr,
     str::FromStr,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex}, error::Error,
 };
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -22,7 +22,7 @@ use tokio::{
 use worker_connection::WorkerConnection;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn Error>> {
     // Initialize logger.
     SimpleLogger::new().init().unwrap();
 
