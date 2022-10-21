@@ -1,22 +1,40 @@
 use crate::job_manager::Manager;
-use kueue::messages::{
-    stream::{MessageError, MessageStream},
-    ClientToServerMessage, ServerToClientMessage,
+use kueue::{
+    config::Config,
+    messages::{stream::MessageStream, ClientToServerMessage, ServerToClientMessage},
 };
-use std::sync::{Arc, Mutex};
+use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use sha2::{Digest, Sha256};
+use std::{
+    error::Error,
+    sync::{Arc, Mutex},
+};
 
 pub struct ClientConnection {
     stream: MessageStream,
     manager: Arc<Mutex<Manager>>,
+    config: Config,
     connection_closed: bool,
+    authenticated: bool,
+    salt: String,
 }
 
 impl ClientConnection {
-    pub fn new(stream: MessageStream, manager: Arc<Mutex<Manager>>) -> Self {
+    pub fn new(stream: MessageStream, manager: Arc<Mutex<Manager>>, config: Config) -> Self {
+        // Salt is generated for each client connection.
+        let salt: String = thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(30)
+            .map(char::from)
+            .collect();
+
         ClientConnection {
             stream,
             manager,
+            config,
             connection_closed: false,
+            authenticated: false,
+            salt,
         }
     }
 
@@ -26,7 +44,6 @@ impl ClientConnection {
         while !self.connection_closed {
             match self.stream.receive::<ClientToServerMessage>().await {
                 Ok(message) => {
-                    log::debug!("Received message: {:?}", message);
                     if let Err(e) = self.handle_message(message).await {
                         log::error!("Failed to handle message: {}", e);
                         self.connection_closed = true; // end client session
@@ -40,9 +57,45 @@ impl ClientConnection {
         }
     }
 
-    async fn handle_message(&mut self, message: ClientToServerMessage) -> Result<(), MessageError> {
+    fn is_authenticated(&self) -> Result<(), Box<dyn Error>> {
+        if self.authenticated {
+            Ok(())
+        } else {
+            Err("Client is not authenticated!".into())
+        }
+    }
+
+    async fn handle_message(
+        &mut self,
+        message: ClientToServerMessage,
+    ) -> Result<(), Box<dyn Error>> {
         match message {
+            ClientToServerMessage::AuthRequest => {
+                // Send salt to client.
+                let message = ServerToClientMessage::AuthChallenge(self.salt.clone());
+                self.stream.send(&message).await?;
+                Ok(())
+            }
+            ClientToServerMessage::AuthResponse(response) => {
+                // Calculate baseline result.
+                let salted_secret = self.config.shared_secret.clone() + &self.salt;
+                let salted_secret = salted_secret.into_bytes();
+                let mut hasher = Sha256::new();
+                hasher.update(salted_secret);
+                let baseline = hasher.finalize().to_vec();
+                let baseline = base64::encode(baseline);
+
+                // Update status and send reply.
+                if response == baseline {
+                    self.authenticated = true;
+                }
+                let message = ServerToClientMessage::AuthAccepted(self.authenticated);
+                self.stream.send(&message).await?;
+                Ok(())
+            }
             ClientToServerMessage::IssueJob(job_info) => {
+                self.is_authenticated()?;
+
                 // Add new job. We create a new JobInfo instance to make sure to
                 // not adopt remote (non-unique) job ids or inconsistent states.
                 let job = self
@@ -60,7 +113,6 @@ impl ClientConnection {
                 // Notify workers
                 let new_jobs = self.manager.lock().unwrap().new_jobs();
                 new_jobs.notify_waiters();
-
                 Ok(())
             }
             ClientToServerMessage::ListJobs => {
@@ -70,7 +122,8 @@ impl ClientConnection {
                 // Send response to client
                 self.stream
                     .send(&ServerToClientMessage::JobList(job_list))
-                    .await
+                    .await?;
+                Ok(())
             }
             ClientToServerMessage::ListWorkers => {
                 // Get worker list
@@ -79,12 +132,12 @@ impl ClientConnection {
                 // Send response to client
                 self.stream
                     .send(&ServerToClientMessage::WorkerList(worker_list))
-                    .await
+                    .await?;
+                Ok(())
             }
             ClientToServerMessage::Bye => {
                 log::trace!("Bye client!");
                 self.connection_closed = true;
-
                 Ok(())
             }
         }

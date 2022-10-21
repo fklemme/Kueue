@@ -15,6 +15,10 @@ pub enum HelloMessage {
 // All messages sent by the client to the server
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ClientToServerMessage {
+    // Request authentification challenge.
+    AuthRequest,
+    // Send Sha256(secret + salt) back to server.
+    AuthResponse(String),
     IssueJob(JobInfo),
     ListJobs,
     ListWorkers,
@@ -24,8 +28,12 @@ pub enum ClientToServerMessage {
 // All messages sent by the server to a client
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ServerToClientMessage {
-    // Respond with WelcomeClient after HelloFromClient
+    // Respond with WelcomeClient after HelloFromClient.
     WelcomeClient,
+    // AuthChallenge sends a random salt to the client.
+    AuthChallenge(String),
+    // Let client know if authentification succeeded.
+    AuthAccepted(bool),
     AcceptJob(JobInfo),
     //RejectJob,
     JobList(Vec<JobInfo>),
@@ -37,6 +45,8 @@ pub enum ServerToClientMessage {
 pub enum ServerToWorkerMessage {
     // Respond with WelcomeWorker after HelloFromWorker
     WelcomeWorker,
+    // AuthChallenge sends a random salt to the client.
+    AuthChallenge(String),
     OfferJob(JobInfo),
     ConfirmJobOffer(JobInfo),
     WithdrawJobOffer(JobInfo),
@@ -45,6 +55,8 @@ pub enum ServerToWorkerMessage {
 // All messages sent by the worker to the server
 #[derive(Serialize, Deserialize, Debug)]
 pub enum WorkerToServerMessage {
+    // Send Sha256(secret + salt) back to server.
+    AuthResponse(String),
     UpdateHwInfo(HwInfo),
     UpdateLoadInfo(LoadInfo),
     UpdateJobStatus(JobInfo),

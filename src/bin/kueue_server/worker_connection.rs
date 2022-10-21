@@ -1,12 +1,15 @@
 use crate::job_manager::{Manager, Worker};
 use chrono::Utc;
 use kueue::{
+    config::Config,
     messages::{
         stream::{MessageError, MessageStream},
         ServerToWorkerMessage, WorkerToServerMessage,
     },
     structs::JobStatus,
 };
+use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeSet,
     error::Error,
@@ -18,28 +21,59 @@ pub struct WorkerConnection {
     name: String,
     stream: MessageStream,
     manager: Arc<Mutex<Manager>>,
+    config: Config,
     worker: Arc<Mutex<Worker>>,
     rejected_jobs: BTreeSet<u64>,
     connection_closed: bool,
+    authenticated: bool,
+    salt: String,
 }
 
 impl WorkerConnection {
-    pub fn new(name: String, stream: MessageStream, manager: Arc<Mutex<Manager>>) -> Self {
+    pub fn new(
+        name: String,
+        stream: MessageStream,
+        manager: Arc<Mutex<Manager>>,
+        config: Config,
+    ) -> Self {
         let worker = manager.lock().unwrap().add_new_worker(name.clone());
         let id = worker.lock().unwrap().id;
+
+        // Salt is generated for each worker.
+        let salt: String = thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(30)
+            .map(char::from)
+            .collect();
+
         WorkerConnection {
             id,
             name,
             stream,
             manager,
+            config,
             worker,
             rejected_jobs: BTreeSet::new(),
             connection_closed: false,
+            authenticated: false,
+            salt,
         }
     }
 
     pub async fn run(&mut self) {
         // Hello/Welcome messages are already exchanged at this point.
+
+        // Send authentification challenge.
+        let message = ServerToWorkerMessage::AuthChallenge(self.salt.clone());
+        match self.stream.send(&message).await {
+            Ok(()) => {
+                log::trace!("Send authentification challenge!");
+            }
+            Err(e) => {
+                log::error!("Failed to send AuthChallenge: {}", e);
+                return;
+            }
+        }
 
         // Notify for newly available jobs
         let new_jobs = self.manager.lock().unwrap().new_jobs();
@@ -80,11 +114,36 @@ impl WorkerConnection {
         //self.worker.lock().unwrap().connected = false;
     }
 
+    fn is_authenticated(&self) -> Result<(), Box<dyn Error>> {
+        if self.authenticated {
+            Ok(())
+        } else {
+            Err(format!("Worker {} is not authenticated!", self.name).into())
+        }
+    }
+
     async fn handle_message(
         &mut self,
         message: WorkerToServerMessage,
     ) -> Result<(), Box<dyn Error>> {
         match message {
+            WorkerToServerMessage::AuthResponse(response) => {
+                // Calculate baseline result.
+                let salted_secret = self.config.shared_secret.clone() + &self.salt;
+                let salted_secret = salted_secret.into_bytes();
+                let mut hasher = Sha256::new();
+                hasher.update(salted_secret);
+                let baseline = hasher.finalize().to_vec();
+                let baseline = base64::encode(baseline);
+
+                // Pass or die!
+                if response == baseline {
+                    self.authenticated = true;
+                    Ok(())
+                } else {
+                    Err(format!("Worker {} failed authentification!", self.name).into())
+                }
+            }
             WorkerToServerMessage::UpdateHwInfo(hw_info) => {
                 // Update information in shared worker object.
                 self.worker.lock().unwrap().info.hw = hw_info;
@@ -99,6 +158,8 @@ impl WorkerConnection {
                 Ok(()) // No response to worker needed.
             }
             WorkerToServerMessage::UpdateJobStatus(job_info) => {
+                self.is_authenticated()?;
+
                 // Update job info with whatever the worker sends us.
                 let option_job = self.manager.lock().unwrap().get_job(job_info.id);
                 if let Some(job) = option_job {
@@ -145,6 +206,8 @@ impl WorkerConnection {
             }
             // This will also trigger the first jobs offered to the worker
             WorkerToServerMessage::AcceptParallelJobs(num) => {
+                self.is_authenticated()?;
+
                 let free_slots = {
                     let mut worker_lock = self.worker.lock().unwrap();
                     worker_lock.info.max_parallel_jobs = num;
@@ -158,6 +221,8 @@ impl WorkerConnection {
                 Ok(())
             }
             WorkerToServerMessage::AcceptJobOffer(job_info) => {
+                self.is_authenticated()?;
+
                 let option_job = self.manager.lock().unwrap().get_job(job_info.id);
                 if let Some(job) = option_job {
                     let job_info = {
@@ -208,6 +273,8 @@ impl WorkerConnection {
                 Ok(())
             }
             WorkerToServerMessage::RejectJobOffer(job_info) => {
+                self.is_authenticated()?;
+
                 let option_job = self.manager.lock().unwrap().get_job(job_info.id);
                 if let Some(job) = option_job {
                     // Perform small check and update job status.

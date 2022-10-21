@@ -58,17 +58,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log::trace!("New connection from {}!", addr);
 
         // New reference-counted pointer to job manager
-        let ss = Arc::clone(&manager);
+        let manager = Arc::clone(&manager);
 
+        let config = config.clone();
         tokio::spawn(async move {
             // Process each connection concurrently
-            handle_connection(stream, ss).await;
+            handle_connection(stream, manager, config).await;
             log::trace!("Closed connection to {}!", addr);
         });
     }
 }
 
-async fn handle_connection(stream: TcpStream, manager: Arc<Mutex<Manager>>) {
+async fn handle_connection(stream: TcpStream, manager: Arc<Mutex<Manager>>, config: Config) {
     // Read hello message to distinguish between client and worker
     let mut stream = MessageStream::new(stream);
     match stream.receive::<HelloMessage>().await {
@@ -77,7 +78,7 @@ async fn handle_connection(stream: TcpStream, manager: Arc<Mutex<Manager>>) {
             match stream.send(&ServerToClientMessage::WelcomeClient).await {
                 Ok(()) => {
                     log::trace!("Established connection to client!");
-                    let mut client = ClientConnection::new(stream, manager);
+                    let mut client = ClientConnection::new(stream, manager, config);
                     client.run().await;
                 }
                 Err(e) => log::error!("Failed to send WelcomeClient: {}", e),
@@ -88,12 +89,14 @@ async fn handle_connection(stream: TcpStream, manager: Arc<Mutex<Manager>>) {
             match stream.send(&ServerToWorkerMessage::WelcomeWorker).await {
                 Ok(()) => {
                     log::trace!("Established connection to worker '{}'!", name);
-                    let mut worker = WorkerConnection::new(name, stream, manager);
+                    let mut worker = WorkerConnection::new(name.clone(), stream, manager, config);
                     worker.run().await;
                 }
                 Err(e) => log::error!("Failed to send WelcomeWorker: {}", e),
             }
+            log::warn!("Connection to worker {} closed!", name);
         }
+        // Warn, because this should not be common.
         Err(e) => log::error!("Failed to read HelloMessage: {}", e),
     }
 }

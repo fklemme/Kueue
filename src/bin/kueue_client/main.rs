@@ -7,8 +7,9 @@ use kueue::{
     messages::{ClientToServerMessage, HelloMessage, ServerToClientMessage},
     structs::JobInfo,
 };
+use sha2::{Digest, Sha256};
 use simple_logger::SimpleLogger;
-use std::{net::Ipv4Addr, str::FromStr};
+use std::{error::Error, net::Ipv4Addr, str::FromStr};
 use tokio::net::TcpStream;
 
 #[derive(Parser, Debug)]
@@ -33,7 +34,7 @@ enum Command {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn Error>> {
     // Initialize logger.
     SimpleLogger::new()
         .with_level(log::LevelFilter::Info)
@@ -68,18 +69,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         other => return Err(format!("Expected WelcomeClient, received: {:?}", other).into()),
     }
 
-    // TODO: Implement encryption & authentification
-
     // Process subcommand
     match args.command {
         Command::Cmd(cmd) => {
-            // Issue job
+            // This command requires authentification.
+            authenticate(&mut stream, &config).await?;
+
+            // Issue job.
             assert!(!cmd.is_empty());
             let cwd = std::env::current_dir()?;
             let message = ClientToServerMessage::IssueJob(JobInfo::new(cmd, cwd));
             stream.send(&message).await?;
 
-            // Await acceptance
+            // Await acceptance.
             match stream.receive::<ServerToClientMessage>().await? {
                 ServerToClientMessage::AcceptJob(job_info) => {
                     log::debug!("Job submitted successfully!");
@@ -91,11 +93,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Command::ListJobs => {
-            // Query jobs
-            let message = ClientToServerMessage::ListJobs;
-            stream.send(&message).await?;
+            // Query jobs.
+            stream.send(&ClientToServerMessage::ListJobs).await?;
 
-            // Await results
+            // Await results.
             match stream.receive::<ServerToClientMessage>().await? {
                 ServerToClientMessage::JobList(job_list) => {
                     print::job_list(job_list);
@@ -107,8 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Command::ListWorkers => {
             // Query workers
-            let message = ClientToServerMessage::ListWorkers;
-            stream.send(&message).await?;
+            stream.send(&ClientToServerMessage::ListWorkers).await?;
 
             // Await results
             match stream.receive::<ServerToClientMessage>().await? {
@@ -126,4 +126,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     stream.send(&ClientToServerMessage::Bye).await?;
 
     Ok(())
+}
+
+async fn authenticate(stream: &mut MessageStream, config: &Config) -> Result<(), Box<dyn Error>> {
+    // Request authentification.
+    stream.send(&ClientToServerMessage::AuthRequest).await?;
+
+    // Await authentification challenge.
+    match stream.receive::<ServerToClientMessage>().await? {
+        ServerToClientMessage::AuthChallenge(salt) => {
+            // Calculate response.
+            let salted_secret = config.shared_secret.clone() + &salt;
+            let salted_secret = salted_secret.into_bytes();
+            let mut hasher = Sha256::new();
+            hasher.update(salted_secret);
+            let response = hasher.finalize().to_vec();
+            let response = base64::encode(response);
+
+            // Send response back to server.
+            let message = ClientToServerMessage::AuthResponse(response);
+            stream.send(&message).await?;
+        }
+        other => {
+            return Err(format!("Expected AuthChallenge, received: {:?}", other).into());
+        }
+    }
+
+    // Await authentification confirmation.
+    match stream.receive::<ServerToClientMessage>().await? {
+        ServerToClientMessage::AuthAccepted(accepted) => {
+            if accepted {
+                Ok(())
+            } else {
+                Err("Authentification failed!".into())
+            }
+        }
+        other => Err(format!("Expected AuthAccepted, received: {:?}", other).into()),
+    }
 }
