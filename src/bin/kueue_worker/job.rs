@@ -86,10 +86,15 @@ impl Job {
                     result_lock.finished = true;
                     result_lock.exit_code = output.status.code().unwrap_or(-44);
                     result_lock.run_time = finish_time - start_time;
-                    result_lock.stdout =
-                        String::from_utf8(output.stdout).unwrap_or("failed to parse utf-8".into());
-                    result_lock.stderr =
-                        String::from_utf8(output.stderr).unwrap_or("failed to parse utf-8".into());
+                    result_lock.stdout = String::from_utf8(output.stdout)
+                        .unwrap_or("failed to parse stdout into utf-8 string".into());
+                    result_lock.stderr = String::from_utf8(output.stderr)
+                        .unwrap_or("failed to parse stderr into utf-8 string".into());
+
+                    if result_lock.exit_code != 0 {
+                        // Debugging only. Maybe should be removed in the future.
+                        log::debug!("Job failed! Stderr: {}", result_lock.stderr);
+                    }
                 }
                 Err(e) => {
                     log::error!("Error while waiting for child process: {}", e);
