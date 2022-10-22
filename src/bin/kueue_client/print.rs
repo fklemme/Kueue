@@ -1,3 +1,4 @@
+use chrono::Utc;
 use console::style;
 use kueue::structs::{JobInfo, JobStatus, WorkerInfo};
 use terminal_size::terminal_size;
@@ -121,7 +122,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
         println!("No workers registered on server!");
     } else {
         let default_col_space: usize = 20;
-        let space_other_cols: usize = 55;
+        let space_other_cols: usize = 66;
 
         // Try to detect terminal size
         let term_size = terminal_size();
@@ -141,13 +142,14 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
 
         // Print header
         println!(
-            "| {: <worker_col$} | {: <os_col$} | {: ^5} | {: ^10} | {: ^7} | {: ^14} |",
+            "| {: <worker_col$} | {: <os_col$} | {: ^5} | {: ^10} | {: ^7} | {: ^14} | {: ^8} |",
             style("worker name").bold().underlined(),
             style("operating system").bold().underlined(),
             style("cpu").bold().underlined(),
             style("memory").bold().underlined(),
             style("jobs").bold().underlined(),
             style("load 1/5/15m").bold().underlined(),
+            style("uptime").bold().underlined(),
         );
 
         for info in worker_list {
@@ -198,9 +200,15 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             let load_five = load_style(info.load.five);
             let load_fifteen = load_style(info.load.fifteen);
 
+            let uptime = Utc::now() - info.connected_since;
+            let uptime = {
+                let hours = uptime.num_hours() % 24;
+                format!("{}d {: >2}h", uptime.num_days(), hours)
+            };
+
             // Print line
             println!(
-                "| {: <worker_col$} | {: <os_col$} | {: >5} | {: >10} | {: ^7} | {: >4} {: >4} {: >4} |",
+                "| {: <worker_col$} | {: <os_col$} | {: >5} | {: >10} | {: ^7} | {: >4} {: >4} {: >4} | {: >8} |",
                 worker_name,
                 operation_system,
                 cpu_cores,
@@ -208,7 +216,8 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
                 running_jobs,
                 load_one,
                 load_five,
-                load_fifteen
+                load_fifteen,
+                uptime
             );
         }
     }
