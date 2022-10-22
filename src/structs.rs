@@ -70,6 +70,7 @@ impl JobStatus {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct WorkerInfo {
     pub name: String,
+    pub connected_since: DateTime<Utc>,
     pub hw: HwInfo,
     pub load: LoadInfo,
     pub last_updated: DateTime<Utc>,
@@ -82,6 +83,7 @@ impl WorkerInfo {
     pub fn new(name: String) -> Self {
         WorkerInfo {
             name,
+            connected_since: Utc::now(),
             hw: HwInfo::default(),
             load: LoadInfo::default(),
             last_updated: Utc::now(),

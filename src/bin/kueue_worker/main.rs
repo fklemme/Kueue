@@ -30,6 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Connect to server and process work.
     let server_addr = config.get_server_address().await?;
+    log::debug!("Server address: {}", server_addr);
     let mut worker = Worker::new(worker_name, config, server_addr).await?;
     worker.run().await // do worker things
 }

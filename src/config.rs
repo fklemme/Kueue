@@ -27,11 +27,12 @@ pub fn default_path() -> PathBuf {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Config {
     pub log_level: String,
-    pub server_bind_address: String,
+    pub server_bind_v4: Option<String>,
+    pub server_bind_v6: Option<String>,
     pub server_address: String,
     pub server_port: u16,
     pub shared_secret: String,
-    pub restart_workers: RestartWorkers,
+    pub restart_workers: Option<RestartWorkers>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -59,7 +60,8 @@ impl Config {
 
         let s = config::Config::builder()
             .set_default("log_level", default_log_level)?
-            .set_default("server_bind_address", "0.0.0.0")?
+            .set_default("server_bind_v4", "0.0.0.0")?
+            .set_default("server_bind_v6", "[::]")?
             .set_default("server_address", "localhost")?
             .set_default("server_port", 11236)?
             .set_default("shared_secret", random_secret)?

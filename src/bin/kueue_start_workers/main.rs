@@ -6,12 +6,12 @@ use std::{error::Error, io::Read, net::TcpStream};
 fn main() {
     // Read configuration from file or defaults.
     let config = Config::new().expect("Failed to load config!");
-    let ssh_user = config.restart_workers.ssh_user.clone();
-    let workers: Vec<_> = config
+    let restart_workers = config
         .restart_workers
-        .hostnames
-        .split_whitespace()
-        .collect();
+        .clone()
+        .expect("[restart_workers] missing!");
+    let ssh_user = restart_workers.ssh_user;
+    let workers: Vec<_> = restart_workers.hostnames.split_whitespace().collect();
 
     // Initialize logger.
     SimpleLogger::new()
