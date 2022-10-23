@@ -3,6 +3,7 @@ mod job_manager;
 mod worker_connection;
 
 use client_connection::ClientConnection;
+use futures::future::join_all;
 use job_manager::Manager;
 use kueue::{
     config::Config,
@@ -17,7 +18,6 @@ use std::{
 use tokio::{
     net::{TcpListener, TcpStream},
     time::{sleep, Duration},
-    try_join,
 };
 use worker_connection::WorkerConnection;
 
@@ -50,47 +50,32 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     // Start accepting incoming connections.
-    let listening_on_ipv4 = spawn_listener_on(
-        config.server_bind_v4.clone(),
-        config.server_port.clone(),
-        config.clone(),
-        manager.clone(),
-    );
-    let listening_on_ipv6 = spawn_listener_on(
-        config.server_bind_v6.clone(),
-        config.server_port.clone(),
-        config.clone(),
-        manager.clone(),
-    );
+    let bind_addresses: Vec<&str> = config.server_binds.split_whitespace().collect();
+    let listeners = bind_addresses
+        .iter()
+        .map(|addr| {
+            listen_on(
+                addr.to_string(),
+                config.server_port.clone(),
+                config.clone(),
+                manager.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    join_all(listeners).await;
 
-    // This will wait until one of the sockets returns with an error.
-    let listening_result = try_join!(listening_on_ipv4, listening_on_ipv6);
-
-    // If we return, either an error was thrown or both listenings were not configured and returned false.
-    let (listened_on_ipv4, listened_on_ipv6) = listening_result?;
-
-    if listened_on_ipv4 || listened_on_ipv6 {
-        Ok(()) // I think, everything went okay.
-    } else {
-        Err("Neither IPv4 nor IPv6 bind was configured!".into())
-    }
+    Ok(())
 }
 
-/// Returns true if connections are accepted on this socket.
-async fn spawn_listener_on(
-    address: Option<String>,
+async fn listen_on(
+    address: String,
     port: u16,
     config: Config,
     manager: Arc<Mutex<Manager>>,
-) -> Result<bool, Box<dyn Error>> {
-    let listener = match address {
-        Some(address) => TcpListener::bind(format!("{}:{}", address, port)).await?,
-        None => {
-            return Ok(false); // this address is not configured
-        }
-    };
-
+) -> Result<(), Box<dyn Error>> {
+    let listener = TcpListener::bind(format!("{}:{}", address, port)).await?;
     log::debug!("Start listening on {}...", listener.local_addr().unwrap());
+
     loop {
         let (stream, addr) = listener.accept().await?;
         log::trace!("New connection from {}!", addr);
@@ -105,8 +90,6 @@ async fn spawn_listener_on(
             log::trace!("Closed connection to {}!", addr);
         });
     }
-
-    // There is not Ok(true). This part is unreachable.
 }
 
 async fn handle_connection(stream: TcpStream, manager: Arc<Mutex<Manager>>, config: Config) {

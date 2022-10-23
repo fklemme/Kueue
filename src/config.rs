@@ -5,9 +5,8 @@ use std::{
     error::Error,
     fs::{create_dir_all, File},
     io::Write,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::SocketAddr,
     path::PathBuf,
-    str::FromStr,
 };
 use tokio::net::lookup_host;
 
@@ -27,9 +26,8 @@ pub fn default_path() -> PathBuf {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Config {
     pub log_level: String,
-    pub server_bind_v4: Option<String>,
-    pub server_bind_v6: Option<String>,
-    pub server_address: String,
+    pub server_binds: String,
+    pub server_name: String,
     pub server_port: u16,
     pub shared_secret: String,
     pub restart_workers: Option<RestartWorkers>,
@@ -60,9 +58,8 @@ impl Config {
 
         let s = config::Config::builder()
             .set_default("log_level", default_log_level)?
-            .set_default("server_bind_v4", "0.0.0.0")?
-            .set_default("server_bind_v6", "[::]")?
-            .set_default("server_address", "localhost")?
+            .set_default("server_binds", "0.0.0.0 [::]")?
+            .set_default("server_name", "localhost")?
             .set_default("server_port", 11236)?
             .set_default("shared_secret", random_secret)?
             .add_source(config::File::with_name(&config_path).required(false))
@@ -105,21 +102,11 @@ impl Config {
     }
 
     pub async fn get_server_address(&self) -> Result<SocketAddr, Box<dyn Error>> {
-        match Ipv4Addr::from_str(&self.server_address) {
-            Ok(ip_address) => Ok(SocketAddr::new(IpAddr::V4(ip_address), self.server_port)),
-            Err(_e) => {
-                // Let's try to look up hostname
-                let host = format!("{}:{}", self.server_address, self.server_port);
-                let mut addr_iter = lookup_host(host).await?;
-                match addr_iter.next() {
-                    Some(socket_address) => Ok(socket_address),
-                    None => Err(format!(
-                        "Could not resolve server address: {}",
-                        self.server_address
-                    )
-                    .into()),
-                }
-            }
+        let host = format!("{}:{}", self.server_name, self.server_port);
+        let mut addr_iter = lookup_host(host).await?;
+        match addr_iter.next() {
+            Some(socket_address) => Ok(socket_address),
+            None => Err(format!("Could not resolve server address: {}", self.server_name).into()),
         }
     }
 }

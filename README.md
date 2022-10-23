@@ -29,8 +29,8 @@ Upon first start of any binary, a template config file is created at `~/.config/
 Make sure that the shared secreted in the that file is the same on all systems.
 
     log_level = "info"
-    server_bind_address = "0.0.0.0"
-    server_address = "ralab29"
+    server_binds = "0.0.0.0 [::]"
+    server_name = "ralab29"
     server_port = 11236
     shared_secret = "keep private!"
 
