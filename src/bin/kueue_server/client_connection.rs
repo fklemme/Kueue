@@ -1,14 +1,12 @@
 use crate::job_manager::Manager;
+use anyhow::{anyhow, Result};
 use kueue::{
     config::Config,
     messages::{stream::MessageStream, ClientToServerMessage, ServerToClientMessage},
 };
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use sha2::{Digest, Sha256};
-use std::{
-    error::Error,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 pub struct ClientConnection {
     stream: MessageStream,
@@ -57,18 +55,15 @@ impl ClientConnection {
         }
     }
 
-    fn is_authenticated(&self) -> Result<(), Box<dyn Error>> {
+    fn is_authenticated(&self) -> Result<()> {
         if self.authenticated {
             Ok(())
         } else {
-            Err("Client is not authenticated!".into())
+            Err(anyhow!("Client is not authenticated!"))
         }
     }
 
-    async fn handle_message(
-        &mut self,
-        message: ClientToServerMessage,
-    ) -> Result<(), Box<dyn Error>> {
+    async fn handle_message(&mut self, message: ClientToServerMessage) -> Result<()> {
         match message {
             ClientToServerMessage::AuthRequest => {
                 // Send salt to client.

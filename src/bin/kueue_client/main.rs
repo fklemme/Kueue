@@ -1,5 +1,6 @@
 mod print;
 
+use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use kueue::{
     config::{default_path, Config},
@@ -9,7 +10,7 @@ use kueue::{
 };
 use sha2::{Digest, Sha256};
 use simple_logger::SimpleLogger;
-use std::{error::Error, fs::canonicalize};
+use std::fs::canonicalize;
 use tokio::net::TcpStream;
 
 #[derive(Parser, Debug)]
@@ -34,7 +35,7 @@ enum Command {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<()> {
     // Read command line arguments.
     let args = Args::parse();
     log::debug!("{:?}", args);
@@ -63,7 +64,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Await welcoming response from server.
     match stream.receive::<ServerToClientMessage>().await? {
         ServerToClientMessage::WelcomeClient => log::trace!("Established connection to server!"), // continue
-        other => return Err(format!("Expected WelcomeClient, received: {:?}", other).into()),
+        other => return Err(anyhow!("Expected WelcomeClient, received: {:?}", other)),
     }
 
     // Process subcommand
@@ -86,7 +87,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     log::info!("Job ID: {}", job_info.id);
                 }
                 other => {
-                    return Err(format!("Expected AcceptJob, received: {:?}", other).into());
+                    return Err(anyhow!("Expected AcceptJob, received: {:?}", other));
                 }
             }
         }
@@ -100,7 +101,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     print::job_list(job_list);
                 }
                 other => {
-                    return Err(format!("Expected JobList, received: {:?}", other).into());
+                    return Err(anyhow!("Expected JobList, received: {:?}", other));
                 }
             }
         }
@@ -114,7 +115,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     print::worker_list(worker_list);
                 }
                 other => {
-                    return Err(format!("Expected WorkerList, received: {:?}", other).into());
+                    return Err(anyhow!("Expected WorkerList, received: {:?}", other));
                 }
             }
         }
@@ -126,7 +127,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn authenticate(stream: &mut MessageStream, config: &Config) -> Result<(), Box<dyn Error>> {
+async fn authenticate(stream: &mut MessageStream, config: &Config) -> Result<()> {
     // Request authentification.
     stream.send(&ClientToServerMessage::AuthRequest).await?;
 
@@ -146,7 +147,7 @@ async fn authenticate(stream: &mut MessageStream, config: &Config) -> Result<(),
             stream.send(&message).await?;
         }
         other => {
-            return Err(format!("Expected AuthChallenge, received: {:?}", other).into());
+            return Err(anyhow!("Expected AuthChallenge, received: {:?}", other));
         }
     }
 
@@ -156,9 +157,9 @@ async fn authenticate(stream: &mut MessageStream, config: &Config) -> Result<(),
             if accepted {
                 Ok(())
             } else {
-                Err("Authentification failed!".into())
+                Err(anyhow!("Authentification failed!"))
             }
         }
-        other => Err(format!("Expected AuthAccepted, received: {:?}", other).into()),
+        other => Err(anyhow!("Expected AuthAccepted, received: {:?}", other)),
     }
 }

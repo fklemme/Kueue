@@ -1,8 +1,8 @@
+use anyhow::{anyhow, Result};
 use directories::ProjectDirs;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use std::{
-    error::Error,
     fs::{create_dir_all, File},
     io::Write,
     net::SocketAddr,
@@ -68,7 +68,7 @@ impl Config {
         s.try_deserialize()
     }
 
-    pub fn create_default_config(&self) -> Result<(), Box<dyn Error>> {
+    pub fn create_default_config(&self) -> Result<()> {
         let config_path = default_path();
         let toml = toml::to_vec(&self)?;
 
@@ -101,12 +101,15 @@ impl Config {
         }
     }
 
-    pub async fn get_server_address(&self) -> Result<SocketAddr, Box<dyn Error>> {
+    pub async fn get_server_address(&self) -> Result<SocketAddr> {
         let host = format!("{}:{}", self.server_name, self.server_port);
         let mut addr_iter = lookup_host(host).await?;
         match addr_iter.next() {
             Some(socket_address) => Ok(socket_address),
-            None => Err(format!("Could not resolve server address: {}", self.server_name).into()),
+            None => Err(anyhow!(
+                "Could not resolve server address: {}",
+                self.server_name
+            )),
         }
     }
 }

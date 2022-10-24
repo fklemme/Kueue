@@ -1,7 +1,7 @@
+use anyhow::Result;
 use chrono::{Duration, Utc};
 use kueue::structs::{JobInfo, JobStatus};
 use std::{
-    error::Error,
     process::Stdio,
     sync::{Arc, Mutex},
 };
@@ -38,7 +38,7 @@ impl Job {
         }
     }
 
-    pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn run(&mut self) -> Result<()> {
         // Update job status
         let job_status = &self.info.status;
         if let JobStatus::Offered {

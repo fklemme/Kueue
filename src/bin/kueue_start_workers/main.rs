@@ -1,7 +1,8 @@
+use anyhow::Result;
 use kueue::config::Config;
 use simple_logger::SimpleLogger;
 use ssh2::Session;
-use std::{error::Error, io::Read, net::TcpStream};
+use std::{io::Read, net::TcpStream};
 
 fn main() {
     // Read configuration from file or defaults.
@@ -26,7 +27,7 @@ fn main() {
     }
 }
 
-fn process_worker(worker: &str, ssh_user: &str) -> Result<(), Box<dyn Error>> {
+fn process_worker(worker: &str, ssh_user: &str) -> Result<()> {
     log::trace!("Processing worker {}...", worker);
 
     // TODO: Requires some kind of "ssh-add ~/.ssh/id_rsa"

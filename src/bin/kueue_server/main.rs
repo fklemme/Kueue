@@ -2,6 +2,7 @@ mod client_connection;
 mod job_manager;
 mod worker_connection;
 
+use anyhow::Result;
 use client_connection::ClientConnection;
 use futures::future::join_all;
 use job_manager::Manager;
@@ -11,10 +12,7 @@ use kueue::{
     messages::{HelloMessage, ServerToClientMessage, ServerToWorkerMessage},
 };
 use simple_logger::SimpleLogger;
-use std::{
-    error::Error,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 use tokio::{
     net::{TcpListener, TcpStream},
     time::{sleep, Duration},
@@ -22,7 +20,7 @@ use tokio::{
 use worker_connection::WorkerConnection;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<()> {
     // Read configuration from file or defaults.
     let config = Config::new()?;
     // If there is no config file, create template.
@@ -72,7 +70,7 @@ async fn listen_on(
     port: u16,
     config: Config,
     manager: Arc<Mutex<Manager>>,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<()> {
     let listener = TcpListener::bind(format!("{}:{}", address, port)).await?;
     log::debug!("Start listening on {}...", listener.local_addr().unwrap());
 

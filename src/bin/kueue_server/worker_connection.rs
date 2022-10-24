@@ -1,4 +1,5 @@
 use crate::job_manager::{Manager, Worker};
+use anyhow::{anyhow, Result};
 use chrono::Utc;
 use kueue::{
     config::Config,
@@ -12,7 +13,6 @@ use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeSet,
-    error::Error,
     sync::{Arc, Mutex},
 };
 
@@ -114,18 +114,15 @@ impl WorkerConnection {
         //self.worker.lock().unwrap().connected = false;
     }
 
-    fn is_authenticated(&self) -> Result<(), Box<dyn Error>> {
+    fn is_authenticated(&self) -> Result<()> {
         if self.authenticated {
             Ok(())
         } else {
-            Err(format!("Worker {} is not authenticated!", self.name).into())
+            Err(anyhow!("Worker {} is not authenticated!", self.name))
         }
     }
 
-    async fn handle_message(
-        &mut self,
-        message: WorkerToServerMessage,
-    ) -> Result<(), Box<dyn Error>> {
+    async fn handle_message(&mut self, message: WorkerToServerMessage) -> Result<()> {
         match message {
             WorkerToServerMessage::AuthResponse(response) => {
                 // Calculate baseline result.
@@ -141,7 +138,7 @@ impl WorkerConnection {
                     self.authenticated = true;
                     Ok(())
                 } else {
-                    Err(format!("Worker {} failed authentification!", self.name).into())
+                    Err(anyhow!("Worker {} failed authentification!", self.name))
                 }
             }
             WorkerToServerMessage::UpdateHwInfo(hw_info) => {
@@ -170,11 +167,11 @@ impl WorkerConnection {
                         match job_lock.worker_id {
                             Some(id) if id == self.id => {} // all good.
                             _ => {
-                                return Err(format!(
+                                return Err(anyhow!(
                                     "Job not associated with worker {}: {:?}",
-                                    self.name, job_lock.info
-                                )
-                                .into());
+                                    self.name,
+                                    job_lock.info
+                                ));
                             }
                         }
 
@@ -241,11 +238,11 @@ impl WorkerConnection {
                                 };
                             }
                             _ => {
-                                return Err(format!(
+                                return Err(anyhow!(
                                     "Accepted job was not offered to worker {}: {:?}",
-                                    self.name, job_lock.info.status
-                                )
-                                .into());
+                                    self.name,
+                                    job_lock.info.status
+                                ));
                             }
                         }
                         job_lock.info.clone()
@@ -268,7 +265,7 @@ impl WorkerConnection {
                         self.offer_pending_job().await?;
                     }
                 } else {
-                    return Err(format!("Accepted job not found: {:?}", job_info).into());
+                    return Err(anyhow!("Accepted job not found: {:?}", job_info));
                 }
                 Ok(())
             }
@@ -294,11 +291,11 @@ impl WorkerConnection {
                                 self.rejected_jobs.insert(job_lock.info.id);
                             }
                             _ => {
-                                return Err(format!(
+                                return Err(anyhow!(
                                     "Rejected job was not offered to worker {}: {:?}",
-                                    self.name, job_lock.info.status
-                                )
-                                .into());
+                                    self.name,
+                                    job_lock.info.status
+                                ));
                             }
                         }
                     };
@@ -315,7 +312,7 @@ impl WorkerConnection {
                         self.offer_pending_job().await?;
                     }
                 } else {
-                    return Err(format!("Rejected job not found: {:?}", job_info).into());
+                    return Err(anyhow!("Rejected job not found: {:?}", job_info));
                 }
                 Ok(())
             }
