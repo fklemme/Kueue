@@ -2,7 +2,7 @@ mod client_connection;
 mod job_manager;
 mod worker_connection;
 
-use anyhow::Result;
+use anyhow::{anyhow, bail, Result};
 use client_connection::ClientConnection;
 use futures::future::join_all;
 use job_manager::Manager;
@@ -22,7 +22,7 @@ use worker_connection::WorkerConnection;
 #[tokio::main]
 async fn main() -> Result<()> {
     // Read configuration from file or defaults.
-    let config = Config::new()?;
+    let config = Config::new().map_err(|e| anyhow!("Failed to load config: {}", e))?;
     // If there is no config file, create template.
     if let Err(e) = config.create_default_config() {
         log::error!("Could not create default config: {}", e);
@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
     // Initialize job manager.
     let manager = Arc::new(Mutex::new(Manager::new()));
 
-    // Maintain job manager, re-issuing job of died workers, etc.
+    // Maintain job manager, re-issuing jobs of dead workers, etc.
     let manager_handle = Arc::clone(&manager);
     tokio::spawn(async move {
         loop {
@@ -71,7 +71,15 @@ async fn listen_on(
     config: Config,
     manager: Arc<Mutex<Manager>>,
 ) -> Result<()> {
-    let listener = TcpListener::bind(format!("{}:{}", address, port)).await?;
+    let listener = TcpListener::bind(format!("{}:{}", address, port)).await;
+
+    if let Err(e) = listener {
+        log::error!("Failed to start listening on {}:{}: {}", address, port, e);
+        bail!(e); // function stops here!
+    }
+
+    // Otherwise, we continue and accept connections on this socket.
+    let listener = listener.unwrap();
     log::debug!("Start listening on {}...", listener.local_addr().unwrap());
 
     loop {
