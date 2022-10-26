@@ -4,6 +4,8 @@ version = "0.3.4"
 authors = ["Florian Klemme <mail@florianklemme.de>"]
 edition = "2021"
 description = "A robust, user-level, work-stealing distributed task scheduler."
+repository = "https://gitlab.kruecke.net/fklemme/kueue"
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
