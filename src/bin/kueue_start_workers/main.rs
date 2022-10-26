@@ -1,12 +1,12 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use kueue::config::Config;
 use simple_logger::SimpleLogger;
 use ssh2::Session;
 use std::{io::Read, net::TcpStream};
 
-fn main() {
+fn main() -> Result<()> {
     // Read configuration from file or defaults.
-    let config = Config::new().expect("Failed to load config!");
+    let config = Config::new().map_err(|e| anyhow!("Failed to load config: {}", e))?;
     let restart_workers = config
         .restart_workers
         .clone()
@@ -25,6 +25,8 @@ fn main() {
             log::error!("Failed processing worker {}: {}", worker, e);
         }
     }
+
+    Ok(())
 }
 
 fn process_worker(worker: &str, ssh_user: &str) -> Result<()> {

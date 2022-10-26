@@ -1,3 +1,5 @@
+//! Reads and holds informations from "config.toml".
+
 use anyhow::{anyhow, Result};
 use directories::ProjectDirs;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
@@ -10,6 +12,7 @@ use std::{
 };
 use tokio::net::lookup_host;
 
+/// Returns the system-specific default path of the config file.
 pub fn default_path() -> PathBuf {
     let config_file_name = if cfg!(debug_assertions) {
         "config-devel.toml"
@@ -23,6 +26,7 @@ pub fn default_path() -> PathBuf {
     config_file_name.into()
 }
 
+/// The Config struct holds many important settings for the Kueue binaries.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Config {
     pub log_level: String,
@@ -33,6 +37,7 @@ pub struct Config {
     pub restart_workers: Option<RestartWorkers>,
 }
 
+/// The RestartWorkers struct holds additional information for the "start_workers" helper tool.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct RestartWorkers {
     pub ssh_user: String,

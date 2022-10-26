@@ -2,31 +2,31 @@
 
 A robust, user-level, work-stealing distributed task scheduler.
 
-## Build and install
+This tool is still in early development. More details and documentation will follow.
 
-Make sure you have a C/C++ compiler installed, and OpenSSL headers.
+## Installation
 
-Install Rust
+The simplest way to obtain Kueue is by downloading it directly from [crates.io](https://crates.io/crates/kueue).
+This can be achieved with the following two commands.
+
+### Install Rust
+
+Make sure you have a C/C++ compiler installed.
 
     curl https://sh.rustup.rs -sSf | sh
 
-Build in release mode
+### Install Kueue
 
-    git clone git@gitlab.kruecke.net:fklemme/kueue_rust.git
-    cd kueue_rust
-    cargo build --release
+You might need to install OpenSSL headers as well.
 
-Install binaries
+    cargo install kueue
 
-    install target/release/kueue_client ~/.local/bin/kueue
-    install target/release/kueue_server ~/.local/bin/kueue_server
-    install target/release/kueue_worker ~/.local/bin/kueue_worker
-    install target/release/kueue_start_workers ~/.local/bin/kueue_start_workers
+This will install `kueue` (the client), `kueue_server`, and `kueue_worker` into the `bin` folder of your Rust installation.
 
 ## Example configuration
 
-Upon first start of any binary, a template config file is created at `~/.config/kueue/config.toml`.
-Make sure that the shared secreted in the that file is the same on all systems.
+Upon first start of any Kueue binary, a template config file is created at `~/.config/kueue/config.toml`.
+Make sure that the shared secret in that file is the same on all systems you want to use.
 
     log_level = "info"
     server_binds = "0.0.0.0 [::]"

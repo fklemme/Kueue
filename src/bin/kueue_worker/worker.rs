@@ -17,6 +17,7 @@ use tokio::{
     sync::Notify,
     time::{sleep, Duration},
 };
+use anyhow::{Result, anyhow};
 
 pub struct Worker {
     name: String,
@@ -52,7 +53,7 @@ impl Worker {
         })
     }
 
-    pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(&mut self) -> Result<()> {
         // Do hello/welcome handshake.
         self.connect_to_server().await?;
 
@@ -93,7 +94,7 @@ impl Worker {
         }
     }
 
-    async fn connect_to_server(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    async fn connect_to_server(&mut self) -> Result<()> {
         // Send hello from worker.
         let hello = HelloMessage::HelloFromWorker {
             name: self.name.clone(),
@@ -106,11 +107,11 @@ impl Worker {
                 log::trace!("Established connection to server...");
                 Ok(()) // continue
             }
-            other => Err(format!("Expected WelcomeWorker, received: {:?}", other).into()),
+            other => Err(anyhow!("Expected WelcomeWorker, received: {:?}", other)),
         }
     }
 
-    async fn authenticate(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    async fn authenticate(&mut self) -> Result<()> {
         // Authentification challenge is sent automatically after welcome.
         match self.stream.receive::<ServerToWorkerMessage>().await? {
             ServerToWorkerMessage::AuthChallenge(salt) => {
@@ -128,7 +129,7 @@ impl Worker {
 
                 Ok(()) // done
             }
-            other => Err(format!("Expected AuthChallenge, received: {:?}", other).into()),
+            other => Err(anyhow!("Expected AuthChallenge, received: {:?}", other)),
         }
     }
 

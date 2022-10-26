@@ -1,13 +1,15 @@
 [package]
 name = "kueue"
-version = "0.3.4"
+version = "0.3.5"
 authors = ["Florian Klemme <mail@florianklemme.de>"]
 edition = "2021"
 description = "A robust, user-level, work-stealing distributed task scheduler."
 repository = "https://gitlab.kruecke.net/fklemme/kueue"
 license = "MIT"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[[bin]]
+name = "kueue"
+path = "src/bin/kueue_client/main.rs"
 
 [dependencies]
 anyhow = "1.0"

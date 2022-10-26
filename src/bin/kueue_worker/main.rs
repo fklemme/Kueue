@@ -4,11 +4,12 @@ mod worker;
 use kueue::config::Config;
 use simple_logger::SimpleLogger;
 use worker::Worker;
+use anyhow::{Result, anyhow};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<()> {
     // Read configuration from file or defaults.
-    let config = Config::new()?;
+    let config = Config::new().map_err(|e| anyhow!("Failed to load config: {}", e))?;
     // If there is no config file, create template.
     if let Err(e) = config.create_default_config() {
         log::error!("Could not create default config: {}", e);
