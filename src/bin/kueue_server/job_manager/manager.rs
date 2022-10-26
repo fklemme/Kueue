@@ -145,7 +145,7 @@ impl Manager {
                         None => false,
                     };
 
-                    // Recover if offer timed out of worker died.
+                    // Recover if offer timed out or worker died.
                     if offer_timed_out || !worker_alive {
                         log::warn!("Job {:?} got stuck in offered state. Recover...", info);
                         let mut job_lock = job.lock().unwrap();
@@ -217,6 +217,30 @@ impl Manager {
         // Clean up jobs
         for id in jobs_to_be_removed {
             self.jobs.remove(&id);
+        }
+
+        let mut workers_to_be_removed: Vec<u64> = Vec::new();
+
+        // Remove workers that are no longer alive
+        for (worker_id, weak_worker) in &self.workers {
+            let worker_alive = match weak_worker.upgrade() {
+                Some(worker) => {
+                    let last_updated = worker.lock().unwrap().info.last_updated.clone();
+                    let worker_timed_out =
+                        (Utc::now() - last_updated).num_minutes() > WORKER_TIMEOUT_MINUTES;
+                    // Worker is still with us.
+                    !worker_timed_out
+                }
+                None => false,
+            };
+            if !worker_alive {
+                workers_to_be_removed.push(worker_id.clone());
+            }
+        }
+
+        // Clean up workers
+        for id in workers_to_be_removed {
+            self.workers.remove(&id);
         }
     }
 }
