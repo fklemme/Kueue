@@ -106,6 +106,7 @@ impl Manager {
         const CLEANUP_JOB_AFTER_HOURS: i64 = 48;
 
         let mut jobs_to_be_removed: Vec<u64> = Vec::new();
+        let mut new_jobs_pending = false;
 
         for (job_id, job) in &self.jobs {
             let info = job.lock().unwrap().info.clone();
@@ -154,6 +155,7 @@ impl Manager {
                         };
                         job_lock.worker_id = None;
                         self.jobs_waiting_for_assignment.insert(job_id.clone());
+                        new_jobs_pending = true; // notify at the end
                     }
                 }
                 JobStatus::Running {
@@ -195,6 +197,7 @@ impl Manager {
                         };
                         job_lock.worker_id = None;
                         self.jobs_waiting_for_assignment.insert(job_id.clone());
+                        new_jobs_pending = true; // notify at the end
                     }
                 }
                 JobStatus::Finished {
@@ -214,14 +217,14 @@ impl Manager {
             }
         }
 
-        // Clean up jobs
+        // Clean up jobs.
         for id in jobs_to_be_removed {
             self.jobs.remove(&id);
         }
 
         let mut workers_to_be_removed: Vec<u64> = Vec::new();
 
-        // Remove workers that are no longer alive
+        // Remove workers that are no longer alive.
         for (worker_id, weak_worker) in &self.workers {
             let worker_alive = match weak_worker.upgrade() {
                 Some(worker) => {
@@ -238,9 +241,14 @@ impl Manager {
             }
         }
 
-        // Clean up workers
+        // Clean up workers.
         for id in workers_to_be_removed {
             self.workers.remove(&id);
+        }
+
+        // If jobs have been marked as pending, notify workers.
+        if new_jobs_pending {
+            self.new_jobs.notify_waiters();
         }
     }
 }
