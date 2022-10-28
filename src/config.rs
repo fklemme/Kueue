@@ -42,6 +42,7 @@ pub struct Config {
 pub struct RestartWorkers {
     pub ssh_user: String,
     pub hostnames: String,
+    pub sleep_minutes_before_recheck: f64,
 }
 
 impl Config {

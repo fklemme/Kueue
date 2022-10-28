@@ -1,8 +1,8 @@
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use kueue::config::Config;
 use simple_logger::SimpleLogger;
 use ssh2::Session;
-use std::{io::Read, net::TcpStream};
+use std::{io::Read, net::TcpStream, thread::sleep, time::Duration};
 
 fn main() -> Result<()> {
     // Read configuration from file or defaults.
@@ -13,6 +13,8 @@ fn main() -> Result<()> {
         .expect("[restart_workers] missing!");
     let ssh_user = restart_workers.ssh_user;
     let workers: Vec<_> = restart_workers.hostnames.split_whitespace().collect();
+    let sleep_duration =
+        Duration::from_secs_f64(restart_workers.sleep_minutes_before_recheck / 60.0);
 
     // Initialize logger.
     SimpleLogger::new()
@@ -20,13 +22,14 @@ fn main() -> Result<()> {
         .init()
         .unwrap();
 
-    for worker in workers {
-        if let Err(e) = process_worker(worker, &ssh_user) {
-            log::error!("Failed processing worker {}: {}", worker, e);
+    loop {
+        for worker in &workers {
+            if let Err(e) = process_worker(worker, &ssh_user) {
+                log::error!("Failed processing worker {}: {}", worker, e);
+            }
         }
+        sleep(sleep_duration);
     }
-
-    Ok(())
 }
 
 fn process_worker(worker: &str, ssh_user: &str) -> Result<()> {

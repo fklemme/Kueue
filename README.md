@@ -43,3 +43,4 @@ Make sure that the shared secret in that file is the same on all systems you wan
     ralab16 ralab18 ralab22 ralab23
     ralab24 ralab25 ralab26 ralab27
     """
+    sleep_minutes_before_recheck = 60
