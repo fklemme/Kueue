@@ -14,7 +14,7 @@ fn main() -> Result<()> {
     let ssh_user = restart_workers.ssh_user;
     let workers: Vec<_> = restart_workers.hostnames.split_whitespace().collect();
     let sleep_duration =
-        Duration::from_secs_f64(restart_workers.sleep_minutes_before_recheck / 60.0);
+        Duration::from_secs_f64(restart_workers.sleep_minutes_before_recheck * 60.0);
 
     // Initialize logger.
     SimpleLogger::new()
