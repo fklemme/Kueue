@@ -36,8 +36,8 @@ Make sure that the shared secret in that file is the same on all systems you wan
 
 ## Restart workers
 
-Kueue comes with a simple tool that checks the state of your workers and attempts to restart them if they went down.
-First, add a new block to your `config.toml` like the following:
+Kueue comes with a simple tool named `kueue_restart_workers` that checks the state of your workers and attempts to restart them if they went down.
+To use the tool, add a new block to your `config.toml` like the following:
 
     [restart_workers]
     ssh_user = "klemmefn"
@@ -55,3 +55,5 @@ Currently, the tool uses your SSH key to connect to the workers and spawns the w
     eval `ssh-agent -s`
     ssh-add ~/.ssh/id_rsa
     screen kueue_restart_workers
+
+Keep in mind that `kueue_restart_workers` is not required for Kueue to work but just a simple tool to make restarting workers simpler. You can also use any other strategy to start and restart your remote workers.
