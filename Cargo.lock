@@ -649,7 +649,7 @@ dependencies = [
 
 [[package]]
 name = "kueue"
-version = "0.3.8"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "base64",

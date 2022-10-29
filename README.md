@@ -23,7 +23,7 @@ You might need to install OpenSSL headers as well.
 
 This will install `kueue` (the client), `kueue_server`, and `kueue_worker` into the `bin` folder of your Rust installation.
 
-## Example configuration
+## Basic configuration
 
 Upon first start of any Kueue binary, a template config file is created at `~/.config/kueue/config.toml`.
 Make sure that the shared secret in that file is the same on all systems you want to use.
@@ -33,6 +33,11 @@ Make sure that the shared secret in that file is the same on all systems you wan
     server_name = "ralab29"
     server_port = 11236
     shared_secret = "keep private!"
+
+## Restart workers
+
+Kueue comes with a simple tool that checks the state of your workers and attempts to restart them if they went down.
+First, add a new block to your `config.toml` like the following:
 
     [restart_workers]
     ssh_user = "klemmefn"
@@ -44,3 +49,9 @@ Make sure that the shared secret in that file is the same on all systems you wan
     ralab24 ralab25 ralab26 ralab27
     """
     sleep_minutes_before_recheck = 60
+
+Currently, the tool uses your SSH key to connect to the workers and spawns the worker task using [screen](https://linux.die.net/man/1/screen). Make sure that screen is installed on your workers and ssh login via key is possible. Then, you can use the tool like this:
+
+    eval `ssh-agent -s`
+    ssh-add ~/.ssh/id_rsa
+    screen kueue_restart_workers
