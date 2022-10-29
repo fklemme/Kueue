@@ -75,12 +75,12 @@ impl WorkerConnection {
             }
         }
 
-        // Notify for newly available jobs
+        // Notify for newly available jobs.
         let new_jobs = self.manager.lock().unwrap().new_jobs();
 
         while !self.connection_closed {
             tokio::select! {
-                // Read and handle incoming messages
+                // Read and handle incoming messages.
                 message = self.stream.receive::<WorkerToServerMessage>() => {
                     match message {
                         Ok(message) => {
@@ -95,23 +95,24 @@ impl WorkerConnection {
                         }
                     }
                 }
-                // Or, get active when notified
+                // Or, get active when notified.
                 _ = new_jobs.notified() => {
-                    let free_slots = self.worker.lock().unwrap().info.free_slots();
-
-                    if free_slots {
-                        if let Err(e) = self.offer_pending_job().await {
-                            log::error!("Failed to offer new job: {}", e);
-                            self.connection_closed = true; // end worker session
+                    // First, check if this worker is still alive.
+                    if self.worker.lock().unwrap().info.timed_out() {
+                        self.connection_closed = true; // end worker session
+                    } else {
+                        // Offer jobs, if slots are free.
+                        let free_slots = self.worker.lock().unwrap().info.free_slots();
+                        if free_slots {
+                            if let Err(e) = self.offer_pending_job().await {
+                                log::error!("Failed to offer new job: {}", e);
+                                self.connection_closed = true; // end worker session
+                            }
                         }
                     }
                 }
             }
         }
-
-        // Before we leave, update shared worker
-        // TODO: Was this needed anywhere?
-        //self.worker.lock().unwrap().connected = false;
     }
 
     fn is_authenticated(&self) -> Result<()> {

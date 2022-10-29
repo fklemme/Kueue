@@ -1,3 +1,4 @@
+use crate::constants::WORKER_TIMEOUT_MINUTES;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -100,6 +101,10 @@ impl WorkerInfo {
 
     pub fn jobs_total(&self) -> u32 {
         self.jobs_running + self.jobs_reserved
+    }
+
+    pub fn timed_out(&self) -> bool {
+        (Utc::now() - self.last_updated).num_minutes() > WORKER_TIMEOUT_MINUTES
     }
 }
 

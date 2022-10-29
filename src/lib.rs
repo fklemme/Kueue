@@ -16,3 +16,9 @@
 pub mod config;
 pub mod messages;
 pub mod structs;
+
+pub mod constants {
+    pub const OFFER_TIMEOUT_MINUTES: i64 = 5;
+    pub const WORKER_TIMEOUT_MINUTES: i64 = 15;
+    pub const CLEANUP_JOB_AFTER_HOURS: i64 = 48;
+}

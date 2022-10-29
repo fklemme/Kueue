@@ -1,6 +1,9 @@
 use crate::job_manager::{Job, Worker};
 use chrono::Utc;
-use kueue::structs::{JobInfo, JobStatus, WorkerInfo};
+use kueue::{
+    constants::{CLEANUP_JOB_AFTER_HOURS, OFFER_TIMEOUT_MINUTES},
+    structs::{JobInfo, JobStatus, WorkerInfo},
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
@@ -101,10 +104,6 @@ impl Manager {
 
     /// Inspect every job and "repair" if needed.
     pub fn run_maintenance(&mut self) {
-        const OFFER_TIMEOUT_MINUTES: i64 = 5;
-        const WORKER_TIMEOUT_MINUTES: i64 = 15;
-        const CLEANUP_JOB_AFTER_HOURS: i64 = 48;
-
         let mut jobs_to_be_removed: Vec<u64> = Vec::new();
         let mut new_jobs_pending = false;
 
@@ -131,13 +130,8 @@ impl Manager {
                         Some(id) => match self.workers.get(&id) {
                             Some(weak_worker) => match weak_worker.upgrade() {
                                 Some(worker) => {
-                                    let last_updated =
-                                        worker.lock().unwrap().info.last_updated.clone();
-                                    let worker_timed_out = (Utc::now() - last_updated)
-                                        .num_minutes()
-                                        > WORKER_TIMEOUT_MINUTES;
                                     // Worker is still with us.
-                                    !worker_timed_out
+                                    !worker.lock().unwrap().info.timed_out()
                                 }
                                 None => false,
                             },
@@ -169,13 +163,8 @@ impl Manager {
                         Some(id) => match self.workers.get(&id) {
                             Some(weak_worker) => match weak_worker.upgrade() {
                                 Some(worker) => {
-                                    let last_updated =
-                                        worker.lock().unwrap().info.last_updated.clone();
-                                    let worker_timed_out = (Utc::now() - last_updated)
-                                        .num_minutes()
-                                        > WORKER_TIMEOUT_MINUTES;
                                     // Worker is still with us.
-                                    !worker_timed_out
+                                    !worker.lock().unwrap().info.timed_out()
                                 }
                                 None => false,
                             },
@@ -228,11 +217,8 @@ impl Manager {
         for (worker_id, weak_worker) in &self.workers {
             let worker_alive = match weak_worker.upgrade() {
                 Some(worker) => {
-                    let last_updated = worker.lock().unwrap().info.last_updated.clone();
-                    let worker_timed_out =
-                        (Utc::now() - last_updated).num_minutes() > WORKER_TIMEOUT_MINUTES;
                     // Worker is still with us.
-                    !worker_timed_out
+                    !worker.lock().unwrap().info.timed_out()
                 }
                 None => false,
             };
