@@ -66,6 +66,7 @@ impl Job {
         cmd.args(&self.info.cmd[1..]);
 
         // Spawn child process and capture output
+        cmd.stdin(Stdio::null());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
         let child = cmd.spawn()?;
