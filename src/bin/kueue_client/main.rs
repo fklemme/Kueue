@@ -19,7 +19,7 @@ struct Args {
     /// Path to config file.
     #[arg(short, long, default_value_t = default_path().to_string_lossy().into())]
     config: String,
-    #[clap(subcommand)]
+    #[command(subcommand)]
     command: Command,
 }
 
