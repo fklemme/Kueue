@@ -34,8 +34,13 @@ enum Command {
         #[arg(short, long, default_value_t = 100)]
         tail: usize,
     },
-    /// Query infromation about available workers.
+    /// Query information about available workers.
     ListWorkers,
+    /// Show information about a specific job.
+    ShowJob {
+        /// ID of job to be queried.
+        id: usize,
+    },
 }
 
 #[tokio::main]
@@ -133,6 +138,25 @@ async fn main() -> Result<()> {
                 }
                 other => {
                     return Err(anyhow!("Expected WorkerList, received: {:?}", other));
+                }
+            }
+        }
+        Command::ShowJob { id } => {
+            // Query jobs.
+            let message = ClientToServerMessage::ShowJob { id };
+            stream.send(&message).await?;
+
+            // Await results.
+            match stream.receive::<ServerToClientMessage>().await? {
+                ServerToClientMessage::JobInfo {
+                    job_info,
+                    stdout,
+                    stderr,
+                } => {
+                    print::job_info(job_info, stdout, stderr);
+                }
+                other => {
+                    return Err(anyhow!("Expected JobInfo, received: {:?}", other));
                 }
             }
         }

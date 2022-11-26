@@ -202,6 +202,39 @@ impl WorkerConnection {
                 }
                 Ok(())
             }
+            WorkerToServerMessage::UpdateJobResults {
+                job_id,
+                stdout,
+                stderr,
+            } => {
+                self.is_authenticated()?;
+
+                // Update job results with whatever the worker sends us.
+                let option_job = self.manager.lock().unwrap().get_job(job_id);
+                if let Some(job) = option_job {
+                    let mut job_lock = job.lock().unwrap();
+
+                    // Just a small check: See if job is associated with worker.
+                    match job_lock.worker_id {
+                        Some(id) if id == self.id => {} // all good.
+                        _ => {
+                            return Err(anyhow!(
+                                "Job not associated with worker {}: {:?}",
+                                self.name,
+                                job_lock.info
+                            ));
+                        }
+                    }
+
+                    // Update results.
+                    job_lock.stdout = stdout;
+                    job_lock.stderr = stderr;
+                } else {
+                    // Unexpected but we can continue running.
+                    log::error!("Updated job not found: ID={}", job_id);
+                }
+                Ok(())
+            }
             // This will also trigger the first jobs offered to the worker
             WorkerToServerMessage::AcceptParallelJobs(num) => {
                 self.is_authenticated()?;

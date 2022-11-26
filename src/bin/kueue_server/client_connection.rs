@@ -156,6 +156,27 @@ impl ClientConnection {
                     .await?;
                 Ok(())
             }
+            ClientToServerMessage::ShowJob { id } => {
+                // Get job
+                let job = self.manager.lock().unwrap().get_job(id);
+
+                let message = if let Some(job) = job {
+                    let job_lock = job.lock().unwrap();
+                    ServerToClientMessage::JobInfo {
+                        job_info: Some(job_lock.info.clone()),
+                        stdout: job_lock.stdout.clone(),
+                        stderr: job_lock.stderr.clone(),
+                    }
+                } else {
+                    ServerToClientMessage::JobInfo {
+                        job_info: None,
+                        stdout: None,
+                        stderr: None,
+                    }
+                };
+                self.stream.send(&message).await?;
+                Ok(())
+            }
             ClientToServerMessage::Bye => {
                 log::trace!("Bye client!");
                 self.connection_closed = true;

@@ -22,6 +22,7 @@ pub enum ClientToServerMessage {
     IssueJob(JobInfo),
     ListJobs { tail: usize },
     ListWorkers,
+    ShowJob { id: usize },
     Bye,
 }
 
@@ -42,6 +43,11 @@ pub enum ServerToClientMessage {
         jobs_finished: usize,
         any_job_failed: bool,
         job_infos: Vec<JobInfo>,
+    },
+    JobInfo {
+        job_info: Option<JobInfo>,
+        stdout: Option<String>,
+        stderr: Option<String>,
     },
     WorkerList(Vec<WorkerInfo>),
 }
@@ -66,6 +72,11 @@ pub enum WorkerToServerMessage {
     UpdateHwInfo(HwInfo),
     UpdateLoadInfo(LoadInfo),
     UpdateJobStatus(JobInfo),
+    UpdateJobResults {
+        job_id: usize,
+        stdout: Option<String>,
+        stderr: Option<String>,
+    },
     AcceptParallelJobs(usize),
     AcceptJobOffer(JobInfo),
     RejectJobOffer(JobInfo),

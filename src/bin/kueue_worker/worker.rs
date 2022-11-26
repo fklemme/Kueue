@@ -28,7 +28,6 @@ pub struct Worker {
     system: System,
     offered_jobs: Vec<Job>,
     running_jobs: Vec<Job>,
-    finished_jobs: Vec<Job>,
     max_parallel_jobs: usize,
 }
 
@@ -48,7 +47,6 @@ impl Worker {
             system: System::new_all(),
             offered_jobs: Vec::new(),
             running_jobs: Vec::new(),
-            finished_jobs: Vec::new(),
             max_parallel_jobs: 0,
         })
     }
@@ -171,6 +169,8 @@ impl Worker {
             if finished {
                 // Job has finished. Remove from list.
                 let mut job = self.running_jobs.remove(index);
+                let mut stdout = None;
+                let mut stderr = None;
 
                 {
                     // Update info
@@ -181,14 +181,27 @@ impl Worker {
                         on: self.name.clone(),
                         run_time_seconds: result_lock.run_time.num_seconds(),
                     };
+                    if !result_lock.stdout.is_empty() {
+                        stdout = Some(result_lock.stdout.clone());
+                    }
+                    if !result_lock.stderr.is_empty() {
+                        stderr = Some(result_lock.stderr.clone());
+                    }
                 }
 
                 // Send update to server
-                let job_update = WorkerToServerMessage::UpdateJobStatus(job.info.clone());
-                self.stream.send(&job_update).await?;
+                let job_status = WorkerToServerMessage::UpdateJobStatus(job.info.clone());
+                self.stream.send(&job_status).await?;
 
-                // Put job into finsished list
-                self.finished_jobs.push(job);
+                // Send stdout/stderr to server
+                let job_results = WorkerToServerMessage::UpdateJobResults {
+                    job_id: job.info.id,
+                    stdout,
+                    stderr,
+                };
+                self.stream.send(&job_results).await?;
+
+                // TODO: Store/remember finished jobs?
             } else {
                 // Job still running... Next!
                 index += 1;
