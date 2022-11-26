@@ -1,4 +1,5 @@
 use crate::job::Job;
+use anyhow::{anyhow, Result};
 use chrono::Utc;
 use kueue::{
     config::Config,
@@ -17,7 +18,6 @@ use tokio::{
     sync::Notify,
     time::{sleep, Duration},
 };
-use anyhow::{Result, anyhow};
 
 pub struct Worker {
     name: String,
@@ -29,7 +29,7 @@ pub struct Worker {
     offered_jobs: Vec<Job>,
     running_jobs: Vec<Job>,
     finished_jobs: Vec<Job>,
-    max_parallel_jobs: u32,
+    max_parallel_jobs: usize,
 }
 
 impl Worker {
@@ -138,8 +138,8 @@ impl Worker {
         let hw_info = HwInfo {
             kernel: self.system.kernel_version().unwrap_or("unknown".into()),
             distribution: self.system.long_os_version().unwrap_or("unknown".into()),
-            cpu_cores: self.system.cpus().len() as u32,
-            total_memory: self.system.total_memory(),
+            cpu_cores: self.system.cpus().len(),
+            total_memory: self.system.total_memory() as usize,
         };
 
         // Send to server
@@ -179,7 +179,7 @@ impl Worker {
                         finished: Utc::now(),
                         return_code: result_lock.exit_code,
                         on: self.name.clone(),
-                        run_time_seconds: result_lock.run_time.num_seconds() as u64,
+                        run_time_seconds: result_lock.run_time.num_seconds(),
                     };
                 }
 
@@ -198,9 +198,9 @@ impl Worker {
     }
 
     async fn accept_jobs_based_on_hw(&mut self) -> Result<(), MessageError> {
-        let cpu_cores = self.system.cpus().len() as u32;
-        let total_memory = self.system.total_memory();
-        let total_memory_gb = (total_memory / 1024 / 1024 / 1024) as u32;
+        let cpu_cores = self.system.cpus().len();
+        let total_memory = self.system.total_memory() as usize;
+        let total_memory_gb = (total_memory / 1024 / 1024 / 1024) as usize;
 
         // TODO: Do something smart to set the hw-based default.
         self.max_parallel_jobs = max(1, min(cpu_cores / 8, total_memory_gb / 8));
@@ -227,8 +227,8 @@ impl Worker {
             }
             ServerToWorkerMessage::OfferJob(job_info) => {
                 // Make some smart checks whether or not to accept the job offer.
-                let free_slots = ((self.running_jobs.len() + self.offered_jobs.len()) as u32)
-                    < self.max_parallel_jobs;
+                let free_slots =
+                    (self.running_jobs.len() + self.offered_jobs.len()) < self.max_parallel_jobs;
                 let cwd_available = job_info.cwd.is_dir();
 
                 if free_slots && cwd_available {

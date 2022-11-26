@@ -110,14 +110,40 @@ impl ClientConnection {
                 new_jobs.notify_waiters();
                 Ok(())
             }
-            ClientToServerMessage::ListJobs => {
+            ClientToServerMessage::ListJobs { tail } => {
                 // Get job list
-                let job_list = self.manager.lock().unwrap().get_all_job_infos();
+                let mut job_infos = self.manager.lock().unwrap().get_all_job_infos();
+                let jobs_pending_or_offered = job_infos
+                    .iter()
+                    .filter(|job_info| job_info.status.is_pending() || job_info.status.is_offered())
+                    .count();
+                let jobs_running = job_infos
+                    .iter()
+                    .filter(|job_info| job_info.status.is_running())
+                    .count();
+                let jobs_finished = job_infos
+                    .iter()
+                    .filter(|job_info| job_info.status.is_finished())
+                    .count();
+                let any_job_failed = job_infos
+                    .iter()
+                    .any(|job_info| job_info.status.has_failed());
+
+                // Trim potentially long job list
+                if job_infos.len() > tail {
+                    let start = job_infos.len() - tail;
+                    job_infos.drain(..start);
+                }
 
                 // Send response to client
-                self.stream
-                    .send(&ServerToClientMessage::JobList(job_list))
-                    .await?;
+                let message = ServerToClientMessage::JobList {
+                    jobs_pending_or_offered,
+                    jobs_running,
+                    jobs_finished,
+                    any_job_failed,
+                    job_infos,
+                };
+                self.stream.send(&message).await?;
                 Ok(())
             }
             ClientToServerMessage::ListWorkers => {

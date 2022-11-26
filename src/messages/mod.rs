@@ -20,7 +20,7 @@ pub enum ClientToServerMessage {
     // Send Sha256(secret + salt) back to server.
     AuthResponse(String),
     IssueJob(JobInfo),
-    ListJobs,
+    ListJobs { tail: usize },
     ListWorkers,
     Bye,
 }
@@ -36,7 +36,13 @@ pub enum ServerToClientMessage {
     AuthAccepted(bool),
     AcceptJob(JobInfo),
     //RejectJob,
-    JobList(Vec<JobInfo>),
+    JobList {
+        jobs_pending_or_offered: usize,
+        jobs_running: usize,
+        jobs_finished: usize,
+        any_job_failed: bool,
+        job_infos: Vec<JobInfo>,
+    },
     WorkerList(Vec<WorkerInfo>),
 }
 
@@ -60,7 +66,7 @@ pub enum WorkerToServerMessage {
     UpdateHwInfo(HwInfo),
     UpdateLoadInfo(LoadInfo),
     UpdateJobStatus(JobInfo),
-    AcceptParallelJobs(u32),
+    AcceptParallelJobs(usize),
     AcceptJobOffer(JobInfo),
     RejectJobOffer(JobInfo),
     Bye,

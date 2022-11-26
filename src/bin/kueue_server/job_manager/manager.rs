@@ -12,9 +12,9 @@ use std::{
 use tokio::sync::Notify;
 
 pub struct Manager {
-    jobs: BTreeMap<u64, Arc<Mutex<Job>>>,
-    jobs_waiting_for_assignment: BTreeSet<u64>,
-    workers: BTreeMap<u64, Weak<Mutex<Worker>>>,
+    jobs: BTreeMap<usize, Arc<Mutex<Job>>>,
+    jobs_waiting_for_assignment: BTreeSet<usize>,
+    workers: BTreeMap<usize, Weak<Mutex<Worker>>>,
     new_jobs: Arc<Notify>,
 }
 
@@ -53,7 +53,7 @@ impl Manager {
     }
 
     /// Get job by ID.
-    pub fn get_job(&self, id: u64) -> Option<Arc<Mutex<Job>>> {
+    pub fn get_job(&self, id: usize) -> Option<Arc<Mutex<Job>>> {
         match self.jobs.get(&id) {
             Some(job) => Some(Arc::clone(job)),
             None => None,
@@ -83,7 +83,7 @@ impl Manager {
     /// Get a job to be assigned to a worker.
     pub fn get_job_waiting_for_assignment(
         &mut self,
-        exclude: &BTreeSet<u64>,
+        exclude: &BTreeSet<usize>,
     ) -> Option<Arc<Mutex<Job>>> {
         if self.jobs_waiting_for_assignment.is_empty() {
             None // no jobs marked waiting for assignment
@@ -104,7 +104,7 @@ impl Manager {
 
     /// Inspect every job and "repair" if needed.
     pub fn run_maintenance(&mut self) {
-        let mut jobs_to_be_removed: Vec<u64> = Vec::new();
+        let mut jobs_to_be_removed: Vec<usize> = Vec::new();
         let mut new_jobs_pending = false;
 
         for (job_id, job) in &self.jobs {
@@ -211,7 +211,7 @@ impl Manager {
             self.jobs.remove(&id);
         }
 
-        let mut workers_to_be_removed: Vec<u64> = Vec::new();
+        let mut workers_to_be_removed: Vec<usize> = Vec::new();
 
         // Remove workers that are no longer alive.
         for (worker_id, weak_worker) in &self.workers {

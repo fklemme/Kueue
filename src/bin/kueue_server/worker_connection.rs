@@ -17,13 +17,13 @@ use std::{
 };
 
 pub struct WorkerConnection {
-    id: u64,
+    id: usize,
     name: String,
     stream: MessageStream,
     manager: Arc<Mutex<Manager>>,
     config: Config,
     worker: Arc<Mutex<Worker>>,
-    rejected_jobs: BTreeSet<u64>,
+    rejected_jobs: BTreeSet<usize>,
     connection_closed: bool,
     authenticated: bool,
     salt: String,

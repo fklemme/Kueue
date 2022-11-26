@@ -3,13 +3,13 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::{
     path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 // Struct that are shared among crates and parts of messages.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct JobInfo {
-    pub id: u64,
+    pub id: usize,
     pub cmd: Vec<String>,
     pub cwd: PathBuf,
     pub status: JobStatus,
@@ -17,7 +17,7 @@ pub struct JobInfo {
 
 impl JobInfo {
     pub fn new(cmd: Vec<String>, cwd: PathBuf) -> Self {
-        static JOB_COUNTER: AtomicU64 = AtomicU64::new(0);
+        static JOB_COUNTER: AtomicUsize = AtomicUsize::new(0);
         JobInfo {
             id: JOB_COUNTER.fetch_add(1, Ordering::Relaxed),
             cmd,
@@ -46,7 +46,7 @@ pub enum JobStatus {
         finished: DateTime<Utc>,
         return_code: i32,
         on: String,
-        run_time_seconds: u64,
+        run_time_seconds: i64,
     },
 }
 
@@ -66,6 +66,10 @@ impl JobStatus {
     pub fn is_finished(&self) -> bool {
         matches!(self, Self::Finished { .. })
     }
+
+    pub fn has_failed(&self) -> bool {
+        matches!(self, Self::Finished { return_code, .. } if *return_code != 0)
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -75,9 +79,9 @@ pub struct WorkerInfo {
     pub hw: HwInfo,
     pub load: LoadInfo,
     pub last_updated: DateTime<Utc>,
-    pub jobs_running: u32,
-    pub jobs_reserved: u32,
-    pub max_parallel_jobs: u32,
+    pub jobs_running: usize,
+    pub jobs_reserved: usize,
+    pub max_parallel_jobs: usize,
 }
 
 impl WorkerInfo {
@@ -99,7 +103,7 @@ impl WorkerInfo {
         total < self.max_parallel_jobs
     }
 
-    pub fn jobs_total(&self) -> u32 {
+    pub fn jobs_total(&self) -> usize {
         self.jobs_running + self.jobs_reserved
     }
 
@@ -112,8 +116,8 @@ impl WorkerInfo {
 pub struct HwInfo {
     pub kernel: String,
     pub distribution: String,
-    pub cpu_cores: u32,
-    pub total_memory: u64,
+    pub cpu_cores: usize,
+    pub total_memory: usize,
 }
 
 impl HwInfo {

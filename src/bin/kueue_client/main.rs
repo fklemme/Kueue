@@ -29,7 +29,11 @@ enum Command {
     #[command(external_subcommand)]
     Cmd(Vec<String>), // TODO: missing in help!
     /// Query information about scheduled and running jobs.
-    ListJobs,
+    ListJobs {
+        /// Number of latest jobs to query
+        #[arg(short, long, default_value_t = 100)]
+        tail: usize,
+    },
     /// Query infromation about available workers.
     ListWorkers,
 }
@@ -91,14 +95,27 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Command::ListJobs => {
+        Command::ListJobs { tail } => {
             // Query jobs.
-            stream.send(&ClientToServerMessage::ListJobs).await?;
+            let message = ClientToServerMessage::ListJobs { tail };
+            stream.send(&message).await?;
 
             // Await results.
             match stream.receive::<ServerToClientMessage>().await? {
-                ServerToClientMessage::JobList(job_list) => {
-                    print::job_list(job_list);
+                ServerToClientMessage::JobList {
+                    jobs_pending_or_offered,
+                    jobs_running,
+                    jobs_finished,
+                    any_job_failed,
+                    job_infos,
+                } => {
+                    print::job_list(
+                        jobs_pending_or_offered,
+                        jobs_running,
+                        jobs_finished,
+                        any_job_failed,
+                        job_infos,
+                    );
                 }
                 other => {
                     return Err(anyhow!("Expected JobList, received: {:?}", other));

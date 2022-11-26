@@ -4,12 +4,16 @@ use kueue::structs::{JobInfo, JobStatus, WorkerInfo};
 use terminal_size::terminal_size;
 
 /// Print jobs to screen.
-pub fn job_list(job_list: Vec<JobInfo>) {
-    if job_list.is_empty() {
-        println!("No jobs listed on server!");
-    } else {
+pub fn job_list(
+    jobs_pending_or_offered: usize,
+    jobs_running: usize,
+    jobs_finished: usize,
+    any_job_failed: bool,
+    job_infos: Vec<JobInfo>,
+) {
+    if !job_infos.is_empty() {
         let default_col_space: usize = 20;
-        let space_other_cols: usize = 17;
+        let space_other_cols: usize = 19;
 
         // Try to detect terminal size
         let term_size = terminal_size();
@@ -30,14 +34,14 @@ pub fn job_list(job_list: Vec<JobInfo>) {
 
         // Print header
         println!(
-            "| {: ^4} | {: <cwd_col$} | {: <cmd_col$} | {: <status_col$} |",
+            "| {: ^6} | {: <cwd_col$} | {: <cmd_col$} | {: <status_col$} |",
             style("id").bold().underlined(),
             style("working dir").bold().underlined(),
             style("command").bold().underlined(),
             style("status").bold().underlined(),
         );
 
-        for job_info in job_list {
+        for job_info in job_infos {
             // working dir
             let working_dir = job_info.cwd.to_string_lossy().to_string();
             let working_dir = if working_dir.len() <= cwd_col {
@@ -109,11 +113,24 @@ pub fn job_list(job_list: Vec<JobInfo>) {
 
             // Print line
             println!(
-                "| {: >4} | {: <cwd_col$} | {: <cmd_col$} | {: <status_col$} |",
+                "| {: >6} | {: <cwd_col$} | {: <cmd_col$} | {: <status_col$} |",
                 job_info.id, working_dir, command, status
             );
         }
     }
+
+    // Print summary line
+    println!("{}", style("--- job status summary ---").bold());
+    println!(
+        "pending: {}, running: {}, finished: {}",
+        jobs_pending_or_offered,
+        style(jobs_running).blue(),
+        if any_job_failed {
+            style(jobs_finished).red()
+        } else {
+            style(jobs_finished).green()
+        }
+    );
 }
 
 /// Print workers to screen.

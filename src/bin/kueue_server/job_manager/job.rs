@@ -4,7 +4,7 @@ use kueue::structs::JobInfo;
 
 pub struct Job {
     pub info: JobInfo,
-    pub worker_id: Option<u64>,
+    pub worker_id: Option<usize>,
 }
 
 impl Job {
