@@ -43,7 +43,7 @@ fn process_worker(worker: &str, ssh_user: &str) -> Result<()> {
     let tcp_stream = TcpStream::connect(format!("{}:{}", worker, 22))?;
     session.set_tcp_stream(tcp_stream);
     session.handshake()?;
-    session.userauth_agent(ssh_user).unwrap();
+    session.userauth_agent(ssh_user)?;
 
     // Check if worker is running (in screen session)
     let mut screen_ls = String::new();
