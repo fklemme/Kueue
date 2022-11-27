@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-pub const READ_BUFFER_LEN: usize = 8 * 1024;
+pub const INIT_READ_BUFFER_LEN: usize = 8 * 1024;
 
 pub struct MessageStream {
     stream: TcpStream,
@@ -15,7 +15,7 @@ impl MessageStream {
     pub fn new(stream: TcpStream) -> Self {
         MessageStream {
             stream,
-            read_buffer: vec![0; READ_BUFFER_LEN],
+            read_buffer: vec![0; INIT_READ_BUFFER_LEN],
             msg_buffer: Vec::new(),
         }
     }
@@ -41,7 +41,7 @@ impl MessageStream {
                     log::trace!("Received message: {:?}", message);
                     return Ok(message);
                 }
-                Err(ParseError::EofWhileParsing) => {} // okay, continue reading from stream
+                Err(ParseError::EofWhileParsing) => {} // no return -> continue reading from stream
                 Err(_) => return Err(MessageError::ReceiveFailed), // give up and propagate error
             }
 
@@ -51,6 +51,16 @@ impl MessageStream {
                 Ok(bytes_read) => {
                     // Move read bytes into message buffer and continue loop
                     self.msg_buffer.extend(&self.read_buffer[..bytes_read]);
+
+                    if bytes_read == self.read_buffer.len() {
+                        // The entire read buffer was occupied to fetch bytes from the network.
+                        // Enlarge the size of the read buffer to reduce unnecessary parsing attempts.
+                        log::debug!(
+                            "Enlarging read buffer to {} KB.",
+                            self.read_buffer.len() / 1024 * 2
+                        );
+                        self.read_buffer.resize(self.read_buffer.len() * 2, 0);
+                    }
                 }
                 Err(e) => {
                     log::error!("Read error: {}", e);
