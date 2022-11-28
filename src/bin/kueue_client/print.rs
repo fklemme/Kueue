@@ -3,9 +3,20 @@ use console::style;
 use kueue::structs::{JobInfo, JobStatus, WorkerInfo};
 use terminal_size::terminal_size;
 
+/// Returns the terminal's width and height.
+pub fn term_size() -> (usize, usize) {
+    // Try to detect terminal size
+    if let Some(term_size) = terminal_size() {
+        (term_size.0 .0 as usize, term_size.1 .0 as usize)
+    } else {
+        (80, 25) // default VGA terminal size
+    }
+}
+
 /// Print jobs to screen.
 pub fn job_list(
-    jobs_pending_or_offered: usize,
+    jobs_pending: usize,
+    jobs_offered: usize,
     jobs_running: usize,
     jobs_finished: usize,
     any_job_failed: bool,
@@ -15,10 +26,8 @@ pub fn job_list(
         let default_col_space: usize = 20;
         let space_other_cols: usize = 19;
 
-        // Try to detect terminal size
-        let term_size = terminal_size();
-        let (cwd_col, cmd_col, status_col) = if let Some(size) = term_size {
-            let term_width = size.0 .0 as usize;
+        let (cwd_col, cmd_col, status_col) = {
+            let term_width = term_size().0;
             if term_width > space_other_cols + 3 * 15 {
                 let available_space = term_width - space_other_cols;
                 let cwd_col = available_space / 4;
@@ -28,8 +37,6 @@ pub fn job_list(
             } else {
                 (default_col_space, default_col_space, default_col_space)
             }
-        } else {
-            (default_col_space, default_col_space, default_col_space)
         };
 
         // Print header
@@ -122,8 +129,9 @@ pub fn job_list(
     // Print summary line
     println!("{}", style("--- job status summary ---").bold());
     println!(
-        "pending: {}, running: {}, finished: {}",
-        jobs_pending_or_offered,
+        "pending: {}, offered: {}, running: {}, finished: {}",
+        jobs_pending,
+        style(jobs_offered).dim(),
         style(jobs_running).blue(),
         if any_job_failed {
             style(jobs_finished).red()
@@ -141,10 +149,8 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
         let default_col_space: usize = 20;
         let space_other_cols: usize = 66;
 
-        // Try to detect terminal size
-        let term_size = terminal_size();
-        let (worker_col, os_col) = if let Some(size) = term_size {
-            let term_width = size.0 .0 as usize;
+        let (worker_col, os_col) = {
+            let term_width = term_size().0;
             if term_width > space_other_cols + 2 * 16 {
                 let available_space = term_width - space_other_cols;
                 let worker_col = available_space / 2;
@@ -153,8 +159,6 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             } else {
                 (default_col_space, default_col_space)
             }
-        } else {
-            (default_col_space, default_col_space)
         };
 
         // Print header

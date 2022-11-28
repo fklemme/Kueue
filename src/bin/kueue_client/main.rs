@@ -1,5 +1,6 @@
 mod print;
 
+use crate::print::term_size;
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use kueue::{
@@ -31,11 +32,14 @@ enum Command {
     /// Query information about scheduled and running jobs.
     ListJobs {
         /// Number of latest jobs to query.
-        #[arg(short, long, default_value_t = 100)]
-        tail: usize,
-        /// Show pending (and offered) jobs.
+        #[arg(short, long, default_value_t = term_size().1 - 4)]
+        num_jobs: usize,
+        /// Show pending jobs.
         #[arg(short, long)]
         pending: bool,
+        /// Show offered jobs.
+        #[arg(short, long)]
+        offered: bool,
         /// Show running jobs.
         #[arg(short, long)]
         running: bool,
@@ -113,16 +117,18 @@ async fn main() -> Result<()> {
             }
         }
         Command::ListJobs {
-            tail,
+            num_jobs,
             pending,
+            offered,
             running,
             finished,
             failed,
         } => {
             // Query jobs.
             let message = ClientToServerMessage::ListJobs {
-                tail,
+                num_jobs,
                 pending,
+                offered,
                 running,
                 finished,
                 failed,
@@ -132,14 +138,16 @@ async fn main() -> Result<()> {
             // Await results.
             match stream.receive::<ServerToClientMessage>().await? {
                 ServerToClientMessage::JobList {
-                    jobs_pending_or_offered,
+                    jobs_pending,
+                    jobs_offered,
                     jobs_running,
                     jobs_finished,
                     any_job_failed,
                     job_infos,
                 } => {
                     print::job_list(
-                        jobs_pending_or_offered,
+                        jobs_pending,
+                        jobs_offered,
                         jobs_running,
                         jobs_finished,
                         any_job_failed,

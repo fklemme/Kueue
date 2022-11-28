@@ -21,8 +21,9 @@ pub enum ClientToServerMessage {
     AuthResponse(String),
     IssueJob(JobInfo),
     ListJobs {
-        tail: usize,
-        pending: bool, // or offered
+        num_jobs: usize,
+        pending: bool,
+        offered: bool,
         running: bool,
         finished: bool,
         failed: bool,
@@ -46,7 +47,8 @@ pub enum ServerToClientMessage {
     AcceptJob(JobInfo),
     //RejectJob,
     JobList {
-        jobs_pending_or_offered: usize,
+        jobs_pending: usize,
+        jobs_offered: usize,
         jobs_running: usize,
         jobs_finished: usize,
         any_job_failed: bool,

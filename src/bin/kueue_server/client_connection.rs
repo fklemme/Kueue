@@ -112,8 +112,9 @@ impl ClientConnection {
                 Ok(())
             }
             ClientToServerMessage::ListJobs {
-                tail,
+                num_jobs,
                 pending,
+                offered,
                 running,
                 finished,
                 failed,
@@ -122,9 +123,13 @@ impl ClientConnection {
                 let mut job_infos = self.manager.lock().unwrap().get_all_job_infos();
 
                 // Count total number of pending/running/finished jobs.
-                let jobs_pending_or_offered = job_infos
+                let jobs_pending = job_infos
                     .iter()
-                    .filter(|job_info| job_info.status.is_pending() || job_info.status.is_offered())
+                    .filter(|job_info| job_info.status.is_pending())
+                    .count();
+                let jobs_offered = job_infos
+                    .iter()
+                    .filter(|job_info| job_info.status.is_offered())
                     .count();
                 let jobs_running = job_infos
                     .iter()
@@ -139,12 +144,12 @@ impl ClientConnection {
                     .any(|job_info| job_info.status.has_failed());
 
                 // Filter job list based on status.
-                if pending || running || finished || failed {
+                if pending || offered || running || finished || failed {
                     job_infos = job_infos
                         .into_iter()
                         .filter(|job_info| match job_info.status {
                             JobStatus::Pending { .. } => pending,
-                            JobStatus::Offered { .. } => pending,
+                            JobStatus::Offered { .. } => offered,
                             JobStatus::Running { .. } => running,
                             JobStatus::Finished { return_code, .. } => {
                                 finished || (return_code != 0 && failed)
@@ -154,14 +159,15 @@ impl ClientConnection {
                 }
 
                 // Trim potentially long job list.
-                if job_infos.len() > tail {
-                    let start = job_infos.len() - tail;
+                if job_infos.len() > num_jobs {
+                    let start = job_infos.len() - num_jobs;
                     job_infos.drain(..start);
                 }
 
                 // Send response to client.
                 let message = ServerToClientMessage::JobList {
-                    jobs_pending_or_offered,
+                    jobs_pending,
+                    jobs_offered,
                     jobs_running,
                     jobs_finished,
                     any_job_failed,
