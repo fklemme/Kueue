@@ -3,6 +3,7 @@ use anyhow::{anyhow, Result};
 use kueue::{
     config::Config,
     messages::{stream::MessageStream, ClientToServerMessage, ServerToClientMessage},
+    structs::JobStatus,
 };
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use sha2::{Digest, Sha256};
@@ -100,19 +101,27 @@ impl ClientConnection {
                     .add_new_job(job_info.cmd, job_info.cwd);
                 let job_info = job.lock().unwrap().info.clone();
 
-                // Send response to client
+                // Send response to client.
                 self.stream
                     .send(&ServerToClientMessage::AcceptJob(job_info))
                     .await?;
 
-                // Notify workers
+                // Notify workers.
                 let new_jobs = self.manager.lock().unwrap().new_jobs();
                 new_jobs.notify_waiters();
                 Ok(())
             }
-            ClientToServerMessage::ListJobs { tail } => {
-                // Get job list
+            ClientToServerMessage::ListJobs {
+                tail,
+                pending,
+                running,
+                finished,
+                failed,
+            } => {
+                // Get job list.
                 let mut job_infos = self.manager.lock().unwrap().get_all_job_infos();
+
+                // Count total number of pending/running/finished jobs.
                 let jobs_pending_or_offered = job_infos
                     .iter()
                     .filter(|job_info| job_info.status.is_pending() || job_info.status.is_offered())
@@ -129,13 +138,28 @@ impl ClientConnection {
                     .iter()
                     .any(|job_info| job_info.status.has_failed());
 
-                // Trim potentially long job list
+                // Filter job list based on status.
+                if pending || running || finished || failed {
+                    job_infos = job_infos
+                        .into_iter()
+                        .filter(|job_info| match job_info.status {
+                            JobStatus::Pending { .. } => pending,
+                            JobStatus::Offered { .. } => pending,
+                            JobStatus::Running { .. } => running,
+                            JobStatus::Finished { return_code, .. } => {
+                                finished || (return_code != 0 && failed)
+                            }
+                        })
+                        .collect();
+                }
+
+                // Trim potentially long job list.
                 if job_infos.len() > tail {
                     let start = job_infos.len() - tail;
                     job_infos.drain(..start);
                 }
 
-                // Send response to client
+                // Send response to client.
                 let message = ServerToClientMessage::JobList {
                     jobs_pending_or_offered,
                     jobs_running,
@@ -147,10 +171,10 @@ impl ClientConnection {
                 Ok(())
             }
             ClientToServerMessage::ListWorkers => {
-                // Get worker list
+                // Get worker list.
                 let worker_list = self.manager.lock().unwrap().get_all_worker_infos();
 
-                // Send response to client
+                // Send response to client.
                 self.stream
                     .send(&ServerToClientMessage::WorkerList(worker_list))
                     .await?;

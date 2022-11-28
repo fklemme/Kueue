@@ -20,9 +20,17 @@ pub enum ClientToServerMessage {
     // Send Sha256(secret + salt) back to server.
     AuthResponse(String),
     IssueJob(JobInfo),
-    ListJobs { tail: usize },
+    ListJobs {
+        tail: usize,
+        pending: bool, // or offered
+        running: bool,
+        finished: bool,
+        failed: bool,
+    },
     ListWorkers,
-    ShowJob { id: usize },
+    ShowJob {
+        id: usize,
+    },
     Bye,
 }
 

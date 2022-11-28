@@ -30,9 +30,21 @@ enum Command {
     Cmd(Vec<String>), // TODO: missing in help!
     /// Query information about scheduled and running jobs.
     ListJobs {
-        /// Number of latest jobs to query
+        /// Number of latest jobs to query.
         #[arg(short, long, default_value_t = 100)]
         tail: usize,
+        /// Show pending (and offered) jobs.
+        #[arg(short, long)]
+        pending: bool,
+        /// Show running jobs.
+        #[arg(short, long)]
+        running: bool,
+        /// Show finished jobs.
+        #[arg(short, long)]
+        finished: bool,
+        /// Show failed jobs.
+        #[arg(short = 'e', long)]
+        failed: bool,
     },
     /// Query information about available workers.
     ListWorkers,
@@ -100,9 +112,21 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Command::ListJobs { tail } => {
+        Command::ListJobs {
+            tail,
+            pending,
+            running,
+            finished,
+            failed,
+        } => {
             // Query jobs.
-            let message = ClientToServerMessage::ListJobs { tail };
+            let message = ClientToServerMessage::ListJobs {
+                tail,
+                pending,
+                running,
+                finished,
+                failed,
+            };
             stream.send(&message).await?;
 
             // Await results.
