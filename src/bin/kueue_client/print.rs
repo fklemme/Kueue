@@ -75,7 +75,7 @@ pub fn job_list(
             };
             let status = match job_info.status {
                 JobStatus::Pending { issued } => style(resize_status(format!(
-                    "pending, issued {}",
+                    "pending since {}",
                     issued.format("%Y-%m-%d %H:%M:%S").to_string()
                 ))),
                 JobStatus::Offered {
@@ -87,12 +87,17 @@ pub fn job_list(
                     issued: _,
                     started,
                     on,
-                } => style(resize_status(format!(
-                    "running on {}, started {}",
-                    on,
-                    started.format("%Y-%m-%d %H:%M:%S").to_string()
-                )))
-                .blue(),
+                } => {
+                    let run_time_seconds = (Utc::now() - started).num_seconds();
+                    let h = run_time_seconds / 3600;
+                    let m = (run_time_seconds % 3600) / 60;
+                    let s = run_time_seconds % 60;
+                    style(resize_status(format!(
+                        "running for {}h:{:02}m:{:02}s on {}",
+                        h, m, s, on
+                    )))
+                    .blue()
+                }
                 JobStatus::Finished {
                     finished: _,
                     return_code,
@@ -104,14 +109,14 @@ pub fn job_list(
                         let m = (run_time_seconds % 3600) / 60;
                         let s = run_time_seconds % 60;
                         style(resize_status(format!(
-                            "finished on {}, took {}h:{:02}m:{:02}s",
-                            on, h, m, s
+                            "finished after {}h:{:02}m:{:02}s on {}",
+                            h, m, s, on
                         )))
                         .green()
                     } else {
                         style(resize_status(format!(
-                            "failed on {}, code {}",
-                            on, return_code
+                            "failed with code {} on {}",
+                            return_code, on
                         )))
                         .red()
                     }
