@@ -21,54 +21,62 @@ fn get_col_widths(min_col_widths: Vec<usize>, max_col_widths: Vec<usize>) -> Vec
     assert!(!min_col_widths.is_empty() && !max_col_widths.is_empty());
     assert!(min_col_widths.len() == max_col_widths.len());
 
-    // TODO: Min col widths are not considered correctly!
-
-    // Final and target column widths.
-    let mut col_widths = vec![0 as usize; min_col_widths.len()];
-    let target_col_widths: Vec<usize> = min_col_widths
+    // Make sure that max >= min col width.
+    let max_col_widths: Vec<usize> = max_col_widths
         .iter()
-        .zip(max_col_widths.iter())
+        .zip(min_col_widths.iter())
         .map(|(a, b)| max(a, b).to_owned())
         .collect();
 
-    // Column space available and assigned.
-    let total_col_width_available = term_size().0 - (3 * target_col_widths.len() + 1);
+    // Total column space available for assignment.
+    let total_col_width_available = term_size().0 - (3 * min_col_widths.len() + 1);
 
-    // Assign column widths as long as there is free space.
-    'outer: loop {
-        let total_col_width_occupied: usize = col_widths.iter().sum();
-        let remaining_col_width_available = total_col_width_available - total_col_width_occupied;
+    // Return immediately if we have enough space for every column at max width.
+    if max_col_widths.iter().sum::<usize>() <= total_col_width_available {
+        return max_col_widths;
+    }
 
-        let num_cols_not_fixed = col_widths.iter().filter(|width| **width == 0).count();
-        if num_cols_not_fixed == 0 {
-            // All columns have a width assigned. Done.
-            return col_widths;
-        }
+    // Also return immediately if there is not even enough space to provide the min col widths.
+    if total_col_width_available <= min_col_widths.iter().sum::<usize>() {
+        return min_col_widths;
+    }
 
-        // For all columns targeting <= average col width, assign target width.
-        let average_col_width = remaining_col_width_available / num_cols_not_fixed;
-        for index in 0..col_widths.len() {
-            // Column has not been fixed yet.
-            if col_widths[index] == 0 {
-                if target_col_widths[index] <= average_col_width {
-                    col_widths[index] = target_col_widths[index];
-                    // Remaining space and thus average column widths will change.
-                    continue 'outer;
-                }
-            }
-        }
+    // Final column widths to be returned later. Start with minimum column widths.
+    let mut col_widths = min_col_widths.clone();
 
-        // If we reach this point, no columns could be fixed by applying their target width.
-        // Instead, proceed to assign average width to any unfixed column.
-        for index in 0..col_widths.len() {
-            // Column has not been fixed yet.
-            if col_widths[index] == 0 {
-                col_widths[index] = average_col_width;
-                // Average could be rounded down, so only fix one column at a time.
+    // Grow column widths as long as there is free space.
+    let mut remaining_col_width_available =
+        total_col_width_available - col_widths.iter().sum::<usize>();
+    'outer: while remaining_col_width_available > 0 {
+        // Sort columns by size.
+        let mut indices: Vec<usize> = (0..col_widths.len()).collect();
+        indices.sort_by(|i1, i2| col_widths[*i1].cmp(&col_widths[*i2]));
+
+        // Increment smallest column.
+        for index in indices {
+            if col_widths[index] < max_col_widths[index] {
+                col_widths[index] += 1;
+                remaining_col_width_available -= 1;
                 continue 'outer;
             }
         }
+
+        // This point should never be reached, because if there were enough
+        // space for all columns, we would have returned even before the loop.
+        assert!(false);
     }
+
+    log::debug!(
+        "Column widths: {}",
+        col_widths
+            .iter()
+            .map(|i| format!("{}", i))
+            .collect::<Vec<String>>()
+            .join(", ")
+    );
+
+    // No more space for increments available.
+    col_widths
 }
 
 fn dots_front(text: String, len: usize) -> String {
