@@ -66,15 +66,6 @@ fn get_col_widths(min_col_widths: Vec<usize>, max_col_widths: Vec<usize>) -> Vec
         assert!(false);
     }
 
-    log::debug!(
-        "Column widths: {}",
-        col_widths
-            .iter()
-            .map(|i| format!("{}", i))
-            .collect::<Vec<String>>()
-            .join(", ")
-    );
-
     // No more space for increments available.
     col_widths
 }
