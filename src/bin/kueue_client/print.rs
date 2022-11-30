@@ -1,6 +1,7 @@
 use chrono::Utc;
 use console::style;
 use kueue::structs::{JobInfo, JobStatus, WorkerInfo};
+use std::cmp::max;
 use terminal_size::terminal_size;
 
 /// Returns the terminal's width and height.
@@ -9,7 +10,120 @@ pub fn term_size() -> (usize, usize) {
     if let Some(term_size) = terminal_size() {
         (term_size.0 .0 as usize, term_size.1 .0 as usize)
     } else {
-        (80, 25) // default VGA terminal size
+        // Default VGA terminal size is: (80, 25)
+        // But large size is more useful as it is used by tools like "grep".
+        (1_000_000, 1_000)
+    }
+}
+
+/// Calculate column widths based on content.
+fn get_col_widths(min_col_widths: Vec<usize>, max_col_widths: Vec<usize>) -> Vec<usize> {
+    assert!(!min_col_widths.is_empty() && !max_col_widths.is_empty());
+    assert!(min_col_widths.len() == max_col_widths.len());
+
+    // TODO: Min col widths are not considered correctly!
+
+    // Final and target column widths.
+    let mut col_widths = vec![0 as usize; min_col_widths.len()];
+    let target_col_widths: Vec<usize> = min_col_widths
+        .iter()
+        .zip(max_col_widths.iter())
+        .map(|(a, b)| max(a, b).to_owned())
+        .collect();
+
+    // Column space available and assigned.
+    let total_col_width_available = term_size().0 - (3 * target_col_widths.len() + 1);
+
+    // Assign column widths as long as there is free space.
+    'outer: loop {
+        let total_col_width_occupied: usize = col_widths.iter().sum();
+        let remaining_col_width_available = total_col_width_available - total_col_width_occupied;
+
+        let num_cols_not_fixed = col_widths.iter().filter(|width| **width == 0).count();
+        if num_cols_not_fixed == 0 {
+            // All columns have a width assigned. Done.
+            return col_widths;
+        }
+
+        // For all columns targeting <= average col width, assign target width.
+        let average_col_width = remaining_col_width_available / num_cols_not_fixed;
+        for index in 0..col_widths.len() {
+            // Column has not been fixed yet.
+            if col_widths[index] == 0 {
+                if target_col_widths[index] <= average_col_width {
+                    col_widths[index] = target_col_widths[index];
+                    // Remaining space and thus average column widths will change.
+                    continue 'outer;
+                }
+            }
+        }
+
+        // If we reach this point, no columns could be fixed by applying their target width.
+        // Instead, proceed to assign average width to any unfixed column.
+        for index in 0..col_widths.len() {
+            // Column has not been fixed yet.
+            if col_widths[index] == 0 {
+                col_widths[index] = average_col_width;
+                // Average could be rounded down, so only fix one column at a time.
+                continue 'outer;
+            }
+        }
+    }
+}
+
+fn dots_front(text: String, len: usize) -> String {
+    if text.len() <= len {
+        text
+    } else {
+        "...".to_string() + &text[(text.len() - (len - 3))..]
+    }
+}
+
+fn dots_back(text: String, len: usize) -> String {
+    if text.len() <= len {
+        text
+    } else {
+        text[..(len - 3)].to_owned() + "..."
+    }
+}
+
+fn format_status(job_info: &JobInfo) -> String {
+    match &job_info.status {
+        JobStatus::Pending { issued } => format!(
+            "pending since {}",
+            issued.format("%Y-%m-%d %H:%M:%S").to_string()
+        ),
+        JobStatus::Offered {
+            issued: _,
+            offered: _,
+            to,
+        } => format!("offered to {}", to),
+        JobStatus::Running {
+            issued: _,
+            started,
+            on,
+        } => {
+            let run_time_seconds = (Utc::now() - *started).num_seconds();
+            let h = run_time_seconds / 3600;
+            let m = (run_time_seconds % 3600) / 60;
+            let s = run_time_seconds % 60;
+            format!("running for {}h:{:02}m:{:02}s on {}", h, m, s, on)
+        }
+        JobStatus::Finished {
+            finished: _,
+            return_code,
+            on,
+            run_time_seconds,
+        } => {
+            if *return_code == 0 {
+                let h = run_time_seconds / 3600;
+                let m = (run_time_seconds % 3600) / 60;
+                let s = run_time_seconds % 60;
+                format!("finished after {}h:{:02}m:{:02}s on {}", h, m, s, on)
+            } else {
+                format!("failed with code {} on {}", return_code, on)
+            }
+        }
     }
 }
 
@@ -23,25 +137,44 @@ pub fn job_list(
     job_infos: Vec<JobInfo>,
 ) {
     if !job_infos.is_empty() {
-        let default_col_space: usize = 20;
-        let space_other_cols: usize = 19;
+        // Calculate spacing for columns.
+        let max_id_col_width = format!("{}", job_infos.last().unwrap().id).len();
+        let max_cwd_col_width = job_infos
+            .iter()
+            .map(|job_info| job_info.cwd.to_string_lossy().len())
+            .max()
+            .unwrap();
+        let max_cmd_col_width = job_infos
+            .iter()
+            .map(|job_info| job_info.cmd.join(" ").len())
+            .max()
+            .unwrap();
+        let max_status_col_width = job_infos
+            .iter()
+            .map(|job_info| format_status(job_info).len())
+            .max()
+            .unwrap();
 
-        let (cwd_col, cmd_col, status_col) = {
-            let term_width = term_size().0;
-            if term_width > space_other_cols + 3 * 15 {
-                let available_space = term_width - space_other_cols;
-                let cwd_col = available_space / 4;
-                let status_col = (available_space - cwd_col) / 2;
-                let cmd_col = available_space - cwd_col - status_col;
-                (cwd_col, cmd_col, status_col)
-            } else {
-                (default_col_space, default_col_space, default_col_space)
-            }
-        };
+        let min_col_widths = vec![
+            "id".len(),
+            "working dir".len(),
+            "command".len(),
+            "status".len(),
+        ];
+        let max_col_widths = vec![
+            max_id_col_width,
+            max_cwd_col_width,
+            max_cmd_col_width,
+            max_status_col_width,
+        ];
+
+        let col_widths = get_col_widths(min_col_widths, max_col_widths);
+        let (id_col, cwd_col, cmd_col, status_col) =
+            (col_widths[0], col_widths[1], col_widths[2], col_widths[3]);
 
         // Print header
         println!(
-            "| {: ^6} | {: <cwd_col$} | {: <cmd_col$} | {: <status_col$} |",
+            "| {: ^id_col$} | {: <cwd_col$} | {: <cmd_col$} | {: <status_col$} |",
             style("id").bold().underlined(),
             style("working dir").bold().underlined(),
             style("command").bold().underlined(),
@@ -50,88 +183,37 @@ pub fn job_list(
 
         for job_info in job_infos {
             // working dir
-            let working_dir = job_info.cwd.to_string_lossy().to_string();
-            let working_dir = if working_dir.len() <= cwd_col {
-                working_dir
-            } else {
-                "...".to_string() + &working_dir[(working_dir.len() - (cwd_col - 3))..]
-            };
+            let working_dir = job_info.cwd.to_string_lossy();
+            let working_dir = dots_front(working_dir.to_string(), cwd_col);
 
             // command
             let command = job_info.cmd.join(" ");
-            let command = if command.len() <= cmd_col {
-                command
-            } else {
-                command[..(cmd_col - 3)].to_string() + "..."
-            };
+            let command = dots_back(command, cmd_col);
 
             // status
-            let resize_status = |status: String| {
-                if status.len() <= status_col {
-                    status
-                } else {
-                    status[..(status_col - 3)].to_string() + "..."
-                }
-            };
+            let status = dots_back(format_status(&job_info), status_col);
             let status = match job_info.status {
-                JobStatus::Pending { issued } => style(resize_status(format!(
-                    "pending since {}",
-                    issued.format("%Y-%m-%d %H:%M:%S").to_string()
-                ))),
-                JobStatus::Offered {
-                    issued: _,
-                    offered: _,
-                    to,
-                } => style(resize_status(format!("offered to {}", to))).dim(),
-                JobStatus::Running {
-                    issued: _,
-                    started,
-                    on,
-                } => {
-                    let run_time_seconds = (Utc::now() - started).num_seconds();
-                    let h = run_time_seconds / 3600;
-                    let m = (run_time_seconds % 3600) / 60;
-                    let s = run_time_seconds % 60;
-                    style(resize_status(format!(
-                        "running for {}h:{:02}m:{:02}s on {}",
-                        h, m, s, on
-                    )))
-                    .blue()
-                }
-                JobStatus::Finished {
-                    finished: _,
-                    return_code,
-                    on,
-                    run_time_seconds,
-                } => {
+                JobStatus::Pending { .. } => style(status),
+                JobStatus::Offered { .. } => style(status).dim(),
+                JobStatus::Running { .. } => style(status).blue(),
+                JobStatus::Finished { return_code, .. } => {
                     if return_code == 0 {
-                        let h = run_time_seconds / 3600;
-                        let m = (run_time_seconds % 3600) / 60;
-                        let s = run_time_seconds % 60;
-                        style(resize_status(format!(
-                            "finished after {}h:{:02}m:{:02}s on {}",
-                            h, m, s, on
-                        )))
-                        .green()
+                        style(status).green()
                     } else {
-                        style(resize_status(format!(
-                            "failed with code {} on {}",
-                            return_code, on
-                        )))
-                        .red()
+                        style(status).red()
                     }
                 }
             };
 
-            // Print line
+            // Print line.
             println!(
-                "| {: >6} | {: <cwd_col$} | {: <cmd_col$} | {: <status_col$} |",
+                "| {: >id_col$} | {: <cwd_col$} | {: <cmd_col$} | {: <status_col$} |",
                 job_info.id, working_dir, command, status
             );
         }
     }
 
-    // Print summary line
+    // Print summary line.
     println!("{}", style("--- job status summary ---").bold());
     println!(
         "pending: {}, offered: {}, running: {}, finished: {}",
@@ -151,24 +233,53 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
     if worker_list.is_empty() {
         println!("No workers registered on server!");
     } else {
-        let default_col_space: usize = 20;
-        let space_other_cols: usize = 66;
+        // Calculate spacing for columns.
+        let max_worker_col_width = worker_list
+            .iter()
+            .map(|worker_info| worker_info.name.len())
+            .max()
+            .unwrap();
+        let max_os_col_width = worker_list
+            .iter()
+            .map(|worker_info| worker_info.hw.distribution.len())
+            .max()
+            .unwrap();
 
-        let (worker_col, os_col) = {
-            let term_width = term_size().0;
-            if term_width > space_other_cols + 2 * 16 {
-                let available_space = term_width - space_other_cols;
-                let worker_col = available_space / 2;
-                let os_col = available_space - worker_col;
-                (worker_col, os_col)
-            } else {
-                (default_col_space, default_col_space)
-            }
-        };
+        let min_col_widths = vec![
+            "worker name".len(),
+            "operating system".len(),
+            "cpu".len(),
+            "memory".len(),
+            "jobs".len(),
+            "load 1/5/15m".len(),
+            "uptime".len(),
+        ];
+        let max_col_widths = vec![
+            max_worker_col_width,
+            max_os_col_width,
+            5,  // cpu
+            10, // memory
+            7,  // jobs
+            14, // load
+            8,  // uptime
+        ];
+
+        let col_widths = get_col_widths(min_col_widths, max_col_widths);
+        let (worker_col, os_col, cpu_col, memory_col, jobs_col, load_col, uptime_col) = (
+            col_widths[0],
+            col_widths[1],
+            col_widths[2],
+            col_widths[3],
+            col_widths[4],
+            col_widths[5],
+            col_widths[6],
+        );
+
+        // TODO: col widths not consistently used in code below!
 
         // Print header
         println!(
-            "| {: <worker_col$} | {: <os_col$} | {: ^5} | {: ^10} | {: ^7} | {: ^14} | {: ^8} |",
+            "| {: <worker_col$} | {: <os_col$} | {: ^cpu_col$} | {: ^memory_col$} | {: ^jobs_col$} | {: ^load_col$} | {: ^uptime_col$} |",
             style("worker name").bold().underlined(),
             style("operating system").bold().underlined(),
             style("cpu").bold().underlined(),
@@ -179,21 +290,8 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
         );
 
         for info in worker_list {
-            // worker name
-            let worker_name = if info.name.len() <= worker_col {
-                info.name.clone()
-            } else {
-                info.name[..(worker_col - 3)].to_string() + "..."
-            };
-
-            // operating system
-            let operation_system = if info.hw.distribution.len() <= os_col {
-                info.hw.distribution.clone()
-            } else {
-                info.hw.distribution[..(os_col - 3)].to_string() + "..."
-            };
-
-            // cpu cores
+            let worker_name = dots_back(info.name.clone(), worker_col);
+            let operation_system = dots_back(info.hw.distribution.clone(), os_col);
             let cpu_cores = format!("{} x", info.hw.cpu_cores);
 
             // memory
@@ -234,7 +332,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
 
             // Print line
             println!(
-                "| {: <worker_col$} | {: <os_col$} | {: >5} | {: >10} | {: ^7} | {: >4} {: >4} {: >4} | {: >8} |",
+                "| {: <worker_col$} | {: <os_col$} | {: >cpu_col$} | {: >memory_col$} | {: ^jobs_col$} | {: >4} {: >4} {: >4} | {: >uptime_col$} |",
                 worker_name,
                 operation_system,
                 cpu_cores,

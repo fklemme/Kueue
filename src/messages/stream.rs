@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-pub const INIT_READ_BUFFER_LEN: usize = 8 * 1024;
+pub const INIT_READ_BUFFER_LEN: usize = 32 * 1024;
 
 pub struct MessageStream {
     stream: TcpStream,

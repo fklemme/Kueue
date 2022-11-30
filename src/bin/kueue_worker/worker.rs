@@ -280,6 +280,7 @@ impl Worker {
                                 let mut result_lock = job.result.lock().unwrap();
                                 result_lock.finished = true;
                                 result_lock.exit_code = -43;
+                                result_lock.run_time = chrono::Duration::seconds(0);
                                 drop(result_lock); // unlock
                                 self.update_job_status().await
                             }
