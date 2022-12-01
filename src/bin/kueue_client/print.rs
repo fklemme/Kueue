@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use console::style;
 use kueue::structs::{JobInfo, JobStatus, WorkerInfo};
 use std::cmp::max;
@@ -227,6 +227,20 @@ pub fn job_list(
     );
 }
 
+fn format_cpu(cpu_cores: usize) -> String {
+    format!("{} x", cpu_cores)
+}
+
+fn format_memory_mb(memory_bytes: usize) -> String {
+    format!("{} MB", memory_bytes / 1024 / 1024)
+}
+
+fn format_uptime(connected_since: DateTime<Utc>) -> String {
+    let uptime = Utc::now() - connected_since;
+    let hours = uptime.num_hours() % 24;
+    format!("{}d {:02}h", uptime.num_days(), hours)
+}
+
 /// Print workers to screen.
 pub fn worker_list(worker_list: Vec<WorkerInfo>) {
     if worker_list.is_empty() {
@@ -235,36 +249,93 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
         // Calculate spacing for columns.
         let max_worker_col_width = worker_list
             .iter()
-            .map(|worker_info| worker_info.name.len())
+            .map(|info| info.name.len())
             .max()
             .unwrap();
         let max_os_col_width = worker_list
             .iter()
-            .map(|worker_info| worker_info.hw.distribution.len())
+            .map(|info| info.hw.distribution.len())
+            .max()
+            .unwrap();
+        let max_cpu_col_width = worker_list
+            .iter()
+            .map(|info| format_cpu(info.hw.cpu_cores).len())
+            .max()
+            .unwrap();
+        let max_memory_col_width = worker_list
+            .iter()
+            .map(|info| format_memory_mb(info.hw.total_memory).len())
+            .max()
+            .unwrap();
+        let max_run_jobs_col_width = worker_list
+            .iter()
+            .map(|info| format!("{}", info.jobs_total()).len())
+            .max()
+            .unwrap();
+        let max_max_jobs_col_width = worker_list
+            .iter()
+            .map(|info| format!("{}", info.max_parallel_jobs).len())
+            .max()
+            .unwrap();
+        let max_load_1_col_width = worker_list
+            .iter()
+            .map(|info| format!("{:.1}", info.load.one).len())
+            .max()
+            .unwrap();
+        let max_load_5_col_width = worker_list
+            .iter()
+            .map(|info| format!("{:.1}", info.load.five).len())
+            .max()
+            .unwrap();
+        let max_load_15_col_width = worker_list
+            .iter()
+            .map(|info| format!("{:.1}", info.load.fifteen).len())
+            .max()
+            .unwrap();
+        let max_uptime_col_width = worker_list
+            .iter()
+            .map(|info| format_uptime(info.connected_since).len())
             .max()
             .unwrap();
 
         let min_col_widths = vec![
             "worker name".len(),
             "operating system".len(),
-            "cpu".len(),
-            "memory".len(),
-            "jobs".len(),
-            "load 1/5/15m".len(),
-            "uptime".len(),
+            max("cpu".len(), max_cpu_col_width),
+            max("memory".len(), max_memory_col_width),
+            max_run_jobs_col_width,
+            max_max_jobs_col_width,
+            max_load_1_col_width,
+            max_load_5_col_width,
+            max_load_15_col_width,
+            max("uptime".len(), max_uptime_col_width),
         ];
         let max_col_widths = vec![
             max_worker_col_width,
             max_os_col_width,
-            5,  // cpu
-            10, // memory
-            7,  // jobs
-            14, // load
-            8,  // uptime
+            0, // cpu
+            0, // memory
+            0, // running jobs
+            0, // max jobs
+            0, // load 1
+            0, // load 5
+            0, // load 15
+            0, // uptime
         ];
 
         let col_widths = get_col_widths(min_col_widths, max_col_widths);
-        let (worker_col, os_col, cpu_col, memory_col, jobs_col, load_col, uptime_col) = (
+        let (
+            worker_col,
+            os_col,
+            cpu_col,
+            memory_col,
+            run_jobs_col,
+            max_jobs_col,
+            load_1_col,
+            load_5_col,
+            load_15_col,
+            uptime_col,
+        ) = (
             col_widths[0],
             col_widths[1],
             col_widths[2],
@@ -272,13 +343,30 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             col_widths[4],
             col_widths[5],
             col_widths[6],
+            col_widths[7],
+            col_widths[8],
+            col_widths[9],
         );
 
-        // TODO: col widths not consistently used in code below!
+        let jobs_col = run_jobs_col + max_jobs_col + 3; // " / " seperator
+        let load_col = max(
+            "load 1/5/15m".len(),
+            load_1_col + load_5_col + load_15_col + 2,
+        );
+
+        let load_1_col = if load_1_col + load_5_col + load_15_col + 2 < load_col {
+            let diff = load_col - (load_1_col + load_5_col + load_15_col + 2);
+            load_1_col + diff
+        } else {
+            load_1_col
+        };
 
         // Print header
         println!(
-            "| {: <worker_col$} | {: <os_col$} | {: ^cpu_col$} | {: ^memory_col$} | {: ^jobs_col$} | {: ^load_col$} | {: ^uptime_col$} |",
+            "| {: <worker_col$} | {: <os_col$} \
+            | {: ^cpu_col$} | {: ^memory_col$} \
+            | {: ^jobs_col$} | {: ^load_col$} \
+            | {: ^uptime_col$} |",
             style("worker name").bold().underlined(),
             style("operating system").bold().underlined(),
             style("cpu").bold().underlined(),
@@ -291,20 +379,25 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
         for info in worker_list {
             let worker_name = dots_back(info.name.clone(), worker_col);
             let operation_system = dots_back(info.hw.distribution.clone(), os_col);
-            let cpu_cores = format!("{} x", info.hw.cpu_cores);
+            let cpu_cores = format_cpu(info.hw.cpu_cores);
+            let memory_mb = format_memory_mb(info.hw.total_memory);
 
-            // memory
-            let memory_mb = info.hw.total_memory / 1024 / 1024;
-            let memory_mb = format!("{} MB", memory_mb);
-
-            // running jobs
-            let running_jobs = format!("{} / {}", info.jobs_total(), info.max_parallel_jobs);
-            let running_jobs = if info.jobs_total() * 2 < info.max_parallel_jobs {
-                style(running_jobs).green()
+            // jobs
+            let (running_jobs, max_jobs) = if info.jobs_total() * 2 < info.max_parallel_jobs {
+                (
+                    style(info.jobs_total()).green(),
+                    style(info.max_parallel_jobs).green(),
+                )
             } else if info.jobs_total() < info.max_parallel_jobs {
-                style(running_jobs).yellow()
+                (
+                    style(info.jobs_total()).yellow(),
+                    style(info.max_parallel_jobs).yellow(),
+                )
             } else {
-                style(running_jobs).red()
+                (
+                    style(info.jobs_total()).red(),
+                    style(info.max_parallel_jobs).red(),
+                )
             };
 
             // loads
@@ -323,20 +416,21 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             let load_five = load_style(info.load.five);
             let load_fifteen = load_style(info.load.fifteen);
 
-            let uptime = Utc::now() - info.connected_since;
-            let uptime = {
-                let hours = uptime.num_hours() % 24;
-                format!("{}d {: >2}h", uptime.num_days(), hours)
-            };
+            let uptime = format_uptime(info.connected_since);
 
             // Print line
             println!(
-                "| {: <worker_col$} | {: <os_col$} | {: >cpu_col$} | {: >memory_col$} | {: ^jobs_col$} | {: >4} {: >4} {: >4} | {: >uptime_col$} |",
+                "| {: <worker_col$} | {: <os_col$} \
+                | {: >cpu_col$} | {: >memory_col$} \
+                | {: >run_jobs_col$} / {: >max_jobs_col$} \
+                | {: >load_1_col$} {: >load_5_col$} {: >load_15_col$} \
+                | {: >uptime_col$} |",
                 worker_name,
                 operation_system,
                 cpu_cores,
                 memory_mb,
                 running_jobs,
+                max_jobs,
                 load_one,
                 load_five,
                 load_fifteen,
