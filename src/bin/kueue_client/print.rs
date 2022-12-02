@@ -227,11 +227,15 @@ pub fn job_list(
     );
 }
 
-fn format_cpu(cpu_cores: usize) -> String {
+fn format_cores(cpu_cores: usize) -> String {
     format!("{} x", cpu_cores)
 }
 
-fn format_memory_mb(memory_bytes: usize) -> String {
+fn format_frequency(cpu_frequency: u64) -> String {
+    format!("{} MHz", cpu_frequency)
+}
+
+fn format_memory_mb(memory_bytes: u64) -> String {
     format!("{} MB", memory_bytes / 1024 / 1024)
 }
 
@@ -257,9 +261,14 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             .map(|info| info.hw.distribution.len())
             .max()
             .unwrap();
-        let max_cpu_col_width = worker_list
+        let max_cores_col_width = worker_list
             .iter()
-            .map(|info| format_cpu(info.hw.cpu_cores).len())
+            .map(|info| format_cores(info.hw.cpu_cores).len())
+            .max()
+            .unwrap();
+        let max_freq_col_width = worker_list
+            .iter()
+            .map(|info| format_frequency(info.hw.cpu_frequency).len())
             .max()
             .unwrap();
         let max_memory_col_width = worker_list
@@ -301,7 +310,8 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
         let min_col_widths = vec![
             "worker name".len(),
             "operating system".len(),
-            max("cpu".len(), max_cpu_col_width),
+            max("cpus".len(), max_cores_col_width),
+            max("frequency".len(), max_freq_col_width),
             max("memory".len(), max_memory_col_width),
             max_run_jobs_col_width,
             max_max_jobs_col_width,
@@ -313,7 +323,8 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
         let max_col_widths = vec![
             max_worker_col_width,
             max_os_col_width,
-            0, // cpu
+            0, // cpu cores
+            0, // cpu frequency
             0, // memory
             0, // running jobs
             0, // max jobs
@@ -327,7 +338,8 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
         let (
             worker_col,
             os_col,
-            cpu_col,
+            cores_col,
+            freq_col,
             memory_col,
             run_jobs_col,
             max_jobs_col,
@@ -346,6 +358,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             col_widths[7],
             col_widths[8],
             col_widths[9],
+            col_widths[10],
         );
 
         let jobs_col = run_jobs_col + max_jobs_col + 3; // " / " seperator
@@ -364,12 +377,13 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
         // Print header
         println!(
             "| {: <worker_col$} | {: <os_col$} \
-            | {: ^cpu_col$} | {: ^memory_col$} \
-            | {: ^jobs_col$} | {: ^load_col$} \
-            | {: ^uptime_col$} |",
+            | {: ^cores_col$} | {: ^freq_col$} \
+            | {: ^memory_col$} | {: ^jobs_col$} \
+            | {: ^load_col$} | {: ^uptime_col$} |",
             style("worker name").bold().underlined(),
             style("operating system").bold().underlined(),
-            style("cpu").bold().underlined(),
+            style("cpus").bold().underlined(),
+            style("frequency").bold().underlined(),
             style("memory").bold().underlined(),
             style("jobs").bold().underlined(),
             style("load 1/5/15m").bold().underlined(),
@@ -379,7 +393,8 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
         for info in worker_list {
             let worker_name = dots_back(info.name.clone(), worker_col);
             let operation_system = dots_back(info.hw.distribution.clone(), os_col);
-            let cpu_cores = format_cpu(info.hw.cpu_cores);
+            let cpu_cores = format_cores(info.hw.cpu_cores);
+            let cpu_frequency = format_frequency(info.hw.cpu_frequency);
             let memory_mb = format_memory_mb(info.hw.total_memory);
 
             // jobs
@@ -421,13 +436,14 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             // Print line
             println!(
                 "| {: <worker_col$} | {: <os_col$} \
-                | {: >cpu_col$} | {: >memory_col$} \
+                | {: >cores_col$} | {: >freq_col$} | {: >memory_col$} \
                 | {: >run_jobs_col$} / {: >max_jobs_col$} \
                 | {: >load_1_col$} {: >load_5_col$} {: >load_15_col$} \
                 | {: >uptime_col$} |",
                 worker_name,
                 operation_system,
                 cpu_cores,
+                cpu_frequency,
                 memory_mb,
                 running_jobs,
                 max_jobs,

@@ -117,7 +117,8 @@ pub struct HwInfo {
     pub kernel: String,
     pub distribution: String,
     pub cpu_cores: usize,
-    pub total_memory: usize,
+    pub cpu_frequency: u64,
+    pub total_memory: u64,
 }
 
 impl HwInfo {
@@ -126,6 +127,7 @@ impl HwInfo {
             kernel: "unknown".into(),
             distribution: "unknown".into(),
             cpu_cores: 0,
+            cpu_frequency: 0,
             total_memory: 0,
         }
     }

@@ -12,7 +12,7 @@ use std::{
     cmp::{max, min},
     sync::Arc,
 };
-use sysinfo::{System, SystemExt};
+use sysinfo::{CpuExt, System, SystemExt};
 use tokio::{
     net::TcpStream,
     sync::Notify,
@@ -137,7 +137,11 @@ impl Worker {
             kernel: self.system.kernel_version().unwrap_or("unknown".into()),
             distribution: self.system.long_os_version().unwrap_or("unknown".into()),
             cpu_cores: self.system.cpus().len(),
-            total_memory: self.system.total_memory() as usize,
+            cpu_frequency: match self.system.cpus().first() {
+                Some(cpu) => cpu.frequency(),
+                None => 0,
+            },
+            total_memory: self.system.total_memory(),
         };
 
         // Send to server
