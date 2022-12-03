@@ -1,18 +1,30 @@
+//! Contains a collection of structs that are transfered as messages between
+//! client and server, and worker and server.
+
 pub mod stream;
 
 use crate::structs::{HwInfo, JobInfo, LoadInfo, WorkerInfo};
 use serde::{Deserialize, Serialize};
 
-// HelloMessage helps the server to distinguish between client and worker
+/// Communication to the server is initialized with HelloFromClient or
+/// HelloFromWorker. The variants help the server to distinguish between client
+/// and worker connections. The server will repond with the corresponding
+/// "welcome" message.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum HelloMessage {
-    // Initiate client connection with this message, expect WelcomeClient
+    /// Initiate a new client connection with the HelloFromClient message.
+    /// The server confirms the connection with the WelcomeClient message.
     HelloFromClient,
-    // Initiate worker connection with this message, expect WelcomeWorker
-    HelloFromWorker { name: String },
+    /// Initiate a new worker connection with the HelloFromWorker message.
+    /// The server confirms the connection with the WelcomeWorker message.
+    HelloFromWorker {
+        /// Name of the worker. Can be helpful for the user to identify where
+        /// their jobs are running.
+        name: String,
+    },
 }
 
-// All messages sent by the client to the server
+/// Contains all messages sent by the client to the server.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ClientToServerMessage {
     // Request authentification challenge.
@@ -35,7 +47,7 @@ pub enum ClientToServerMessage {
     Bye,
 }
 
-// All messages sent by the server to a client
+/// Contains all messages sent by the server to a client.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ServerToClientMessage {
     // Respond with WelcomeClient after HelloFromClient.
@@ -62,7 +74,7 @@ pub enum ServerToClientMessage {
     WorkerList(Vec<WorkerInfo>),
 }
 
-// All messages sent by the server to a worker
+/// Contains all messages sent by the server to a worker.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ServerToWorkerMessage {
     // Respond with WelcomeWorker after HelloFromWorker
@@ -74,7 +86,7 @@ pub enum ServerToWorkerMessage {
     WithdrawJobOffer(JobInfo),
 }
 
-// All messages sent by the worker to the server
+/// Contains all messages sent by the worker to the server.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum WorkerToServerMessage {
     // Send Sha256(secret + salt) back to server.

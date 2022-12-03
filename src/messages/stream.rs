@@ -1,3 +1,5 @@
+//! Reads and writes messages from and to the network.
+
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -5,10 +7,15 @@ use tokio::net::TcpStream;
 
 pub const INIT_READ_BUFFER_LEN: usize = 32 * 1024;
 
+/// Reads and writes messages from and to the network.
 pub struct MessageStream {
+    /// Underlying TCP stream.
     stream: TcpStream,
-    read_buffer: Vec<u8>, // bufferes bytes read from stream, fixed size
-    msg_buffer: Vec<u8>,  // holds msg chunks from previous reads, grows
+    /// Bufferes bytes read from stream. Has a fixed size.
+    read_buffer: Vec<u8>,
+    /// Holds received message chunks from previous read operations.
+    /// Grows continuesly to fit the message.
+    msg_buffer: Vec<u8>,
 }
 
 impl MessageStream {
@@ -20,6 +27,7 @@ impl MessageStream {
         }
     }
 
+    /// Send a message over the network.
     pub async fn send<T: Serialize + Debug>(&mut self, message: &T) -> Result<(), MessageError> {
         log::trace!("Sending message: {:?}", message);
         let buffer = serde_json::to_vec(message).unwrap();
@@ -33,6 +41,7 @@ impl MessageStream {
         }
     }
 
+    /// Read a message from the network.
     pub async fn receive<T: for<'a> Deserialize<'a> + Debug>(&mut self) -> Result<T, MessageError> {
         loop {
             // Parse message from message buffer
@@ -70,6 +79,7 @@ impl MessageStream {
         }
     }
 
+    /// Deserializes messages.
     fn parse_message<T: for<'a> Deserialize<'a>>(&mut self) -> Result<T, ParseError> {
         // Try to parse T from msg_buffer
         let de = serde_json::Deserializer::from_slice(&self.msg_buffer);
