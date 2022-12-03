@@ -12,7 +12,7 @@ use std::{
     cmp::{max, min},
     sync::Arc,
 };
-use sysinfo::{CpuExt, System, SystemExt};
+use sysinfo::{CpuExt, CpuRefreshKind, System, SystemExt};
 use tokio::{
     net::TcpStream,
     sync::Notify,
@@ -23,7 +23,7 @@ pub struct Worker {
     name: String,
     config: Config,
     stream: MessageStream,
-    notify_update: Arc<Notify>,
+    notify_update_hw: Arc<Notify>,
     notify_job_status: Arc<Notify>,
     system: System,
     offered_jobs: Vec<Job>,
@@ -42,7 +42,7 @@ impl Worker {
             name,
             config,
             stream: MessageStream::new(stream),
-            notify_update: Arc::new(Notify::new()),
+            notify_update_hw: Arc::new(Notify::new()),
             notify_job_status: Arc::new(Notify::new()),
             system: System::new_all(),
             offered_jobs: Vec::new(),
@@ -59,10 +59,10 @@ impl Worker {
         self.authenticate().await?;
 
         // Notify worker regularly to send updates.
-        let notify_update = Arc::clone(&self.notify_update);
+        let notify_update_hw = Arc::clone(&self.notify_update_hw);
         tokio::spawn(async move {
             loop {
-                notify_update.notify_one();
+                notify_update_hw.notify_one();
                 sleep(Duration::from_secs(60)).await;
             }
         });
@@ -78,9 +78,7 @@ impl Worker {
                     self.handle_message(message?).await?;
                 }
                 // Or, get active when notified.
-                _ = self.notify_update.notified() => {
-                    // Refresh relevant system information.
-                    self.system.refresh_cpu();
+                _ = self.notify_update_hw.notified() => {
                     self.update_hw_status().await?;
                     self.update_load_status().await?;
                 }
@@ -144,99 +142,6 @@ impl Worker {
                 self.max_parallel_jobs,
             ))
             .await
-    }
-
-    async fn update_hw_status(&mut self) -> Result<(), MessageError> {
-        // Get CPU cores and frequency.
-        let cpu_cores = self.system.cpus().len();
-        let cpu_frequency = if cpu_cores > 0 {
-            self.system
-                .cpus()
-                .iter()
-                .map(|cpu| cpu.frequency())
-                .sum::<u64>()
-                / cpu_cores as u64
-        } else {
-            0u64
-        };
-
-        // Collect hardware information.
-        let hw_info = HwInfo {
-            kernel: self.system.kernel_version().unwrap_or("unknown".into()),
-            distribution: self.system.long_os_version().unwrap_or("unknown".into()),
-            cpu_cores,
-            cpu_frequency,
-            total_memory: self.system.total_memory(),
-        };
-
-        // Send to server.
-        self.stream
-            .send(&WorkerToServerMessage::UpdateHwInfo(hw_info))
-            .await
-    }
-
-    async fn update_load_status(&mut self) -> Result<(), MessageError> {
-        // Read load.
-        let load_avg = self.system.load_average();
-        let load_info = LoadInfo {
-            one: load_avg.one,
-            five: load_avg.five,
-            fifteen: load_avg.fifteen,
-        };
-
-        // Send to server.
-        self.stream
-            .send(&WorkerToServerMessage::UpdateLoadInfo(load_info))
-            .await
-    }
-
-    async fn update_job_status(&mut self) -> Result<(), MessageError> {
-        // We check all running processes for exit codes
-        let mut index = 0;
-        while index < self.running_jobs.len() {
-            let finished = self.running_jobs[index].result.lock().unwrap().finished;
-            if finished {
-                // Job has finished. Remove from list.
-                let mut job = self.running_jobs.remove(index);
-                let mut stdout = None;
-                let mut stderr = None;
-
-                {
-                    // Update info
-                    let result_lock = job.result.lock().unwrap();
-                    job.info.status = JobStatus::Finished {
-                        finished: Utc::now(),
-                        return_code: result_lock.exit_code,
-                        on: self.name.clone(),
-                        run_time_seconds: result_lock.run_time.num_seconds(),
-                    };
-                    if !result_lock.stdout.is_empty() {
-                        stdout = Some(result_lock.stdout.clone());
-                    }
-                    if !result_lock.stderr.is_empty() {
-                        stderr = Some(result_lock.stderr.clone());
-                    }
-                }
-
-                // Send update to server
-                let job_status = WorkerToServerMessage::UpdateJobStatus(job.info.clone());
-                self.stream.send(&job_status).await?;
-
-                // Send stdout/stderr to server
-                let job_results = WorkerToServerMessage::UpdateJobResults {
-                    job_id: job.info.id,
-                    stdout,
-                    stderr,
-                };
-                self.stream.send(&job_results).await?;
-
-                // TODO: Store/remember finished jobs?
-            } else {
-                // Job still running... Next!
-                index += 1;
-            }
-        }
-        Ok(())
     }
 
     async fn handle_message(&mut self, message: ServerToWorkerMessage) -> Result<(), MessageError> {
@@ -334,5 +239,117 @@ impl Worker {
                 }
             }
         }
+    }
+
+    async fn update_hw_status(&mut self) -> Result<(), MessageError> {
+        // Refresh relevant system information.
+        //self.system.refresh_cpu();
+        //sleep(Duration::from_millis(200)).await;
+        //self.system.refresh_cpu();
+
+        // FIXME: Is this good enough? It should just read from, e.g., /proc/cpuinfo.
+        self.system
+            .refresh_cpu_specifics(CpuRefreshKind::new().with_frequency());
+
+        // Debug: CPU frequency should change with system load.
+        let frequency_list = self
+            .system
+            .cpus()
+            .iter()
+            .map(|cpu| format!("{}", cpu.frequency()))
+            .collect::<Vec<String>>()
+            .join(", ");
+        log::debug!("CPU frequencies: {} MHz", frequency_list);
+
+        // Get CPU cores and frequency.
+        let cpu_cores = self.system.cpus().len();
+        let cpu_frequency = if cpu_cores > 0 {
+            self.system
+                .cpus()
+                .iter()
+                .map(|cpu| cpu.frequency())
+                .sum::<u64>()
+                / cpu_cores as u64
+        } else {
+            0u64
+        };
+
+        // Collect hardware information.
+        let hw_info = HwInfo {
+            kernel: self.system.kernel_version().unwrap_or("unknown".into()),
+            distribution: self.system.long_os_version().unwrap_or("unknown".into()),
+            cpu_cores,
+            cpu_frequency,
+            total_memory: self.system.total_memory(),
+        };
+
+        // Send to server.
+        self.stream
+            .send(&WorkerToServerMessage::UpdateHwInfo(hw_info))
+            .await
+    }
+
+    async fn update_load_status(&mut self) -> Result<(), MessageError> {
+        // Read load.
+        let load_avg = self.system.load_average();
+        let load_info = LoadInfo {
+            one: load_avg.one,
+            five: load_avg.five,
+            fifteen: load_avg.fifteen,
+        };
+
+        // Send to server.
+        self.stream
+            .send(&WorkerToServerMessage::UpdateLoadInfo(load_info))
+            .await
+    }
+
+    async fn update_job_status(&mut self) -> Result<(), MessageError> {
+        // We check all running processes for exit codes
+        let mut index = 0;
+        while index < self.running_jobs.len() {
+            let finished = self.running_jobs[index].result.lock().unwrap().finished;
+            if finished {
+                // Job has finished. Remove from list.
+                let mut job = self.running_jobs.remove(index);
+                let mut stdout = None;
+                let mut stderr = None;
+
+                {
+                    // Update info
+                    let result_lock = job.result.lock().unwrap();
+                    job.info.status = JobStatus::Finished {
+                        finished: Utc::now(),
+                        return_code: result_lock.exit_code,
+                        on: self.name.clone(),
+                        run_time_seconds: result_lock.run_time.num_seconds(),
+                    };
+                    if !result_lock.stdout.is_empty() {
+                        stdout = Some(result_lock.stdout.clone());
+                    }
+                    if !result_lock.stderr.is_empty() {
+                        stderr = Some(result_lock.stderr.clone());
+                    }
+                }
+
+                // Send update to server
+                let job_status = WorkerToServerMessage::UpdateJobStatus(job.info.clone());
+                self.stream.send(&job_status).await?;
+
+                // Send stdout/stderr to server
+                let job_results = WorkerToServerMessage::UpdateJobResults {
+                    job_id: job.info.id,
+                    stdout,
+                    stderr,
+                };
+                self.stream.send(&job_results).await?;
+
+                // TODO: Store/remember finished jobs?
+            } else {
+                // Job still running... Next!
+                index += 1;
+            }
+        }
+        Ok(())
     }
 }
