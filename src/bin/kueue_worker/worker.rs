@@ -243,23 +243,8 @@ impl Worker {
 
     async fn update_hw_status(&mut self) -> Result<(), MessageError> {
         // Refresh relevant system information.
-        //self.system.refresh_cpu();
-        //sleep(Duration::from_millis(200)).await;
-        //self.system.refresh_cpu();
-
-        // FIXME: Is this good enough? It should just read from, e.g., /proc/cpuinfo.
         self.system
             .refresh_cpu_specifics(CpuRefreshKind::new().with_frequency());
-
-        // Debug: CPU frequency should change with system load.
-        let frequency_list = self
-            .system
-            .cpus()
-            .iter()
-            .map(|cpu| format!("{}", cpu.frequency()))
-            .collect::<Vec<String>>()
-            .join(", ");
-        log::debug!("CPU frequencies: {} MHz", frequency_list);
 
         // Get CPU cores and frequency.
         let cpu_cores = self.system.cpus().len();
@@ -290,7 +275,7 @@ impl Worker {
     }
 
     async fn update_load_status(&mut self) -> Result<(), MessageError> {
-        // Read load.
+        // Read system load.
         let load_avg = self.system.load_average();
         let load_info = LoadInfo {
             one: load_avg.one,
