@@ -58,10 +58,6 @@ impl Worker {
         // Do challenge-response authentification.
         self.authenticate().await?;
 
-        // Send hardware information to server.
-        // We do it only once since it should not change.
-        self.update_hw_status().await?;
-
         // Notify worker regularly to send updates.
         let notify_update = Arc::clone(&self.notify_update);
         tokio::spawn(async move {
@@ -77,12 +73,15 @@ impl Worker {
         // Main loop
         loop {
             tokio::select! {
-                // Read and handle incoming messages
+                // Read and handle incoming messages.
                 message = self.stream.receive::<ServerToWorkerMessage>() => {
                     self.handle_message(message?).await?;
                 }
-                // Or, get active when notified
+                // Or, get active when notified.
                 _ = self.notify_update.notified() => {
+                    // Refresh relevant system information.
+                    self.system.refresh_cpu();
+                    self.update_hw_status().await?;
                     self.update_load_status().await?;
                 }
                 _ = self.notify_job_status.notified() => {
@@ -131,27 +130,53 @@ impl Worker {
         }
     }
 
+    async fn accept_jobs_based_on_hw(&mut self) -> Result<(), MessageError> {
+        let cpu_cores = self.system.cpus().len();
+        let total_memory = self.system.total_memory() as usize;
+        let total_memory_gb = (total_memory / 1024 / 1024 / 1024) as usize;
+
+        // TODO: Do something smart to set the hw-based default.
+        self.max_parallel_jobs = max(1, min(cpu_cores / 8, total_memory_gb / 8));
+
+        // Send to server
+        self.stream
+            .send(&WorkerToServerMessage::AcceptParallelJobs(
+                self.max_parallel_jobs,
+            ))
+            .await
+    }
+
     async fn update_hw_status(&mut self) -> Result<(), MessageError> {
-        // Read hardware information
+        // Get CPU cores and frequency.
+        let cpu_cores = self.system.cpus().len();
+        let cpu_frequency = if cpu_cores > 0 {
+            self.system
+                .cpus()
+                .iter()
+                .map(|cpu| cpu.frequency())
+                .sum::<u64>()
+                / cpu_cores as u64
+        } else {
+            0u64
+        };
+
+        // Collect hardware information.
         let hw_info = HwInfo {
             kernel: self.system.kernel_version().unwrap_or("unknown".into()),
             distribution: self.system.long_os_version().unwrap_or("unknown".into()),
-            cpu_cores: self.system.cpus().len(),
-            cpu_frequency: match self.system.cpus().first() {
-                Some(cpu) => cpu.frequency(),
-                None => 0,
-            },
+            cpu_cores,
+            cpu_frequency,
             total_memory: self.system.total_memory(),
         };
 
-        // Send to server
+        // Send to server.
         self.stream
             .send(&WorkerToServerMessage::UpdateHwInfo(hw_info))
             .await
     }
 
     async fn update_load_status(&mut self) -> Result<(), MessageError> {
-        // Read load
+        // Read load.
         let load_avg = self.system.load_average();
         let load_info = LoadInfo {
             one: load_avg.one,
@@ -159,7 +184,7 @@ impl Worker {
             fifteen: load_avg.fifteen,
         };
 
-        // Send to server
+        // Send to server.
         self.stream
             .send(&WorkerToServerMessage::UpdateLoadInfo(load_info))
             .await
@@ -212,22 +237,6 @@ impl Worker {
             }
         }
         Ok(())
-    }
-
-    async fn accept_jobs_based_on_hw(&mut self) -> Result<(), MessageError> {
-        let cpu_cores = self.system.cpus().len();
-        let total_memory = self.system.total_memory() as usize;
-        let total_memory_gb = (total_memory / 1024 / 1024 / 1024) as usize;
-
-        // TODO: Do something smart to set the hw-based default.
-        self.max_parallel_jobs = max(1, min(cpu_cores / 8, total_memory_gb / 8));
-
-        // Send to server
-        self.stream
-            .send(&WorkerToServerMessage::AcceptParallelJobs(
-                self.max_parallel_jobs,
-            ))
-            .await
     }
 
     async fn handle_message(&mut self, message: ServerToWorkerMessage) -> Result<(), MessageError> {
