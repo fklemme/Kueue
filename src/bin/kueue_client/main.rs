@@ -1,10 +1,11 @@
+mod cli;
 mod print;
 
-use crate::print::term_size;
+use crate::cli::{Args, Command};
 use anyhow::{anyhow, Result};
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use kueue::{
-    config::{default_path, Config},
+    config::Config,
     messages::stream::MessageStream,
     messages::{ClientToServerMessage, HelloMessage, ServerToClientMessage},
     structs::JobInfo,
@@ -13,51 +14,6 @@ use sha2::{Digest, Sha256};
 use simple_logger::SimpleLogger;
 use std::fs::canonicalize;
 use tokio::net::TcpStream;
-
-#[derive(Parser, Debug)]
-#[command(author, version, about)]
-struct Args {
-    /// Path to config file.
-    #[arg(short, long, default_value_t = default_path().to_string_lossy().into())]
-    config: String,
-    #[command(subcommand)]
-    command: Command,
-}
-
-#[derive(Subcommand, Debug)]
-enum Command {
-    /// Issue command to be off-loaded to remote workers.
-    #[command(external_subcommand)]
-    Cmd(Vec<String>), // TODO: missing in help!
-    /// Query information about scheduled and running jobs.
-    ListJobs {
-        /// Number of latest jobs to query.
-        #[arg(short, long, default_value_t = term_size().1 - 4)]
-        num_jobs: usize,
-        /// Show pending jobs.
-        #[arg(short, long)]
-        pending: bool,
-        /// Show offered jobs.
-        #[arg(short, long)]
-        offered: bool,
-        /// Show running jobs.
-        #[arg(short, long)]
-        running: bool,
-        /// Show finished jobs.
-        #[arg(short, long)]
-        finished: bool,
-        /// Show failed jobs.
-        #[arg(short = 'e', long)]
-        failed: bool,
-    },
-    /// Query information about available workers.
-    ListWorkers,
-    /// Show information about a specific job.
-    ShowJob {
-        /// ID of job to be queried.
-        id: usize,
-    },
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
