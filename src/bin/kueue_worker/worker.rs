@@ -185,8 +185,10 @@ impl Worker {
                     .position(|job| job.info.id == job_info.id);
                 match offered_job_index {
                     Some(index) => {
-                        // Move job to running processes
-                        let job = self.offered_jobs.remove(index);
+                        // Move job to running processes.
+                        let mut job = self.offered_jobs.remove(index);
+                        // Also update job status. (Should now be "running".)
+                        job.info.status = job_info.status;
                         self.running_jobs.push(job);
 
                         // Run job as child process
@@ -239,6 +241,32 @@ impl Worker {
                     }
                 }
             }
+            ServerToWorkerMessage::KillJob(job_info) => {
+                let running_job_index = self
+                    .running_jobs
+                    .iter()
+                    .position(|job| job.info.id == job_info.id);
+                match running_job_index {
+                    Some(index) => {
+                        // Signal kill.
+                        let job = self.running_jobs.get_mut(index).unwrap();
+                        job.notify_kill_job.notify_one();
+                        // Also update job status. (Should now be "canceled".)
+                        job.info.status = job_info.status;
+                        // After the job has been killed, "notify_job_status"
+                        // is notified, causing "update_job_status" to remove
+                        // the job from "running_jobs" and inform the server.
+                        Ok(())
+                    }
+                    None => {
+                        log::error!(
+                            "Job to be killed with ID={} is not running on this worker!",
+                            job_info.id
+                        );
+                        Ok(()) // Error but we can continue running
+                    }
+                }
+            }
         }
     }
 
@@ -262,8 +290,14 @@ impl Worker {
 
         // Collect hardware information.
         let hw_info = HwInfo {
-            kernel: self.system_info.kernel_version().unwrap_or("unknown".into()),
-            distribution: self.system_info.long_os_version().unwrap_or("unknown".into()),
+            kernel: self
+                .system_info
+                .kernel_version()
+                .unwrap_or("unknown".into()),
+            distribution: self
+                .system_info
+                .long_os_version()
+                .unwrap_or("unknown".into()),
             cpu_cores,
             cpu_frequency,
             total_memory: self.system_info.total_memory(),

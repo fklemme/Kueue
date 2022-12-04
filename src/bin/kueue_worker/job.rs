@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::{Duration, Utc};
-use kueue::structs::{JobInfo, JobStatus};
+use kueue::structs::JobInfo;
 use std::{
     process::Stdio,
     sync::{Arc, Mutex},
@@ -43,24 +43,6 @@ impl Job {
     }
 
     pub fn run(&mut self) -> Result<()> {
-        // Update job status
-        let job_status = &self.info.status;
-        if let JobStatus::Offered {
-            issued,
-            offered: _,
-            to,
-        } = job_status
-        {
-            self.info.status = JobStatus::Running {
-                issued: issued.clone(),
-                started: Utc::now(),
-                on: to.clone(),
-            };
-        } else {
-            // Can this happen?
-            log::error!("Expected job state to be offered, found: {:?}", job_status);
-        }
-
         // Run command as sub-process
         assert!(!self.info.cmd.is_empty()); // TODO
         log::trace!("Running command: {}", self.info.cmd.join(" "));

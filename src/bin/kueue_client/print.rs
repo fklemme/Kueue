@@ -123,6 +123,10 @@ fn format_status(job_info: &JobInfo) -> String {
                 format!("failed with code {} on {}", return_code, on)
             }
         }
+        JobStatus::Canceled { canceled } => format!(
+            "canceled on {}",
+            canceled.format("%Y-%m-%d %H:%M:%S").to_string()
+        ),
     }
 }
 
@@ -133,6 +137,7 @@ pub fn job_list(
     jobs_running: usize,
     jobs_finished: usize,
     any_job_failed: bool,
+    jobs_canceled: usize,
     job_infos: Vec<JobInfo>,
 ) {
     if !job_infos.is_empty() {
@@ -202,6 +207,7 @@ pub fn job_list(
                         style(status).red()
                     }
                 }
+                JobStatus::Canceled { .. } => style(status).yellow(),
             };
 
             // Print line.
@@ -215,7 +221,7 @@ pub fn job_list(
     // Print summary line.
     println!("{}", style("--- job status summary ---").bold());
     println!(
-        "pending: {}, offered: {}, running: {}, finished: {}",
+        "pending: {}, offered: {}, running: {}, finished: {}, canceled: {}",
         jobs_pending,
         style(jobs_offered).dim(),
         style(jobs_running).blue(),
@@ -223,7 +229,8 @@ pub fn job_list(
             style(jobs_finished).red()
         } else {
             style(jobs_finished).green()
-        }
+        },
+        style(jobs_canceled).yellow()
     );
 }
 
@@ -456,63 +463,63 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
     }
 }
 
-pub fn job_info(job_info: Option<JobInfo>, stdout: Option<String>, stderr: Option<String>) {
-    if let Some(job_info) = job_info {
-        println!("=== {} ===", style("job information").bold().underlined());
-        println!("job id: {}", job_info.id);
-        println!("command: {}", job_info.cmd.join(" "));
-        println!("working directory: {}", job_info.cwd.to_string_lossy());
-        match job_info.status {
-            JobStatus::Pending { issued } => {
-                println!("job status: pending");
-                println!("   issued on: {}", issued);
-            }
-            JobStatus::Offered {
-                issued,
-                offered,
-                to,
-            } => {
-                println!("job status: {}", style("pending").dim());
-                println!("   issued on: {}", issued);
-                println!("   offered on: {}", offered);
-                println!("   offered to: {}", to);
-            }
-            JobStatus::Running {
-                issued,
-                started,
-                on,
-            } => {
-                println!("job status: {}", style("running").blue());
-                println!("   issued on: {}", issued);
-                println!("   started on: {}", started);
-                println!("   running on: {}", on);
-            }
-            JobStatus::Finished {
-                finished,
-                return_code,
-                on,
-                run_time_seconds,
-            } => {
-                if return_code == 0 {
-                    println!("job status: {}", style("finished").green());
-                } else {
-                    println!("job status: {}", style("failed").red());
-                }
-                println!("   finished on: {}", finished);
-                println!("   return code: {}", return_code);
-                println!("   executed on: {}", on);
-                println!("   runtime: {} seconds", run_time_seconds);
-            }
+pub fn job_info(job_info: JobInfo, stdout: Option<String>, stderr: Option<String>) {
+    println!("=== {} ===", style("job information").bold().underlined());
+    println!("job id: {}", job_info.id);
+    println!("command: {}", job_info.cmd.join(" "));
+    println!("working directory: {}", job_info.cwd.to_string_lossy());
+    match job_info.status {
+        JobStatus::Pending { issued } => {
+            println!("job status: pending");
+            println!("   issued on: {}", issued);
         }
+        JobStatus::Offered {
+            issued,
+            offered,
+            to,
+        } => {
+            println!("job status: {}", style("pending").dim());
+            println!("   issued on: {}", issued);
+            println!("   offered on: {}", offered);
+            println!("   offered to: {}", to);
+        }
+        JobStatus::Running {
+            issued,
+            started,
+            on,
+        } => {
+            println!("job status: {}", style("running").blue());
+            println!("   issued on: {}", issued);
+            println!("   started on: {}", started);
+            println!("   running on: {}", on);
+        }
+        JobStatus::Finished {
+            finished,
+            return_code,
+            on,
+            run_time_seconds,
+        } => {
+            if return_code == 0 {
+                println!("job status: {}", style("finished").green());
+            } else {
+                println!("job status: {}", style("failed").red());
+            }
+            println!("   finished on: {}", finished);
+            println!("   return code: {}", return_code);
+            println!("   executed on: {}", on);
+            println!("   runtime: {} seconds", run_time_seconds);
+        }
+        JobStatus::Canceled { canceled } => {
+            println!("job status: {}", style("canceled").yellow());
+            println!("   canceled on: {}", canceled);
+        }
+    }
 
-        if let Some(stdout) = stdout {
-            println!("=== {} ===\n{}", style("stdout").bold(), stdout);
-        }
+    if let Some(stdout) = stdout {
+        println!("=== {} ===\n{}", style("stdout").bold(), stdout);
+    }
 
-        if let Some(stderr) = stderr {
-            println!("=== {} ===\n{}", style("stderr").red(), stderr);
-        }
-    } else {
-        println!("{}", style("Job not found!").red());
+    if let Some(stderr) = stderr {
+        println!("=== {} ===\n{}", style("stderr").red(), stderr);
     }
 }

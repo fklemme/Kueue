@@ -56,10 +56,15 @@ impl ClientConnection {
         }
     }
 
-    fn is_authenticated(&self) -> Result<()> {
+    async fn is_authenticated(&mut self) -> Result<()> {
         if self.authenticated {
             Ok(())
         } else {
+            let message = ServerToClientMessage::RequestResponse {
+                success: false,
+                text: "Not authenticated!".into(),
+            };
+            self.stream.send(&message).await?;
             Err(anyhow!("Client is not authenticated!"))
         }
     }
@@ -90,7 +95,7 @@ impl ClientConnection {
                 Ok(())
             }
             ClientToServerMessage::IssueJob(job_info) => {
-                self.is_authenticated()?;
+                self.is_authenticated().await?;
 
                 // Add new job. We create a new JobInfo instance to make sure to
                 // not adopt remote (non-unique) job ids or inconsistent states.
@@ -118,6 +123,7 @@ impl ClientConnection {
                 running,
                 finished,
                 failed,
+                canceled,
             } => {
                 // Get job list.
                 let mut job_infos = self.manager.lock().unwrap().get_all_job_infos();
@@ -142,9 +148,13 @@ impl ClientConnection {
                 let any_job_failed = job_infos
                     .iter()
                     .any(|job_info| job_info.status.has_failed());
+                let jobs_canceled = job_infos
+                    .iter()
+                    .filter(|job_info| job_info.status.is_canceled())
+                    .count();
 
                 // Filter job list based on status.
-                if pending || offered || running || finished || failed {
+                if pending || offered || running || finished || failed || canceled {
                     job_infos = job_infos
                         .into_iter()
                         .filter(|job_info| match job_info.status {
@@ -154,6 +164,7 @@ impl ClientConnection {
                             JobStatus::Finished { return_code, .. } => {
                                 finished || (return_code != 0 && failed)
                             }
+                            JobStatus::Canceled { .. } => canceled,
                         })
                         .collect();
                 }
@@ -171,6 +182,7 @@ impl ClientConnection {
                     jobs_running,
                     jobs_finished,
                     any_job_failed,
+                    jobs_canceled,
                     job_infos,
                 };
                 self.stream.send(&message).await?;
@@ -193,33 +205,45 @@ impl ClientConnection {
                 let message = if let Some(job) = job {
                     let job_lock = job.lock().unwrap();
                     ServerToClientMessage::JobInfo {
-                        job_info: Some(job_lock.info.clone()),
+                        job_info: job_lock.info.clone(),
                         stdout: job_lock.stdout.clone(),
                         stderr: job_lock.stderr.clone(),
                     }
                 } else {
-                    ServerToClientMessage::JobInfo {
-                        job_info: None,
-                        stdout: None,
-                        stderr: None,
+                    ServerToClientMessage::RequestResponse {
+                        success: false,
+                        text: "Job not found!".into(),
                     }
                 };
                 self.stream.send(&message).await?;
                 Ok(())
             }
-            ClientToServerMessage::KillJob { id } => {
-                self.is_authenticated()?;
+            ClientToServerMessage::RemoveJob { id, kill } => {
+                self.is_authenticated().await?;
 
-                // Get job.
-                let job = self.manager.lock().unwrap().get_job(id);
-                if let Some(job) = job {
-                    // TODO: We have to somehow tell the worker to kill the job.
-                    // Maybe marking the job and notifying the worker.
-                } else {
-                    log::info!("Job ID={} not found!", id);
+                // Cancel job and send message back to client.
+                let result = self.manager.lock().unwrap().cancel_job(id);
+                let message = match result {
+                    Ok(Some(tx)) => {
+                        // Signal kill to the worker.
+                        if kill {
+                            tx.send(id).await?;
+                        }
+                        ServerToClientMessage::RequestResponse {
+                            success: true,
+                            text: format!("Canceled job ID={}!", id),
+                        }
+                    }
+                    Ok(None) => ServerToClientMessage::RequestResponse {
+                        success: true,
+                        text: format!("Canceled job ID={}!", id),
+                    },
+                    Err(e) => ServerToClientMessage::RequestResponse {
+                        success: false,
+                        text: e.to_string(),
+                    },
                 };
-
-                // TODO: Send some feedback to client.
+                self.stream.send(&message).await?;
                 Ok(())
             }
             ClientToServerMessage::Bye => {

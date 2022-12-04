@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use kueue::config::default_path;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about)]
+#[command(version, author, about)]
 pub struct Args {
     /// Path to config file.
     #[arg(short, long, default_value_t = default_path().to_string_lossy().into())]
@@ -37,6 +37,9 @@ pub enum Command {
         /// Show failed jobs.
         #[arg(short = 'e', long)]
         failed: bool,
+        /// Show canceled jobs.
+        #[arg(short, long)]
+        canceled: bool,
     },
     /// Query information about available workers.
     ListWorkers,
@@ -45,9 +48,13 @@ pub enum Command {
         /// ID of the job to be queried.
         id: usize,
     },
-    /// Cancel execution of the job on its worker.
-    KillJob {
-        /// ID of the job to be killed.
+    /// Remove job from the queue.
+    RemoveJob {
+        /// ID of the job to be removed.
         id: usize,
-    }
+        /// If the jobs has already been started, kill the process on the
+        /// worker. Otherwise, the job will continue without any effect.
+        #[arg(short, long, default_value_t = false)]
+        kill: bool,
+    },
 }

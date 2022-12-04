@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
         other => return Err(anyhow!("Expected WelcomeClient, received: {:?}", other)),
     }
 
-    // Process subcommand
+    // Process subcommands.
     match args.command {
         Command::Cmd(cmd) => {
             // This command requires authentification.
@@ -79,6 +79,7 @@ async fn main() -> Result<()> {
             running,
             finished,
             failed,
+            canceled,
         } => {
             // Query jobs.
             let message = ClientToServerMessage::ListJobs {
@@ -88,6 +89,7 @@ async fn main() -> Result<()> {
                 running,
                 finished,
                 failed,
+                canceled,
             };
             stream.send(&message).await?;
 
@@ -99,6 +101,7 @@ async fn main() -> Result<()> {
                     jobs_running,
                     jobs_finished,
                     any_job_failed,
+                    jobs_canceled,
                     job_infos,
                 } => {
                     print::job_list(
@@ -107,6 +110,7 @@ async fn main() -> Result<()> {
                         jobs_running,
                         jobs_finished,
                         any_job_failed,
+                        jobs_canceled,
                         job_infos,
                     );
                 }
@@ -140,24 +144,30 @@ async fn main() -> Result<()> {
                     job_info,
                     stdout,
                     stderr,
-                } => {
-                    print::job_info(job_info, stdout, stderr);
+                } => print::job_info(job_info, stdout, stderr),
+                ServerToClientMessage::RequestResponse { success, text } if !success => {
+                    println!("{}", text);
                 }
                 other => {
                     return Err(anyhow!("Expected JobInfo, received: {:?}", other));
                 }
             }
         }
-        Command::KillJob { id } => {
+        Command::RemoveJob { id, kill } => {
             // This command requires authentification.
             authenticate(&mut stream, &config).await?;
 
-            // Kill job.
-            let message = ClientToServerMessage::KillJob { id};
+            // Remove job from queue.
+            let message = ClientToServerMessage::RemoveJob { id, kill };
             stream.send(&message).await?;
 
-            // No response is expected.
-            // TODO: Should be improved.
+            // Await results.
+            match stream.receive::<ServerToClientMessage>().await? {
+                ServerToClientMessage::RequestResponse { success: _, text } => println!("{}", text),
+                other => {
+                    return Err(anyhow!("Expected RequestResponse, received: {:?}", other));
+                }
+            }
         }
     }
 

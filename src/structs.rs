@@ -48,6 +48,9 @@ pub enum JobStatus {
         on: String,
         run_time_seconds: i64,
     },
+    Canceled {
+        canceled: DateTime<Utc>,
+    },
 }
 
 impl JobStatus {
@@ -69,6 +72,10 @@ impl JobStatus {
 
     pub fn has_failed(&self) -> bool {
         matches!(self, Self::Finished { return_code, .. } if *return_code != 0)
+    }
+
+    pub fn is_canceled(&self) -> bool {
+        matches!(self, Self::Canceled { .. })
     }
 }
 
