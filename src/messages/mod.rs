@@ -44,6 +44,7 @@ pub enum ClientToServerMessage {
     ShowJob {
         id: usize,
     },
+    KillJob {id:usize},
     Bye,
 }
 
@@ -84,6 +85,7 @@ pub enum ServerToWorkerMessage {
     OfferJob(JobInfo),
     ConfirmJobOffer(JobInfo),
     WithdrawJobOffer(JobInfo),
+    KillJob(JobInfo),
 }
 
 /// Contains all messages sent by the worker to the server.

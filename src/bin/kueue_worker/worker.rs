@@ -25,7 +25,7 @@ pub struct Worker {
     stream: MessageStream,
     notify_update_hw: Arc<Notify>,
     notify_job_status: Arc<Notify>,
-    system: System,
+    system_info: System,
     offered_jobs: Vec<Job>,
     running_jobs: Vec<Job>,
     max_parallel_jobs: usize,
@@ -44,7 +44,7 @@ impl Worker {
             stream: MessageStream::new(stream),
             notify_update_hw: Arc::new(Notify::new()),
             notify_job_status: Arc::new(Notify::new()),
-            system: System::new_all(),
+            system_info: System::new_all(),
             offered_jobs: Vec::new(),
             running_jobs: Vec::new(),
             max_parallel_jobs: 0,
@@ -129,8 +129,8 @@ impl Worker {
     }
 
     async fn accept_jobs_based_on_hw(&mut self) -> Result<(), MessageError> {
-        let cpu_cores = self.system.cpus().len();
-        let total_memory = self.system.total_memory() as usize;
+        let cpu_cores = self.system_info.cpus().len();
+        let total_memory = self.system_info.total_memory() as usize;
         let total_memory_gb = (total_memory / 1024 / 1024 / 1024) as usize;
 
         // TODO: Do something smart to set the hw-based default.
@@ -199,6 +199,7 @@ impl Worker {
                                 result_lock.finished = true;
                                 result_lock.exit_code = -43;
                                 result_lock.run_time = chrono::Duration::seconds(0);
+                                result_lock.comment = format!("Failed to run job: {}", e);
                                 drop(result_lock); // unlock
                                 self.update_job_status().await
                             }
@@ -243,13 +244,13 @@ impl Worker {
 
     async fn update_hw_status(&mut self) -> Result<(), MessageError> {
         // Refresh relevant system information.
-        self.system
+        self.system_info
             .refresh_cpu_specifics(CpuRefreshKind::new().with_frequency());
 
         // Get CPU cores and frequency.
-        let cpu_cores = self.system.cpus().len();
+        let cpu_cores = self.system_info.cpus().len();
         let cpu_frequency = if cpu_cores > 0 {
-            self.system
+            self.system_info
                 .cpus()
                 .iter()
                 .map(|cpu| cpu.frequency())
@@ -261,11 +262,11 @@ impl Worker {
 
         // Collect hardware information.
         let hw_info = HwInfo {
-            kernel: self.system.kernel_version().unwrap_or("unknown".into()),
-            distribution: self.system.long_os_version().unwrap_or("unknown".into()),
+            kernel: self.system_info.kernel_version().unwrap_or("unknown".into()),
+            distribution: self.system_info.long_os_version().unwrap_or("unknown".into()),
             cpu_cores,
             cpu_frequency,
-            total_memory: self.system.total_memory(),
+            total_memory: self.system_info.total_memory(),
         };
 
         // Send to server.
@@ -276,7 +277,7 @@ impl Worker {
 
     async fn update_load_status(&mut self) -> Result<(), MessageError> {
         // Read system load.
-        let load_avg = self.system.load_average();
+        let load_avg = self.system_info.load_average();
         let load_info = LoadInfo {
             one: load_avg.one,
             five: load_avg.five,

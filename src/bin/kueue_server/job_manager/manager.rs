@@ -4,6 +4,7 @@ use kueue::{
     constants::{CLEANUP_JOB_AFTER_HOURS, OFFER_TIMEOUT_MINUTES},
     structs::{JobInfo, JobStatus, WorkerInfo},
 };
+use rand::distributions::Open01;
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
@@ -67,6 +68,14 @@ impl Manager {
             job_infos.push(job.lock().unwrap().info.clone());
         }
         job_infos
+    }
+
+    /// Get worker by ID.
+    pub fn get_worker(&self, id:usize) -> Option<Weak<Mutex<Worker>>> {
+        match self.workers.get(&id) {
+            Some(worker) => Some(Weak::clone(worker)),
+            None => None,
+        }
     }
 
     /// Cellect worker information about all workers.

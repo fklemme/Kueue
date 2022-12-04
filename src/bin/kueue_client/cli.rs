@@ -42,7 +42,12 @@ pub enum Command {
     ListWorkers,
     /// Show information about a specific job.
     ShowJob {
-        /// ID of job to be queried.
+        /// ID of the job to be queried.
         id: usize,
     },
+    /// Cancel execution of the job on its worker.
+    KillJob {
+        /// ID of the job to be killed.
+        id: usize,
+    }
 }

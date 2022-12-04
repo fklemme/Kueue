@@ -187,7 +187,7 @@ impl ClientConnection {
                 Ok(())
             }
             ClientToServerMessage::ShowJob { id } => {
-                // Get job
+                // Get job.
                 let job = self.manager.lock().unwrap().get_job(id);
 
                 let message = if let Some(job) = job {
@@ -205,6 +205,21 @@ impl ClientConnection {
                     }
                 };
                 self.stream.send(&message).await?;
+                Ok(())
+            }
+            ClientToServerMessage::KillJob { id } => {
+                self.is_authenticated()?;
+
+                // Get job.
+                let job = self.manager.lock().unwrap().get_job(id);
+                if let Some(job) = job {
+                    // TODO: We have to somehow tell the worker to kill the job.
+                    // Maybe marking the job and notifying the worker.
+                } else {
+                    log::info!("Job ID={} not found!", id);
+                };
+
+                // TODO: Send some feedback to client.
                 Ok(())
             }
             ClientToServerMessage::Bye => {

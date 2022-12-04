@@ -116,10 +116,10 @@ async fn main() -> Result<()> {
             }
         }
         Command::ListWorkers => {
-            // Query workers
+            // Query workers.
             stream.send(&ClientToServerMessage::ListWorkers).await?;
 
-            // Await results
+            // Await results.
             match stream.receive::<ServerToClientMessage>().await? {
                 ServerToClientMessage::WorkerList(worker_list) => {
                     print::worker_list(worker_list);
@@ -130,7 +130,7 @@ async fn main() -> Result<()> {
             }
         }
         Command::ShowJob { id } => {
-            // Query jobs.
+            // Query job.
             let message = ClientToServerMessage::ShowJob { id };
             stream.send(&message).await?;
 
@@ -147,6 +147,17 @@ async fn main() -> Result<()> {
                     return Err(anyhow!("Expected JobInfo, received: {:?}", other));
                 }
             }
+        }
+        Command::KillJob { id } => {
+            // This command requires authentification.
+            authenticate(&mut stream, &config).await?;
+
+            // Kill job.
+            let message = ClientToServerMessage::KillJob { id};
+            stream.send(&message).await?;
+
+            // No response is expected.
+            // TODO: Should be improved.
         }
     }
 
