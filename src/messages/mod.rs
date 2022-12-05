@@ -27,10 +27,17 @@ pub enum HelloMessage {
 /// Contains all messages sent by the client to the server.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ClientToServerMessage {
-    // Request authentification challenge.
+    /// Request authentification challenge. This is required to issue or remove
+    /// jobs. The server will reply with a AuthChallenge that must answered
+    /// with a corresponding AuthResponse message.
     AuthRequest,
-    // Send Sha256(secret + salt) back to server.
+    /// Send reponse in the form of "Sha256(secret + salt)" back to the server.
+    /// The server responds with a AuthAccepted(bool) to indicate if the
+    /// authentication was successful.
     AuthResponse(String),
+    /// Issue a new job. The job's ID and status will be changed by the server.
+    /// The server responds with a AcceptJob message and provide updated
+    /// details. This command requires authentification.
     IssueJob(JobInfo),
     ListJobs {
         num_jobs: usize,
@@ -39,10 +46,15 @@ pub enum ClientToServerMessage {
         running: bool,
         finished: bool,
         failed: bool,
+        canceled: bool,
     },
     ListWorkers,
     ShowJob {
         id: usize,
+    },
+    RemoveJob {
+        id: usize,
+        kill: bool,
     },
     Bye,
 }
@@ -57,21 +69,28 @@ pub enum ServerToClientMessage {
     // Let client know if authentification succeeded.
     AuthAccepted(bool),
     AcceptJob(JobInfo),
-    //RejectJob,
     JobList {
         jobs_pending: usize,
         jobs_offered: usize,
         jobs_running: usize,
         jobs_finished: usize,
         any_job_failed: bool,
+        jobs_canceled: usize,
         job_infos: Vec<JobInfo>,
     },
+    WorkerList(Vec<WorkerInfo>),
     JobInfo {
-        job_info: Option<JobInfo>,
+        job_info: JobInfo,
         stdout: Option<String>,
         stderr: Option<String>,
     },
-    WorkerList(Vec<WorkerInfo>),
+    /// Generic response signaling the client if the requested action has
+    /// succeeded or if something went wrong. This is used for instance, when
+    /// the client requests information about a job that does not exist.
+    RequestResponse {
+        success: bool,
+        text: String,
+    },
 }
 
 /// Contains all messages sent by the server to a worker.
@@ -84,6 +103,7 @@ pub enum ServerToWorkerMessage {
     OfferJob(JobInfo),
     ConfirmJobOffer(JobInfo),
     WithdrawJobOffer(JobInfo),
+    KillJob(JobInfo),
 }
 
 /// Contains all messages sent by the worker to the server.

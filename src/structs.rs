@@ -2,6 +2,7 @@ use crate::constants::WORKER_TIMEOUT_MINUTES;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeSet,
     path::PathBuf,
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -48,6 +49,9 @@ pub enum JobStatus {
         on: String,
         run_time_seconds: i64,
     },
+    Canceled {
+        canceled: DateTime<Utc>,
+    },
 }
 
 impl JobStatus {
@@ -70,6 +74,10 @@ impl JobStatus {
     pub fn has_failed(&self) -> bool {
         matches!(self, Self::Finished { return_code, .. } if *return_code != 0)
     }
+
+    pub fn is_canceled(&self) -> bool {
+        matches!(self, Self::Canceled { .. })
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -79,8 +87,8 @@ pub struct WorkerInfo {
     pub hw: HwInfo,
     pub load: LoadInfo,
     pub last_updated: DateTime<Utc>,
-    pub jobs_running: usize,
-    pub jobs_reserved: usize,
+    pub jobs_running: BTreeSet<usize>,
+    pub jobs_reserved: BTreeSet<usize>,
     pub max_parallel_jobs: usize,
 }
 
@@ -92,19 +100,18 @@ impl WorkerInfo {
             hw: HwInfo::default(),
             load: LoadInfo::default(),
             last_updated: Utc::now(),
-            jobs_running: 0,
-            jobs_reserved: 0,
+            jobs_running: BTreeSet::new(),
+            jobs_reserved: BTreeSet::new(),
             max_parallel_jobs: 0,
         }
     }
 
-    pub fn free_slots(&self) -> bool {
-        let total = self.jobs_running + self.jobs_reserved;
-        total < self.max_parallel_jobs
+    pub fn jobs_total(&self) -> usize {
+        self.jobs_running.len() + self.jobs_reserved.len()
     }
 
-    pub fn jobs_total(&self) -> usize {
-        self.jobs_running + self.jobs_reserved
+    pub fn free_slots(&self) -> bool {
+        self.jobs_total() < self.max_parallel_jobs
     }
 
     pub fn timed_out(&self) -> bool {

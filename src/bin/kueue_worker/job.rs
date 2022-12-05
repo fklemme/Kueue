@@ -1,17 +1,23 @@
 use anyhow::Result;
 use chrono::{Duration, Utc};
-use kueue::structs::{JobInfo, JobStatus};
+use futures::future::try_join3;
+use kueue::structs::JobInfo;
 use std::{
     process::Stdio,
     sync::{Arc, Mutex},
 };
-use tokio::{process::Command, sync::Notify};
+use tokio::{
+    io::{AsyncRead, AsyncReadExt},
+    process::Command,
+    sync::Notify,
+};
 
 #[derive(Debug)]
 pub struct Job {
     pub info: JobInfo,
     pub notify_job_status: Arc<Notify>,
     pub result: Arc<Mutex<JobResult>>,
+    pub notify_kill_job: Arc<Notify>,
 }
 
 #[derive(Clone, Debug)]
@@ -19,6 +25,7 @@ pub struct JobResult {
     pub finished: bool,
     pub exit_code: i32,
     pub run_time: Duration,
+    pub comment: String,
     pub stdout: String,
     pub stderr: String,
 }
@@ -32,31 +39,15 @@ impl Job {
                 finished: false,
                 exit_code: -42,
                 run_time: Duration::min_value(),
+                comment: String::new(),
                 stdout: String::new(),
                 stderr: String::new(),
             })),
+            notify_kill_job: Arc::new(Notify::new()),
         }
     }
 
     pub fn run(&mut self) -> Result<()> {
-        // Update job status
-        let job_status = &self.info.status;
-        if let JobStatus::Offered {
-            issued,
-            offered: _,
-            to,
-        } = job_status
-        {
-            self.info.status = JobStatus::Running {
-                issued: issued.clone(),
-                started: Utc::now(),
-                on: to.clone(),
-            };
-        } else {
-            // Can this happen?
-            log::error!("Expected job state to be offered, found: {:?}", job_status);
-        }
-
         // Run command as sub-process
         assert!(!self.info.cmd.is_empty()); // TODO
         log::trace!("Running command: {}", self.info.cmd.join(" "));
@@ -69,40 +60,86 @@ impl Job {
         cmd.stdin(Stdio::null());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
-        let child = cmd.spawn()?;
+        let mut child = cmd.spawn()?;
 
-        let notify = Arc::clone(&self.notify_job_status);
-        let result = Arc::clone(&self.result);
+        let notify_job_status = Arc::clone(&self.notify_job_status);
+        let job_result = Arc::clone(&self.result);
+        let notify_kill_job = Arc::clone(&self.notify_kill_job);
+        let job_id = self.info.id;
 
         tokio::spawn(async move {
-            log::trace!("Waiting for job to finish...");
-            let output = child.wait_with_output().await;
-            log::trace!("Job finished!");
-            let finish_time = Utc::now();
+            log::trace!("Waiting for job {} to finish...", job_id);
 
-            // When done, set exit status
-            match output {
-                Ok(output) => {
-                    let mut result_lock = result.lock().unwrap();
-                    result_lock.finished = true;
-                    result_lock.exit_code = output.status.code().unwrap_or(-44);
-                    result_lock.run_time = finish_time - start_time;
-                    result_lock.stdout = String::from_utf8(output.stdout)
-                        .unwrap_or("failed to parse stdout into utf-8 string".into());
-                    result_lock.stderr = String::from_utf8(output.stderr)
-                        .unwrap_or("failed to parse stderr into utf-8 string".into());
+            // This is basically the implementation of wait_with_output from
+            // https://docs.rs/tokio/1.22.0/src/tokio/process/mod.rs.html#1213-1241
+            // The problem with calling that function directly is that it
+            // _moves_ the child into the fuction, making it impossible to
+            // borrow it later for killing, if needed.
+            async fn read_to_end<A: AsyncRead + Unpin>(
+                io: &mut Option<A>,
+            ) -> std::io::Result<Vec<u8>> {
+                let mut vec = Vec::new();
+                if let Some(io) = io.as_mut() {
+                    io.read_to_end(&mut vec).await?;
                 }
-                Err(e) => {
-                    log::error!("Error while waiting for child process: {}", e);
-                    let mut result_lock = result.lock().unwrap();
+                Ok(vec)
+            }
+
+            let mut stdout_pipe = child.stdout.take();
+            let mut stderr_pipe = child.stderr.take();
+
+            let stdout_fut = read_to_end(&mut stdout_pipe);
+            let stderr_fut = read_to_end(&mut stderr_pipe);
+
+            let combined_fut = try_join3(child.wait(), stdout_fut, stderr_fut);
+
+            tokio::select! {
+                combined_result = combined_fut => {
+                    log::trace!("Job {} finished orderly!",job_id);
+                    let finish_time = Utc::now();
+
+                    // When done, set exit status
+                    match combined_result {
+                        Ok((status, stdout, stderr)) => {
+                            let mut result_lock = job_result.lock().unwrap();
+                            result_lock.finished = true;
+                            result_lock.exit_code = status.code().unwrap_or(-44);
+                            result_lock.run_time = finish_time - start_time;
+                            result_lock.comment = "Job finished orderly.".into();
+                            result_lock.stdout = String::from_utf8(stdout)
+                                .unwrap_or("failed to parse stdout into utf-8 string".into());
+                            result_lock.stderr = String::from_utf8(stderr)
+                                .unwrap_or("failed to parse stderr into utf-8 string".into());
+                        }
+                        Err(e) => {
+                            log::error!("Error while waiting for child process: {}", e);
+                            let mut result_lock = job_result.lock().unwrap();
+                            result_lock.finished = true;
+                            result_lock.exit_code = -45;
+                            result_lock.comment = format!("Error while waiting for child process: {}", e);
+                            result_lock.run_time = finish_time - start_time;
+                        }
+                    }
+                }
+                _ = notify_kill_job.notified() => {
+                    log::trace!("Kill job {}!", job_id);
+                    if let Err(e) = child.kill().await {
+                        log::error!("Failed to kill job {}: {}", job_id, e);
+                    }
+
+                    // Update job result
+                    let finish_time = Utc::now();
+                    let mut result_lock = job_result.lock().unwrap();
                     result_lock.finished = true;
-                    result_lock.exit_code = -45;
+                    result_lock.exit_code = -46;
+                    result_lock.comment = format!("Job killed!");
                     result_lock.run_time = finish_time - start_time;
                 }
             }
 
             // Notify main thread
-            notify.notify_one();
+            log::trace!("Notify job {} done!", job_id);
+            notify_job_status.notify_one();
         });
 
         Ok(())

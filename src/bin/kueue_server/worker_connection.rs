@@ -15,6 +15,7 @@ use std::{
     collections::BTreeSet,
     sync::{Arc, Mutex},
 };
+use tokio::sync::mpsc;
 
 pub struct WorkerConnection {
     id: usize,
@@ -24,6 +25,7 @@ pub struct WorkerConnection {
     config: Config,
     worker: Arc<Mutex<Worker>>,
     rejected_jobs: BTreeSet<usize>,
+    kill_job_rx: mpsc::Receiver<usize>,
     connection_closed: bool,
     authenticated: bool,
     salt: String,
@@ -36,7 +38,11 @@ impl WorkerConnection {
         manager: Arc<Mutex<Manager>>,
         config: Config,
     ) -> Self {
-        let worker = manager.lock().unwrap().add_new_worker(name.clone());
+        let (kill_job_tx, kill_job_rx) = mpsc::channel::<usize>(10);
+        let worker = manager
+            .lock()
+            .unwrap()
+            .add_new_worker(name.clone(), kill_job_tx);
         let id = worker.lock().unwrap().id;
 
         // Salt is generated for each worker.
@@ -54,6 +60,7 @@ impl WorkerConnection {
             config,
             worker,
             rejected_jobs: BTreeSet::new(),
+            kill_job_rx,
             connection_closed: false,
             authenticated: false,
             salt,
@@ -111,6 +118,24 @@ impl WorkerConnection {
                         }
                     }
                 }
+                // Or, when signaled to kill a job on the worker.
+                Some(job_id) = self.kill_job_rx.recv() => {
+                    // Kill job.
+                    let job = self.manager.lock().unwrap().get_job(job_id);
+                    if let Some(job) = job {
+                        let job_info = job.lock().unwrap().info.clone();
+                        let message = ServerToWorkerMessage::KillJob(job_info);
+                        if let Err(e) = self.stream.send(&message).await{
+                            log::error!("Failed to send kill instruction: {}", e);
+                            self.connection_closed = true; // end worker session
+                        }
+
+                        // We wait for "update_job_status" to clean up the job
+                        // and send new offers to the worker.
+                    } else {
+                        log::error!("Job to be killed with ID={} not found!", job_id);
+                    }
+                }
             }
         }
     }
@@ -159,35 +184,30 @@ impl WorkerConnection {
                 self.is_authenticated()?;
 
                 // Update job info with whatever the worker sends us.
-                let option_job = self.manager.lock().unwrap().get_job(job_info.id);
-                if let Some(job) = option_job {
-                    let (old_status, new_status_finished) = {
-                        let mut job_lock = job.lock().unwrap();
-
-                        // Just a small check: See if job is associated with worker.
-                        match job_lock.worker_id {
-                            Some(id) if id == self.id => {} // all good.
-                            _ => {
-                                return Err(anyhow!(
-                                    "Job not associated with worker {}: {:?}",
-                                    self.name,
-                                    job_lock.info
-                                ));
-                            }
+                // TODO: Probably handle more specifically?
+                let job = self.manager.lock().unwrap().get_job(job_info.id);
+                if let Some(job) = job {
+                    // Just a small check: See if job is associated with worker.
+                    let worker_id = job.lock().unwrap().worker_id;
+                    match worker_id {
+                        Some(id) if id == self.id => {} // all good.
+                        _ => {
+                            return Err(anyhow!(
+                                "Job not associated with worker {}: {:?}",
+                                self.name,
+                                job_info
+                            ));
                         }
+                    }
 
-                        // Update status.
-                        let old_status = job_lock.info.status.clone();
-                        job_lock.info.status = job_info.status;
-
-                        (old_status, job_lock.info.status.is_finished())
-                    };
+                    // Update status.
+                    job.lock().unwrap().info.status = job_info.status.clone();
 
                     // Update worker if the job has finished.
-                    if old_status.is_running() && new_status_finished {
+                    if job_info.status.is_finished() || job_info.status.is_canceled() {
                         let free_slots = {
                             let mut worker_lock = self.worker.lock().unwrap();
-                            worker_lock.info.jobs_running -= 1;
+                            worker_lock.info.jobs_running.remove(&job_info.id);
                             worker_lock.info.free_slots()
                         };
 
@@ -254,8 +274,8 @@ impl WorkerConnection {
             WorkerToServerMessage::AcceptJobOffer(job_info) => {
                 self.is_authenticated()?;
 
-                let option_job = self.manager.lock().unwrap().get_job(job_info.id);
-                if let Some(job) = option_job {
+                let job = self.manager.lock().unwrap().get_job(job_info.id);
+                if let Some(job) = job {
                     let job_info = {
                         // Perform small check and update job status.
                         let mut job_lock = job.lock().unwrap();
@@ -271,6 +291,10 @@ impl WorkerConnection {
                                     on: self.name.clone(),
                                 };
                             }
+                            JobStatus::Canceled { .. } => {
+                                log::debug!("Offered job has been canceled in the meantime!")
+                                // TODO!
+                            }
                             _ => {
                                 return Err(anyhow!(
                                     "Accepted job was not offered to worker {}: {:?}",
@@ -282,17 +306,18 @@ impl WorkerConnection {
                         job_lock.info.clone()
                     };
 
+                    // Confirm job -> Worker will start execution
+                    let job_id = job_info.id; // copy before move
+                    let message = ServerToWorkerMessage::ConfirmJobOffer(job_info);
+                    self.stream.send(&message).await?;
+
                     // Update worker.
                     let free_slots = {
                         let mut worker_lock = self.worker.lock().unwrap();
-                        worker_lock.info.jobs_reserved -= 1;
-                        worker_lock.info.jobs_running += 1;
+                        worker_lock.info.jobs_reserved.remove(&job_id);
+                        worker_lock.info.jobs_running.insert(job_id);
                         worker_lock.info.free_slots()
                     };
-
-                    // Confirm job -> Worker will start execution
-                    let message = ServerToWorkerMessage::ConfirmJobOffer(job_info);
-                    self.stream.send(&message).await?;
 
                     // Offer further jobs.
                     if free_slots {
@@ -337,7 +362,7 @@ impl WorkerConnection {
                     // Update worker.
                     let free_slots = {
                         let mut worker_lock = self.worker.lock().unwrap();
-                        worker_lock.info.jobs_reserved -= 1;
+                        worker_lock.info.jobs_reserved.remove(&job_info.id);
                         worker_lock.info.free_slots()
                     };
 
@@ -395,7 +420,12 @@ impl WorkerConnection {
             };
 
             // Worker has one more job reserved. Prevents over-offering.
-            self.worker.lock().unwrap().info.jobs_reserved += 1;
+            self.worker
+                .lock()
+                .unwrap()
+                .info
+                .jobs_reserved
+                .insert(job_info.id);
 
             // Finally, send offer to worker.
             let job_offer = ServerToWorkerMessage::OfferJob(job_info);

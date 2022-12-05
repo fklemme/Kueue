@@ -25,7 +25,7 @@ pub struct Worker {
     stream: MessageStream,
     notify_update_hw: Arc<Notify>,
     notify_job_status: Arc<Notify>,
-    system: System,
+    system_info: System,
     offered_jobs: Vec<Job>,
     running_jobs: Vec<Job>,
     max_parallel_jobs: usize,
@@ -44,7 +44,7 @@ impl Worker {
             stream: MessageStream::new(stream),
             notify_update_hw: Arc::new(Notify::new()),
             notify_job_status: Arc::new(Notify::new()),
-            system: System::new_all(),
+            system_info: System::new_all(),
             offered_jobs: Vec::new(),
             running_jobs: Vec::new(),
             max_parallel_jobs: 0,
@@ -129,12 +129,24 @@ impl Worker {
     }
 
     async fn accept_jobs_based_on_hw(&mut self) -> Result<(), MessageError> {
-        let cpu_cores = self.system.cpus().len();
-        let total_memory = self.system.total_memory() as usize;
+        let cpu_cores = self.system_info.cpus().len();
+        let total_memory = self.system_info.total_memory() as usize;
         let total_memory_gb = (total_memory / 1024 / 1024 / 1024) as usize;
 
         // TODO: Do something smart to set the hw-based default.
-        self.max_parallel_jobs = max(1, min(cpu_cores / 8, total_memory_gb / 8));
+        let cpu_cores_required: usize = 8;
+        let memory_gb_required: usize = 24;
+        self.max_parallel_jobs = max(
+            1,
+            min(
+                cpu_cores / cpu_cores_required,
+                total_memory_gb / memory_gb_required,
+            ),
+        );
+
+        // FIXME: For the moment, let's limit max. 1 job per worker.
+        // This is temp. on purpose. Atm. no other way to achieve this.
+        self.max_parallel_jobs = min(1, self.max_parallel_jobs);
 
         // Send to server
         self.stream
@@ -185,8 +197,10 @@ impl Worker {
                     .position(|job| job.info.id == job_info.id);
                 match offered_job_index {
                     Some(index) => {
-                        // Move job to running processes
-                        let job = self.offered_jobs.remove(index);
+                        // Move job to running processes.
+                        let mut job = self.offered_jobs.remove(index);
+                        // Also update job status. (Should now be "running".)
+                        job.info.status = job_info.status;
                         self.running_jobs.push(job);
 
                         // Run job as child process
@@ -199,6 +213,7 @@ impl Worker {
                                 result_lock.finished = true;
                                 result_lock.exit_code = -43;
                                 result_lock.run_time = chrono::Duration::seconds(0);
+                                result_lock.comment = format!("Failed to run job: {}", e);
                                 drop(result_lock); // unlock
                                 self.update_job_status().await
                             }
@@ -238,18 +253,44 @@ impl Worker {
                     }
                 }
             }
+            ServerToWorkerMessage::KillJob(job_info) => {
+                let running_job_index = self
+                    .running_jobs
+                    .iter()
+                    .position(|job| job.info.id == job_info.id);
+                match running_job_index {
+                    Some(index) => {
+                        // Signal kill.
+                        let job = self.running_jobs.get_mut(index).unwrap();
+                        job.notify_kill_job.notify_one();
+                        // Also update job status. (Should now be "canceled".)
+                        job.info.status = job_info.status;
+                        // After the job has been killed, "notify_job_status"
+                        // is notified, causing "update_job_status" to remove
+                        // the job from "running_jobs" and inform the server.
+                        Ok(())
+                    }
+                    None => {
+                        log::error!(
+                            "Job to be killed with ID={} is not running on this worker!",
+                            job_info.id
+                        );
+                        Ok(()) // Error but we can continue running
+                    }
+                }
+            }
         }
     }
 
     async fn update_hw_status(&mut self) -> Result<(), MessageError> {
         // Refresh relevant system information.
-        self.system
+        self.system_info
             .refresh_cpu_specifics(CpuRefreshKind::new().with_frequency());
 
         // Get CPU cores and frequency.
-        let cpu_cores = self.system.cpus().len();
+        let cpu_cores = self.system_info.cpus().len();
         let cpu_frequency = if cpu_cores > 0 {
-            self.system
+            self.system_info
                 .cpus()
                 .iter()
                 .map(|cpu| cpu.frequency())
@@ -261,11 +302,17 @@ impl Worker {
 
         // Collect hardware information.
         let hw_info = HwInfo {
-            kernel: self.system.kernel_version().unwrap_or("unknown".into()),
-            distribution: self.system.long_os_version().unwrap_or("unknown".into()),
+            kernel: self
+                .system_info
+                .kernel_version()
+                .unwrap_or("unknown".into()),
+            distribution: self
+                .system_info
+                .long_os_version()
+                .unwrap_or("unknown".into()),
             cpu_cores,
             cpu_frequency,
-            total_memory: self.system.total_memory(),
+            total_memory: self.system_info.total_memory(),
         };
 
         // Send to server.
@@ -276,7 +323,7 @@ impl Worker {
 
     async fn update_load_status(&mut self) -> Result<(), MessageError> {
         // Read system load.
-        let load_avg = self.system.load_average();
+        let load_avg = self.system_info.load_average();
         let load_info = LoadInfo {
             one: load_avg.one,
             five: load_avg.five,
@@ -303,12 +350,24 @@ impl Worker {
                 {
                     // Update info
                     let result_lock = job.result.lock().unwrap();
-                    job.info.status = JobStatus::Finished {
-                        finished: Utc::now(),
-                        return_code: result_lock.exit_code,
-                        on: self.name.clone(),
-                        run_time_seconds: result_lock.run_time.num_seconds(),
-                    };
+                    match job.info.status {
+                        JobStatus::Canceled { .. } => {} // leave status as it is (canceled)
+                        _ => {
+                            if !job.info.status.is_running() {
+                                log::error!(
+                                    "Expected job status to be running or canceled. Found: {:?}",
+                                    job.info.status
+                                );
+                            }
+                            // In any case, set finished and report.
+                            job.info.status = JobStatus::Finished {
+                                finished: Utc::now(),
+                                return_code: result_lock.exit_code,
+                                on: self.name.clone(),
+                                run_time_seconds: result_lock.run_time.num_seconds(),
+                            };
+                        }
+                    }
                     if !result_lock.stdout.is_empty() {
                         stdout = Some(result_lock.stdout.clone());
                     }

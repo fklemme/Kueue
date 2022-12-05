@@ -1,4 +1,5 @@
 use crate::job_manager::{Job, Worker};
+use anyhow::{anyhow, Result};
 use chrono::Utc;
 use kueue::{
     constants::{CLEANUP_JOB_AFTER_HOURS, OFFER_TIMEOUT_MINUTES},
@@ -9,7 +10,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex, Weak},
 };
-use tokio::sync::Notify;
+use tokio::sync::{mpsc, Notify};
 
 pub struct Manager {
     jobs: BTreeMap<usize, Arc<Mutex<Job>>>,
@@ -29,8 +30,12 @@ impl Manager {
     }
 
     /// Registers a new worker to process jobs.
-    pub fn add_new_worker(&mut self, name: String) -> Arc<Mutex<Worker>> {
-        let worker = Worker::new(name);
+    pub fn add_new_worker(
+        &mut self,
+        name: String,
+        kill_job_tx: mpsc::Sender<usize>,
+    ) -> Arc<Mutex<Worker>> {
+        let worker = Worker::new(name, kill_job_tx);
         let worker_id = worker.id;
         let worker = Arc::new(Mutex::new(worker));
         self.workers.insert(worker_id, Arc::downgrade(&worker));
@@ -69,7 +74,15 @@ impl Manager {
         job_infos
     }
 
-    /// Cellect worker information about all workers.
+    /// Get worker by ID.
+    // pub fn get_worker(&self, id:usize) -> Option<Weak<Mutex<Worker>>> {
+    //     match self.workers.get(&id) {
+    //         Some(worker) => Some(Weak::clone(worker)),
+    //         None => None,
+    //     }
+    // }
+
+    /// Collect worker information about all workers.
     pub fn get_all_worker_infos(&self) -> Vec<WorkerInfo> {
         let mut worker_infos = Vec::new();
         for (_id, worker) in &self.workers {
@@ -99,6 +112,67 @@ impl Manager {
                 return Some(Arc::clone(self.jobs.get(&job_id).unwrap()));
             }
             None // no job fulfilling requirements
+        }
+    }
+
+    /// Cancel and remove a job from the queue. If the job is running and a
+    /// worker is associated with the job, a sender is returned that can be
+    /// used to signal a kill instruction to the worker. The job_id sent over
+    /// the returned sender indicates the job to be killed on the worker.
+    pub fn cancel_job(&mut self, id: usize, kill: bool) -> Result<Option<mpsc::Sender<usize>>> {
+        match self.get_job(id) {
+            Some(job) => {
+                let job_info = job.lock().unwrap().info.clone();
+                match job_info.status {
+                    JobStatus::Pending { .. } => {
+                        // Do not attempt to offer the job to workers.
+                        self.jobs_waiting_for_assignment.remove(&id);
+                        job.lock().unwrap().info.status = JobStatus::Canceled {
+                            canceled: Utc::now(),
+                        };
+                        Ok(None)
+                    }
+                    JobStatus::Offered { .. } => {
+                        // Offer will be withdrawn by the server on worker's response.
+                        job.lock().unwrap().info.status = JobStatus::Canceled {
+                            canceled: Utc::now(),
+                        };
+                        Ok(None)
+                    }
+                    JobStatus::Running { .. } => {
+                        if !kill {
+                            // Makes no sense to set the job to canceled if the
+                            // worker proceeds anyway.
+                            return Err(anyhow!("Job ID={} has already started!", id));
+                        }
+                        // Update job status
+                        job.lock().unwrap().info.status = JobStatus::Canceled {
+                            canceled: Utc::now(),
+                        };
+                        // If worker is assigned and alive, get the kill job sender.
+                        let worker_id = job.lock().unwrap().worker_id;
+                        if let Some(worker_id) = worker_id {
+                            if let Some(worker) = self.workers.get(&worker_id) {
+                                if let Some(worker) = worker.upgrade() {
+                                    let tx = worker.lock().unwrap().kill_job_tx.clone();
+                                    return Ok(Some(tx));
+                                }
+                            }
+                        }
+                        Err(anyhow!(
+                            "Job with ID={} was running but worker could not be aquired!",
+                            id
+                        ))
+                    }
+                    JobStatus::Finished { .. } => {
+                        Err(anyhow!("Job ID={} has already finished!", id))
+                    }
+                    JobStatus::Canceled { .. } => {
+                        Err(anyhow!("Job ID={} is already canceled!", id))
+                    }
+                }
+            }
+            None => Err(anyhow!("Job with ID={} not found!", id)),
         }
     }
 
@@ -203,6 +277,15 @@ impl Manager {
                         jobs_to_be_removed.push(info.id);
                     }
                 }
+                JobStatus::Canceled { canceled } => {
+                    // Canceled jobs should be cleaned up after some time.
+                    let cleanup_job =
+                        (Utc::now() - canceled.clone()).num_hours() > CLEANUP_JOB_AFTER_HOURS;
+                    if cleanup_job {
+                        log::debug!("Clean up old canceled job: {:?}", info);
+                        jobs_to_be_removed.push(info.id);
+                    }
+                }
             }
         }
 
@@ -242,13 +325,6 @@ impl Manager {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn add_new_worker() {
-        let mut manager = Manager::new();
-        let worker = manager.add_new_worker("test_worker".into());
-        assert_eq!(worker.lock().unwrap().id, 0);
-    }
 
     #[test]
     fn add_new_job() {
