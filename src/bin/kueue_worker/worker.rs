@@ -137,7 +137,7 @@ impl Worker {
         let cpu_cores_required: usize = 8;
         let memory_gb_required: usize = 24;
         self.max_parallel_jobs = max(
-            1,
+            0, // min number of jobs the worker always provide.
             min(
                 cpu_cores / cpu_cores_required,
                 total_memory_gb / memory_gb_required,
