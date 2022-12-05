@@ -155,7 +155,7 @@ impl Manager {
                             }
                         }
                         Err(anyhow!(
-                            "Job with ID={} is running but worker could not be aquired!",
+                            "Job with ID={} was running but worker could not be aquired!",
                             id
                         ))
                     }

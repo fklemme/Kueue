@@ -184,35 +184,30 @@ impl WorkerConnection {
                 self.is_authenticated()?;
 
                 // Update job info with whatever the worker sends us.
-                let option_job = self.manager.lock().unwrap().get_job(job_info.id);
-                if let Some(job) = option_job {
-                    let (old_status, new_status_finished) = {
-                        let mut job_lock = job.lock().unwrap();
-
-                        // Just a small check: See if job is associated with worker.
-                        match job_lock.worker_id {
-                            Some(id) if id == self.id => {} // all good.
-                            _ => {
-                                return Err(anyhow!(
-                                    "Job not associated with worker {}: {:?}",
-                                    self.name,
-                                    job_lock.info
-                                ));
-                            }
+                // TODO: Probably handle more specifically?
+                let job = self.manager.lock().unwrap().get_job(job_info.id);
+                if let Some(job) = job {
+                    // Just a small check: See if job is associated with worker.
+                    let worker_id = job.lock().unwrap().worker_id;
+                    match worker_id {
+                        Some(id) if id == self.id => {} // all good.
+                        _ => {
+                            return Err(anyhow!(
+                                "Job not associated with worker {}: {:?}",
+                                self.name,
+                                job_info
+                            ));
                         }
+                    }
 
-                        // Update status.
-                        let old_status = job_lock.info.status.clone();
-                        job_lock.info.status = job_info.status;
-
-                        (old_status, job_lock.info.status.is_finished())
-                    };
+                    // Update status.
+                    job.lock().unwrap().info.status = job_info.status.clone();
 
                     // Update worker if the job has finished.
-                    if old_status.is_running() && new_status_finished {
+                    if job_info.status.is_finished() || job_info.status.is_canceled() {
                         let free_slots = {
                             let mut worker_lock = self.worker.lock().unwrap();
-                            worker_lock.info.jobs_running -= 1;
+                            worker_lock.info.jobs_running.remove(&job_info.id);
                             worker_lock.info.free_slots()
                         };
 
@@ -312,14 +307,15 @@ impl WorkerConnection {
                     };
 
                     // Confirm job -> Worker will start execution
+                    let job_id = job_info.id; // copy before move
                     let message = ServerToWorkerMessage::ConfirmJobOffer(job_info);
                     self.stream.send(&message).await?;
 
                     // Update worker.
                     let free_slots = {
                         let mut worker_lock = self.worker.lock().unwrap();
-                        worker_lock.info.jobs_reserved -= 1;
-                        worker_lock.info.jobs_running += 1;
+                        worker_lock.info.jobs_reserved.remove(&job_id);
+                        worker_lock.info.jobs_running.insert(job_id);
                         worker_lock.info.free_slots()
                     };
 
@@ -366,7 +362,7 @@ impl WorkerConnection {
                     // Update worker.
                     let free_slots = {
                         let mut worker_lock = self.worker.lock().unwrap();
-                        worker_lock.info.jobs_reserved -= 1;
+                        worker_lock.info.jobs_reserved.remove(&job_info.id);
                         worker_lock.info.free_slots()
                     };
 
@@ -424,7 +420,12 @@ impl WorkerConnection {
             };
 
             // Worker has one more job reserved. Prevents over-offering.
-            self.worker.lock().unwrap().info.jobs_reserved += 1;
+            self.worker
+                .lock()
+                .unwrap()
+                .info
+                .jobs_reserved
+                .insert(job_info.id);
 
             // Finally, send offer to worker.
             let job_offer = ServerToWorkerMessage::OfferJob(job_info);
