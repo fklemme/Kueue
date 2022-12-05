@@ -117,9 +117,9 @@ impl Manager {
 
     /// Cancel and remove a job from the queue. If the job is running and a
     /// worker is associated with the job, a sender is returned that can be
-    /// used to signal a kill instruction to the worker. The sent job_id
-    /// indicates the job to be killed.
-    pub fn cancel_job(&mut self, id: usize) -> Result<Option<mpsc::Sender<usize>>> {
+    /// used to signal a kill instruction to the worker. The job_id sent over
+    /// the returned sender indicates the job to be killed on the worker.
+    pub fn cancel_job(&mut self, id: usize, kill: bool) -> Result<Option<mpsc::Sender<usize>>> {
         match self.get_job(id) {
             Some(job) => {
                 let job_info = job.lock().unwrap().info.clone();
@@ -140,6 +140,11 @@ impl Manager {
                         Ok(None)
                     }
                     JobStatus::Running { .. } => {
+                        if !kill {
+                            // Makes no sense to set the job to canceled if the
+                            // worker proceeds anyway.
+                            return Err(anyhow!("Job ID={} has already started!", id));
+                        }
                         // Update job status
                         job.lock().unwrap().info.status = JobStatus::Canceled {
                             canceled: Utc::now(),

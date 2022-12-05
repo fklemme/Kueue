@@ -222,7 +222,7 @@ impl ClientConnection {
                 self.is_authenticated().await?;
 
                 // Cancel job and send message back to client.
-                let result = self.manager.lock().unwrap().cancel_job(id);
+                let result = self.manager.lock().unwrap().cancel_job(id, kill);
                 let message = match result {
                     Ok(Some(tx)) => {
                         // Signal kill to the worker.
