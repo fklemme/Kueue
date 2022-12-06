@@ -17,8 +17,9 @@ Make sure you have a C/C++ compiler installed.
 
 ### Install Kueue
 
-You might need to install OpenSSL headers as well.
+You need to install OpenSSL headers beforehand. For instance, on Ubuntu:
 
+    sudo apt install pkg-config libssl-dev
     cargo install kueue
 
 This will install `kueue` (the client), `kueue_server`, and `kueue_worker` into the `bin` folder of your Rust installation.
