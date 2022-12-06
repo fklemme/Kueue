@@ -78,7 +78,7 @@ impl Job {
                         full_path = cwd.join(full_path);
                     }
 
-                    let file = match File::create(path).await {
+                    let file = match File::create(&full_path).await {
                         Ok(file) => file,
                         Err(e) => {
                             return Err(anyhow!(
