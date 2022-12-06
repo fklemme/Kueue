@@ -1,7 +1,7 @@
 mod cli;
 mod print;
 
-use crate::cli::{Args, Command};
+use crate::cli::{Cli, CmdArgs, Command};
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use kueue::{
@@ -18,7 +18,7 @@ use tokio::net::TcpStream;
 #[tokio::main]
 async fn main() -> Result<()> {
     // Read command line arguments.
-    let args = Args::parse();
+    let args = Cli::parse();
     log::debug!("{:?}", args);
 
     // Read configuration from file or defaults.
@@ -50,15 +50,24 @@ async fn main() -> Result<()> {
 
     // Process subcommands.
     match args.command {
-        Command::Cmd(cmd) => {
+        Command::Cmd {
+            stdout,
+            stderr,
+            args,
+        } => {
+            let CmdArgs::Args(cmd) = args;
+
+            if cmd.is_empty() {
+                return Err(anyhow!("Empty command!"));
+            }
+
             // This command requires authentification.
             authenticate(&mut stream, &config).await?;
 
             // Issue job.
-            assert!(!cmd.is_empty());
             let cwd = std::env::current_dir()?;
             let cwd = canonicalize(cwd)?;
-            let message = ClientToServerMessage::IssueJob(JobInfo::new(cmd, cwd));
+            let message = ClientToServerMessage::IssueJob(JobInfo::new(cmd, cwd, stdout, stderr));
             stream.send(&message).await?;
 
             // Await acceptance.
@@ -142,9 +151,9 @@ async fn main() -> Result<()> {
             match stream.receive::<ServerToClientMessage>().await? {
                 ServerToClientMessage::JobInfo {
                     job_info,
-                    stdout,
-                    stderr,
-                } => print::job_info(job_info, stdout, stderr),
+                    stdout_text,
+                    stderr_text,
+                } => print::job_info(job_info, stdout_text, stderr_text),
                 ServerToClientMessage::RequestResponse { success, text } if !success => {
                     println!("{}", text);
                 }

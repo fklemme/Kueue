@@ -224,8 +224,8 @@ impl WorkerConnection {
             }
             WorkerToServerMessage::UpdateJobResults {
                 job_id,
-                stdout,
-                stderr,
+                stdout_text,
+                stderr_text,
             } => {
                 self.is_authenticated()?;
 
@@ -247,8 +247,8 @@ impl WorkerConnection {
                     }
 
                     // Update results.
-                    job_lock.stdout = stdout;
-                    job_lock.stderr = stderr;
+                    job_lock.stdout_text = stdout_text;
+                    job_lock.stderr_text = stderr_text;
                 } else {
                     // Unexpected but we can continue running.
                     log::error!("Updated job not found: ID={}", job_id);

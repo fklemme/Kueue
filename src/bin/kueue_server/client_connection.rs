@@ -99,11 +99,12 @@ impl ClientConnection {
 
                 // Add new job. We create a new JobInfo instance to make sure to
                 // not adopt remote (non-unique) job ids or inconsistent states.
-                let job = self
-                    .manager
-                    .lock()
-                    .unwrap()
-                    .add_new_job(job_info.cmd, job_info.cwd);
+                let job = self.manager.lock().unwrap().add_new_job(
+                    job_info.cmd,
+                    job_info.cwd,
+                    job_info.stdout_path,
+                    job_info.stderr_path,
+                );
                 let job_info = job.lock().unwrap().info.clone();
 
                 // Send response to client.
@@ -206,8 +207,8 @@ impl ClientConnection {
                     let job_lock = job.lock().unwrap();
                     ServerToClientMessage::JobInfo {
                         job_info: job_lock.info.clone(),
-                        stdout: job_lock.stdout.clone(),
-                        stderr: job_lock.stderr.clone(),
+                        stdout_text: job_lock.stdout_text.clone(),
+                        stderr_text: job_lock.stderr_text.clone(),
                     }
                 } else {
                     ServerToClientMessage::RequestResponse {

@@ -113,6 +113,7 @@ fn format_status(job_info: &JobInfo) -> String {
             return_code,
             on,
             run_time_seconds,
+            comment: _,
         } => {
             if *return_code == 0 {
                 let h = run_time_seconds / 3600;
@@ -463,7 +464,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
     }
 }
 
-pub fn job_info(job_info: JobInfo, stdout: Option<String>, stderr: Option<String>) {
+pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Option<String>) {
     println!("=== {} ===", style("job information").bold().underlined());
     println!("job id: {}", job_info.id);
     println!("command: {}", job_info.cmd.join(" "));
@@ -498,6 +499,7 @@ pub fn job_info(job_info: JobInfo, stdout: Option<String>, stderr: Option<String
             return_code,
             on,
             run_time_seconds,
+            comment,
         } => {
             if return_code == 0 {
                 println!("job status: {}", style("finished").green());
@@ -508,6 +510,7 @@ pub fn job_info(job_info: JobInfo, stdout: Option<String>, stderr: Option<String
             println!("   return code: {}", return_code);
             println!("   executed on: {}", on);
             println!("   runtime: {} seconds", run_time_seconds);
+            println!("   comment: {}", comment);
         }
         JobStatus::Canceled { canceled } => {
             println!("job status: {}", style("canceled").yellow());
@@ -515,11 +518,11 @@ pub fn job_info(job_info: JobInfo, stdout: Option<String>, stderr: Option<String
         }
     }
 
-    if let Some(stdout) = stdout {
-        println!("=== {} ===\n{}", style("stdout").bold(), stdout);
+    if let Some(text) = stdout_text {
+        println!("=== {} ===\n{}", style("stdout").bold(), text);
     }
 
-    if let Some(stderr) = stderr {
-        println!("=== {} ===\n{}", style("stderr").red(), stderr);
+    if let Some(text) = stderr_text {
+        println!("=== {} ===\n{}", style("stderr").red(), text);
     }
 }

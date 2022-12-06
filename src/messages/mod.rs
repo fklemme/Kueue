@@ -81,8 +81,8 @@ pub enum ServerToClientMessage {
     WorkerList(Vec<WorkerInfo>),
     JobInfo {
         job_info: JobInfo,
-        stdout: Option<String>,
-        stderr: Option<String>,
+        stdout_text: Option<String>,
+        stderr_text: Option<String>,
     },
     /// Generic response signaling the client if the requested action has
     /// succeeded or if something went wrong. This is used for instance, when
@@ -116,8 +116,8 @@ pub enum WorkerToServerMessage {
     UpdateJobStatus(JobInfo),
     UpdateJobResults {
         job_id: usize,
-        stdout: Option<String>,
-        stderr: Option<String>,
+        stdout_text: Option<String>,
+        stderr_text: Option<String>,
     },
     AcceptParallelJobs(usize),
     AcceptJobOffer(JobInfo),

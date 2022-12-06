@@ -43,8 +43,14 @@ impl Manager {
     }
 
     /// Adds a new job to be processed.
-    pub fn add_new_job(&mut self, cmd: Vec<String>, cwd: PathBuf) -> Arc<Mutex<Job>> {
-        let job = Job::new(cmd, cwd);
+    pub fn add_new_job(
+        &mut self,
+        cmd: Vec<String>,
+        cwd: PathBuf,
+        stdout_path: Option<String>,
+        stderr_path: Option<String>,
+    ) -> Arc<Mutex<Job>> {
+        let job = Job::new(cmd, cwd, stdout_path, stderr_path);
         let job_id = job.info.id;
         let job = Arc::new(Mutex::new(job));
         self.jobs.insert(job_id, Arc::clone(&job));
@@ -263,12 +269,7 @@ impl Manager {
                         new_jobs_pending = true; // notify at the end
                     }
                 }
-                JobStatus::Finished {
-                    finished,
-                    return_code: _,
-                    on: _,
-                    run_time_seconds: _,
-                } => {
+                JobStatus::Finished { finished, .. } => {
                     // Finished jobs should be cleaned up after some time.
                     let cleanup_job =
                         (Utc::now() - finished.clone()).num_hours() > CLEANUP_JOB_AFTER_HOURS;
@@ -331,7 +332,7 @@ mod tests {
         let mut manager = Manager::new();
         let cmd = vec!["ls".to_string(), "-la".to_string()];
         let cwd: PathBuf = "/tmp".into();
-        manager.add_new_job(cmd, cwd);
+        manager.add_new_job(cmd, cwd, None, None);
         assert_eq!(manager.get_all_job_infos().len(), 1);
     }
 
@@ -340,7 +341,7 @@ mod tests {
         let mut manager = Manager::new();
         let cmd = vec!["ls".to_string(), "-la".to_string()];
         let cwd: PathBuf = "/tmp".into();
-        let job = manager.add_new_job(cmd, cwd);
+        let job = manager.add_new_job(cmd, cwd, None, None);
 
         // Put job on exclude list.
         let mut exclude = BTreeSet::new();

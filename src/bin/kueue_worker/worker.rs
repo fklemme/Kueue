@@ -204,7 +204,7 @@ impl Worker {
                         self.running_jobs.push(job);
 
                         // Run job as child process
-                        match self.running_jobs.last_mut().unwrap().run() {
+                        match self.running_jobs.last_mut().unwrap().run().await {
                             Ok(()) => Ok(()),
                             Err(e) => {
                                 log::error!("Failed to run job: {}", e);
@@ -344,8 +344,8 @@ impl Worker {
             if finished {
                 // Job has finished. Remove from list.
                 let mut job = self.running_jobs.remove(index);
-                let mut stdout = None;
-                let mut stderr = None;
+                let mut stdout_text = None;
+                let mut stderr_text = None;
 
                 {
                     // Update info
@@ -365,14 +365,15 @@ impl Worker {
                                 return_code: result_lock.exit_code,
                                 on: self.name.clone(),
                                 run_time_seconds: result_lock.run_time.num_seconds(),
+                                comment: result_lock.comment.clone(),
                             };
                         }
                     }
-                    if !result_lock.stdout.is_empty() {
-                        stdout = Some(result_lock.stdout.clone());
+                    if !result_lock.stdout_text.is_empty() {
+                        stdout_text = Some(result_lock.stdout_text.clone());
                     }
-                    if !result_lock.stderr.is_empty() {
-                        stderr = Some(result_lock.stderr.clone());
+                    if !result_lock.stderr_text.is_empty() {
+                        stderr_text = Some(result_lock.stderr_text.clone());
                     }
                 }
 
@@ -383,8 +384,8 @@ impl Worker {
                 // Send stdout/stderr to server
                 let job_results = WorkerToServerMessage::UpdateJobResults {
                     job_id: job.info.id,
-                    stdout,
-                    stderr,
+                    stdout_text,
+                    stderr_text,
                 };
                 self.stream.send(&job_results).await?;
 

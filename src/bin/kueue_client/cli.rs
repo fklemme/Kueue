@@ -4,7 +4,7 @@ use kueue::config::default_path;
 
 #[derive(Parser, Debug)]
 #[command(version, author, about)]
-pub struct Args {
+pub struct Cli {
     /// Path to config file.
     #[arg(short, long, default_value_t = default_path().to_string_lossy().into())]
     pub config: String,
@@ -15,8 +15,17 @@ pub struct Args {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Issue command to be off-loaded to remote workers.
-    #[command(external_subcommand)]
-    Cmd(Vec<String>), // TODO: missing in help!
+    Cmd {
+        /// Redirect stdout to the given file path. If "null" is provided, stdout is discarded.
+        #[arg(short = 'o', long)]
+        stdout: Option<String>,
+        /// Redirect stderr to the given file path. If "null" is provided, stderr is discarded.
+        #[arg(short = 'e', long)]
+        stderr: Option<String>,
+        /// Positional arguments that define the passed command.
+        #[command(subcommand)]
+        args: CmdArgs,
+    },
     /// Query information about scheduled and running jobs.
     ListJobs {
         /// Number of latest jobs to query.
@@ -57,4 +66,10 @@ pub enum Command {
         #[arg(short, long, default_value_t = false)]
         kill: bool,
     },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum CmdArgs {
+    #[command(external_subcommand)]
+    Args(Vec<String>), // never shows up in help
 }

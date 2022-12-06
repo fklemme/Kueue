@@ -1,6 +1,6 @@
 [package]
 name = "kueue"
-version = "0.10.1"
+version = "0.11.0"
 authors = ["Florian Klemme <mail@florianklemme.de>"]
 edition = "2021"
 description = "A robust, user-level, work-stealing, and distributed task scheduler."
@@ -31,5 +31,5 @@ simple_logger = "4.0"
 ssh2 = "0.9"
 sysinfo = "0.26"
 terminal_size = "0.2"
-tokio = { version = "1.22", features = ["full"] }
+tokio = { version = "1.23", features = ["full"] }
 toml = "0.5"

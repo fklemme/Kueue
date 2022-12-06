@@ -14,16 +14,27 @@ pub struct JobInfo {
     pub cmd: Vec<String>,
     pub cwd: PathBuf,
     pub status: JobStatus,
+    /// If Some(), redirect stdout to given file path.
+    pub stdout_path: Option<String>,
+    /// If Some(), redirect stderr to given file path.
+    pub stderr_path: Option<String>,
 }
 
 impl JobInfo {
-    pub fn new(cmd: Vec<String>, cwd: PathBuf) -> Self {
+    pub fn new(
+        cmd: Vec<String>,
+        cwd: PathBuf,
+        stdout_path: Option<String>,
+        stderr_path: Option<String>,
+    ) -> Self {
         static JOB_COUNTER: AtomicUsize = AtomicUsize::new(0);
         JobInfo {
             id: JOB_COUNTER.fetch_add(1, Ordering::Relaxed),
             cmd,
             cwd,
             status: JobStatus::Pending { issued: Utc::now() },
+            stdout_path,
+            stderr_path,
         }
     }
 }
@@ -48,6 +59,7 @@ pub enum JobStatus {
         return_code: i32,
         on: String,
         run_time_seconds: i64,
+        comment: String,
     },
     Canceled {
         canceled: DateTime<Utc>,

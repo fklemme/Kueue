@@ -1,13 +1,15 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::{Duration, Utc};
 use futures::future::try_join3;
 use kueue::structs::JobInfo;
 use std::{
+    path::{Path, PathBuf},
     process::Stdio,
     sync::{Arc, Mutex},
 };
 use tokio::{
-    io::{AsyncRead, AsyncReadExt},
+    fs::File,
+    io::{copy, AsyncRead, AsyncReadExt, AsyncWrite},
     process::Command,
     sync::Notify,
 };
@@ -26,8 +28,8 @@ pub struct JobResult {
     pub exit_code: i32,
     pub run_time: Duration,
     pub comment: String,
-    pub stdout: String,
-    pub stderr: String,
+    pub stdout_text: String,
+    pub stderr_text: String,
 }
 
 impl Job {
@@ -40,26 +42,63 @@ impl Job {
                 exit_code: -42,
                 run_time: Duration::min_value(),
                 comment: String::new(),
-                stdout: String::new(),
-                stderr: String::new(),
+                stdout_text: String::new(),
+                stderr_text: String::new(),
             })),
             notify_kill_job: Arc::new(Notify::new()),
         }
     }
 
-    pub fn run(&mut self) -> Result<()> {
-        // Run command as sub-process
-        assert!(!self.info.cmd.is_empty()); // TODO
-        log::trace!("Running command: {}", self.info.cmd.join(" "));
-        let start_time = Utc::now();
+    pub async fn run(&mut self) -> Result<()> {
+        if self.info.cmd.is_empty() {
+            return Err(anyhow!("Empty command!"));
+        }
+
+        // Set up command as subprocess.
         let mut cmd = Command::new(self.info.cmd.first().unwrap());
         cmd.current_dir(self.info.cwd.clone());
         cmd.args(&self.info.cmd[1..]);
 
-        // Spawn child process and capture output
+        // Pipe output or redirect to files.
+        async fn get_path_and_file(
+            path: &Option<String>,
+            cwd: &PathBuf,
+        ) -> Result<(Stdio, Option<PathBuf>, Option<File>)> {
+            match path {
+                Some(path) if path.to_lowercase().trim() == "null" => {
+                    log::trace!("Redirect to null!");
+                    Ok((Stdio::null(), None, None))
+                }
+                Some(path) => {
+                    log::trace!("Redirect to file!");
+
+                    // Check if path is absolute, otherwise use cwd.
+                    let mut full_path = Path::new(path).to_owned();
+                    if full_path.is_relative() {
+                        full_path = cwd.join(full_path);
+                    }
+
+                    Ok((
+                        Stdio::piped(),
+                        Some(full_path),
+                        Some(File::create(path).await?),
+                    ))
+                }
+                None => Ok((Stdio::piped(), None, None)),
+            }
+        }
+
         cmd.stdin(Stdio::null());
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
+        let (cfg, stdout_path, mut stdout_file) =
+            get_path_and_file(&self.info.stdout_path, &self.info.cwd).await?;
+        cmd.stdout(cfg);
+        let (cfg, stderr_path, mut stderr_file) =
+            get_path_and_file(&self.info.stderr_path, &self.info.cwd).await?;
+        cmd.stderr(cfg);
+
+        // Spawn child process.
+        log::trace!("Running command: {}", self.info.cmd.join(" "));
+        let start_time = Utc::now();
         let mut child = cmd.spawn()?;
 
         let notify_job_status = Arc::clone(&self.notify_job_status);
@@ -68,19 +107,31 @@ impl Job {
         let job_id = self.info.id;
 
         tokio::spawn(async move {
-            log::trace!("Waiting for job {} to finish...", job_id);
-
-            // This is basically the implementation of wait_with_output from
+            // This is based on the implementation of wait_with_output from
             // https://docs.rs/tokio/1.22.0/src/tokio/process/mod.rs.html#1213-1241
             // The problem with calling that function directly is that it
             // _moves_ the child into the fuction, making it impossible to
             // borrow it later for killing, if needed.
-            async fn read_to_end<A: AsyncRead + Unpin>(
+            async fn read_or_copy<A: AsyncRead + Unpin, B: AsyncWrite + Unpin>(
                 io: &mut Option<A>,
+                file: &mut Option<B>,
+                path: Option<PathBuf>,
             ) -> std::io::Result<Vec<u8>> {
                 let mut vec = Vec::new();
                 if let Some(io) = io.as_mut() {
-                    io.read_to_end(&mut vec).await?;
+                    // If input is available, read and...
+                    if let Some(file) = file.as_mut() {
+                        // ...copy it to redirect file.
+                        copy(io, file).await?;
+                        if let Some(path) = path {
+                            // Leave a hint that input has been redirected.
+                            let hint = format!("Redirected to {}", path.to_string_lossy());
+                            vec.extend(hint.as_bytes());
+                        }
+                    } else {
+                        // ...or append input to buffer to send later.
+                        io.read_to_end(&mut vec).await?;
+                    }
                 }
                 Ok(vec)
             }
@@ -88,11 +139,12 @@ impl Job {
             let mut stdout_pipe = child.stdout.take();
             let mut stderr_pipe = child.stderr.take();
 
-            let stdout_fut = read_to_end(&mut stdout_pipe);
-            let stderr_fut = read_to_end(&mut stderr_pipe);
+            let stdout_fut = read_or_copy(&mut stdout_pipe, &mut stdout_file, stdout_path);
+            let stderr_fut = read_or_copy(&mut stderr_pipe, &mut stderr_file, stderr_path);
 
             let combined_fut = try_join3(child.wait(), stdout_fut, stderr_fut);
 
+            log::trace!("Waiting for job {} to finish...", job_id);
             tokio::select! {
                 combined_result = combined_fut => {
                     log::trace!("Job {} finished orderly!",job_id);
@@ -106,9 +158,9 @@ impl Job {
                             result_lock.exit_code = status.code().unwrap_or(-44);
                             result_lock.run_time = finish_time - start_time;
                             result_lock.comment = "Job finished orderly.".into();
-                            result_lock.stdout = String::from_utf8(stdout)
+                            result_lock.stdout_text = String::from_utf8(stdout)
                                 .unwrap_or("failed to parse stdout into utf-8 string".into());
-                            result_lock.stderr = String::from_utf8(stderr)
+                            result_lock.stderr_text = String::from_utf8(stderr)
                                 .unwrap_or("failed to parse stderr into utf-8 string".into());
                         }
                         Err(e) => {
