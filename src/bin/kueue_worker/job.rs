@@ -78,11 +78,18 @@ impl Job {
                         full_path = cwd.join(full_path);
                     }
 
-                    Ok((
-                        Stdio::piped(),
-                        Some(full_path),
-                        Some(File::create(path).await?),
-                    ))
+                    let file = match File::create(path).await {
+                        Ok(file) => file,
+                        Err(e) => {
+                            return Err(anyhow!(
+                                "Failed to create file {}: {}",
+                                full_path.to_string_lossy(),
+                                e
+                            ))
+                        }
+                    };
+
+                    Ok((Stdio::piped(), Some(full_path), Some(file)))
                 }
                 None => Ok((Stdio::piped(), None, None)),
             }

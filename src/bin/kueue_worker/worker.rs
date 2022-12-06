@@ -207,13 +207,13 @@ impl Worker {
                         match self.running_jobs.last_mut().unwrap().run().await {
                             Ok(()) => Ok(()),
                             Err(e) => {
-                                log::error!("Failed to run job: {}", e);
+                                log::error!("Failed to start job: {}", e);
                                 let job = self.running_jobs.last_mut().unwrap();
                                 let mut result_lock = job.result.lock().unwrap();
                                 result_lock.finished = true;
                                 result_lock.exit_code = -43;
                                 result_lock.run_time = chrono::Duration::seconds(0);
-                                result_lock.comment = format!("Failed to run job: {}", e);
+                                result_lock.comment = format!("Failed to start job: {}", e);
                                 drop(result_lock); // unlock
                                 self.update_job_status().await
                             }
