@@ -426,9 +426,9 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             // loads
             let load_style = |load| {
                 let load_fmt = format!("{:.1}", load);
-                if load < 1.0 {
+                if load < (0.25 * info.hw.cpu_cores as f64) {
                     style(load_fmt).green()
-                } else if load < 10.0 {
+                } else if load < (0.75 * info.hw.cpu_cores as f64) {
                     style(load_fmt).yellow()
                 } else {
                     style(load_fmt).red()
