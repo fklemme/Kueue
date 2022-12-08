@@ -1,6 +1,6 @@
 # Kueue
 
-A robust, user-level, work-stealing distributed task scheduler.
+A robust, user-level, work-stealing, and distributed task scheduler.
 
 This tool is still in early development. More details and documentation will follow.
 
@@ -11,15 +11,22 @@ This can be achieved with the following two commands.
 
 ### Install Rust
 
-Make sure you have a C/C++ compiler installed.
+Make sure you have a C/C++ compiler installed. Then, install Rust as usual.
 
     curl https://sh.rustup.rs -sSf | sh
 
-### Install Kueue
+The command is taken from the [Rust](https://www.rust-lang.org/tools/install) website.
 
-You need to install OpenSSL headers beforehand. For instance, on Ubuntu:
+### Install OpenSSL
+
+You need to install OpenSSL headers as a dependency of Kueue. On Ubuntu, the following will suffice:
 
     sudo apt install pkg-config libssl-dev
+
+### Install Kueue
+
+Use Cargo (which is included in the Rust installation) to install Kueue.
+
     cargo install kueue
 
 This will install `kueue` (the client), `kueue_server`, and `kueue_worker` into the `bin` folder of your Rust installation.
