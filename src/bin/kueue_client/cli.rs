@@ -1,13 +1,12 @@
-use crate::print::term_size;
 use clap::{Parser, Subcommand};
-use kueue::config::default_path;
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(version, author, about)]
 pub struct Cli {
     /// Path to config file.
-    #[arg(short, long, default_value_t = default_path().to_string_lossy().into())]
-    pub config: String,
+    #[arg(short, long)]
+    pub config: Option<PathBuf>,
     #[command(subcommand)]
     pub command: Command,
 }
@@ -29,8 +28,8 @@ pub enum Command {
     /// Query information about scheduled and running jobs.
     ListJobs {
         /// Number of latest jobs to query.
-        #[arg(short, long, default_value_t = term_size().1 - 4)]
-        num_jobs: usize,
+        #[arg(short, long)]
+        num_jobs: Option<usize>,
         /// Show pending jobs.
         #[arg(short, long)]
         pending: bool,

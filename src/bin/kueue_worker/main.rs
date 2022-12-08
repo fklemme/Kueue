@@ -9,9 +9,9 @@ use anyhow::{Result, anyhow};
 #[tokio::main]
 async fn main() -> Result<()> {
     // Read configuration from file or defaults.
-    let config = Config::new().map_err(|e| anyhow!("Failed to load config: {}", e))?;
+    let config = Config::new(None).map_err(|e| anyhow!("Failed to load config: {}", e))?;
     // If there is no config file, create template.
-    if let Err(e) = config.create_default_config() {
+    if let Err(e) = config.create_default_config(None) {
         log::error!("Could not create default config: {}", e);
     }
 

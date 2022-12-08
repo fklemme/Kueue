@@ -6,7 +6,7 @@ use std::{io::Read, net::TcpStream, thread::sleep, time::Duration};
 
 fn main() -> Result<()> {
     // Read configuration from file or defaults.
-    let config = Config::new().map_err(|e| anyhow!("Failed to load config: {}", e))?;
+    let config = Config::new(None).map_err(|e| anyhow!("Failed to load config: {}", e))?;
     let restart_workers = config
         .restart_workers
         .clone()

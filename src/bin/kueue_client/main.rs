@@ -1,7 +1,10 @@
 mod cli;
 mod print;
 
-use crate::cli::{Cli, CmdArgs, Command};
+use crate::{
+    cli::{Cli, CmdArgs, Command},
+    print::term_size,
+};
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use kueue::{
@@ -22,9 +25,10 @@ async fn main() -> Result<()> {
     log::debug!("{:?}", args);
 
     // Read configuration from file or defaults.
-    let config = Config::new().map_err(|e| anyhow!("Failed to load config: {}", e))?;
+    let config =
+        Config::new(args.config.clone()).map_err(|e| anyhow!("Failed to load config: {}", e))?;
     // If there is no config file, create template.
-    if let Err(e) = config.create_default_config() {
+    if let Err(e) = config.create_default_config(args.config) {
         log::error!("Could not create default config: {}", e);
     }
 
@@ -92,7 +96,8 @@ async fn main() -> Result<()> {
         } => {
             // Query jobs.
             let message = ClientToServerMessage::ListJobs {
-                num_jobs,
+                // Current space (height) in the terminal to show jobs.
+                num_jobs: num_jobs.unwrap_or(term_size().1 - 4),
                 pending,
                 offered,
                 running,

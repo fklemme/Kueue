@@ -21,9 +21,10 @@ pub fn default_path() -> PathBuf {
     };
 
     if let Some(project_dirs) = ProjectDirs::from("", "", "kueue") {
-        return project_dirs.config_dir().join(config_file_name);
+        project_dirs.config_dir().join(config_file_name)
+    } else {
+        config_file_name.into()
     }
-    config_file_name.into()
 }
 
 /// The Config struct holds many important settings for the Kueue binaries.
@@ -46,8 +47,8 @@ pub struct RestartWorkers {
 }
 
 impl Config {
-    pub fn new() -> Result<Self, config::ConfigError> {
-        let config_path: String = default_path().to_string_lossy().into();
+    pub fn new(config_path: Option<PathBuf>) -> Result<Self, config::ConfigError> {
+        let config_path = config_path.unwrap_or(default_path());
 
         // TODO: Raise default levels when more mature.
         let default_log_level = if cfg!(debug_assertions) {
@@ -68,14 +69,16 @@ impl Config {
             .set_default("server_name", "localhost")?
             .set_default("server_port", 11236)?
             .set_default("shared_secret", random_secret)?
-            .add_source(config::File::with_name(&config_path).required(false))
+            .add_source(
+                config::File::with_name(config_path.to_string_lossy().as_ref()).required(false),
+            )
             .build()?;
 
         s.try_deserialize()
     }
 
-    pub fn create_default_config(&self) -> Result<()> {
-        let config_path = default_path();
+    pub fn create_default_config(&self, config_path: Option<PathBuf>) -> Result<()> {
+        let config_path = config_path.unwrap_or(default_path());
         let toml = toml::to_vec(&self)?;
 
         if let Some(config_dir) = config_path.parent() {
