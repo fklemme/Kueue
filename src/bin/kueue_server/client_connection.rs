@@ -122,7 +122,7 @@ impl ClientConnection {
                 pending,
                 offered,
                 running,
-                finished,
+                succeeded,
                 failed,
                 canceled,
             } => {
@@ -142,20 +142,21 @@ impl ClientConnection {
                     .iter()
                     .filter(|job_info| job_info.status.is_running())
                     .count();
-                let jobs_finished = job_infos
+                let jobs_succeeded = job_infos
                     .iter()
-                    .filter(|job_info| job_info.status.is_finished())
+                    .filter(|job_info| job_info.status.has_succeeded())
                     .count();
-                let any_job_failed = job_infos
+                let jobs_failed = job_infos
                     .iter()
-                    .any(|job_info| job_info.status.has_failed());
+                    .filter(|job_info| job_info.status.has_failed())
+                    .count();
                 let jobs_canceled = job_infos
                     .iter()
                     .filter(|job_info| job_info.status.is_canceled())
                     .count();
 
                 // Filter job list based on status.
-                if pending || offered || running || finished || failed || canceled {
+                if pending || offered || running || succeeded || failed || canceled {
                     job_infos = job_infos
                         .into_iter()
                         .filter(|job_info| match job_info.status {
@@ -163,7 +164,7 @@ impl ClientConnection {
                             JobStatus::Offered { .. } => offered,
                             JobStatus::Running { .. } => running,
                             JobStatus::Finished { return_code, .. } => {
-                                finished || (return_code != 0 && failed)
+                                (return_code == 0 && succeeded) || (return_code != 0 && failed)
                             }
                             JobStatus::Canceled { .. } => canceled,
                         })
@@ -181,8 +182,8 @@ impl ClientConnection {
                     jobs_pending,
                     jobs_offered,
                     jobs_running,
-                    jobs_finished,
-                    any_job_failed,
+                    jobs_succeeded,
+                    jobs_failed,
                     jobs_canceled,
                     job_infos,
                 };

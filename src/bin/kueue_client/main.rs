@@ -86,7 +86,7 @@ async fn main() -> Result<()> {
             pending,
             offered,
             running,
-            finished,
+            succeeded,
             failed,
             canceled,
         } => {
@@ -96,7 +96,7 @@ async fn main() -> Result<()> {
                 pending,
                 offered,
                 running,
-                finished,
+                succeeded,
                 failed,
                 canceled,
             };
@@ -108,8 +108,8 @@ async fn main() -> Result<()> {
                     jobs_pending,
                     jobs_offered,
                     jobs_running,
-                    jobs_finished,
-                    any_job_failed,
+                    jobs_succeeded,
+                    jobs_failed,
                     jobs_canceled,
                     job_infos,
                 } => {
@@ -117,8 +117,8 @@ async fn main() -> Result<()> {
                         jobs_pending,
                         jobs_offered,
                         jobs_running,
-                        jobs_finished,
-                        any_job_failed,
+                        jobs_succeeded,
+                        jobs_failed,
                         jobs_canceled,
                         job_infos,
                     );

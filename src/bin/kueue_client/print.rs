@@ -136,8 +136,8 @@ pub fn job_list(
     jobs_pending: usize,
     jobs_offered: usize,
     jobs_running: usize,
-    jobs_finished: usize,
-    any_job_failed: bool,
+    jobs_succeeded: usize,
+    jobs_failed: usize,
     jobs_canceled: usize,
     job_infos: Vec<JobInfo>,
 ) {
@@ -221,18 +221,24 @@ pub fn job_list(
 
     // Print summary line.
     println!("{}", style("--- job status summary ---").bold());
-    println!(
-        "pending: {}, offered: {}, running: {}, finished: {}, canceled: {}",
-        jobs_pending,
-        style(jobs_offered).dim(),
-        style(jobs_running).blue(),
-        if any_job_failed {
-            style(jobs_finished).red()
-        } else {
-            style(jobs_finished).green()
-        },
-        style(jobs_canceled).yellow()
-    );
+
+    print!("pending: {}", jobs_pending);
+    if jobs_offered > 0 {
+        print!(", offered: {}", style(jobs_offered).dim());
+    }
+    if jobs_running > 0 {
+        print!(", running: {}", style(jobs_running).blue());
+    }
+    if jobs_succeeded > 0 {
+        print!(", succeeded: {}", style(jobs_succeeded).green());
+    }
+    if jobs_failed > 0 {
+        print!(", failed: {}", style(jobs_failed).red());
+    }
+    if jobs_canceled > 0 {
+        print!(", canceled: {}", style(jobs_canceled).yellow());
+    }
+    println!(""); // end line
 }
 
 fn format_cores(cpu_cores: usize) -> String {

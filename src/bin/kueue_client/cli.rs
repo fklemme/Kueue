@@ -40,11 +40,11 @@ pub enum Command {
         /// Show running jobs.
         #[arg(short, long)]
         running: bool,
-        /// Show finished jobs.
+        /// Show finished jobs that succeeded.
         #[arg(short, long)]
-        finished: bool,
-        /// Show failed jobs.
-        #[arg(short = 'e', long)]
+        succeeded: bool,
+        /// Show finished jobs that failed.
+        #[arg(short, long)]
         failed: bool,
         /// Show canceled jobs.
         #[arg(short, long)]

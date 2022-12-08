@@ -83,6 +83,10 @@ impl JobStatus {
         matches!(self, Self::Finished { .. })
     }
 
+    pub fn has_succeeded(&self) -> bool {
+        matches!(self, Self::Finished { return_code, .. } if *return_code == 0)
+    }
+
     pub fn has_failed(&self) -> bool {
         matches!(self, Self::Finished { return_code, .. } if *return_code != 0)
     }
