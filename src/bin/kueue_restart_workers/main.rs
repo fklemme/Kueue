@@ -13,8 +13,9 @@ fn main() -> Result<()> {
         .expect("[restart_workers] missing!");
     let ssh_user = restart_workers.ssh_user;
     let workers: Vec<_> = restart_workers.hostnames.split_whitespace().collect();
-    let sleep_duration =
-        Duration::from_secs_f64(restart_workers.sleep_minutes_before_recheck * 60.0);
+    let sleep_duration = Duration::from_secs_f64(
+        restart_workers.sleep_minutes_before_recheck.unwrap_or(60.0) * 60.0,
+    );
 
     // Initialize logger.
     SimpleLogger::new()

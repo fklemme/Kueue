@@ -58,10 +58,12 @@ To use the tool, add a new block to your `config.toml` like the following:
     """
     sleep_minutes_before_recheck = 60
 
-Currently, the tool uses your SSH key to connect to the workers and spawns the worker task using [screen](https://linux.die.net/man/1/screen). Make sure that screen is installed on your workers and ssh login via key is possible. Then, you can use the tool like this:
+Currently, the tool uses your SSH key to connect to the workers and spawns the worker task in the background using [screen](https://linux.die.net/man/1/screen). Make sure that screen is installed on your workers and ssh login via key is possible. Then, you can use the tool like this:
 
+    # Make sure your SSH key is loaded.
     eval `ssh-agent -s`
     ssh-add ~/.ssh/id_rsa
+    # Spawn "restart_workers" in the background.
     screen kueue_restart_workers
 
 Keep in mind that `kueue_restart_workers` is not required for Kueue to work but just a simple tool to make restarting workers simpler. You can also use any other strategy to start and restart your remote workers.
