@@ -13,11 +13,13 @@ impl Job {
     pub fn new(
         cmd: Vec<String>,
         cwd: PathBuf,
+        cpus: usize,
+        ram_mb: usize,
         stdout_path: Option<String>,
         stderr_path: Option<String>,
     ) -> Self {
         Job {
-            info: JobInfo::new(cmd, cwd, stdout_path, stderr_path),
+            info: JobInfo::new(cmd, cwd, cpus, ram_mb, stdout_path, stderr_path),
             worker_id: None,
             stdout_text: None,
             stderr_text: None,

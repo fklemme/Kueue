@@ -7,7 +7,6 @@ use kueue::{
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::PathBuf,
     sync::{Arc, Mutex, Weak},
 };
 use tokio::sync::{mpsc, Notify};
@@ -43,14 +42,17 @@ impl Manager {
     }
 
     /// Adds a new job to be processed.
-    pub fn add_new_job(
-        &mut self,
-        cmd: Vec<String>,
-        cwd: PathBuf,
-        stdout_path: Option<String>,
-        stderr_path: Option<String>,
-    ) -> Arc<Mutex<Job>> {
-        let job = Job::new(cmd, cwd, stdout_path, stderr_path);
+    pub fn add_new_job(&mut self, job_info: JobInfo) -> Arc<Mutex<Job>> {
+        // Add new job. We create a new JobInfo instance to make sure to
+        // not adopt remote (non-unique) job ids or inconsistent states.
+        let job = Job::new(
+            job_info.cmd,
+            job_info.cwd,
+            job_info.cpus,
+            job_info.ram_mb,
+            job_info.stdout_path,
+            job_info.stderr_path,
+        );
         let job_id = job.info.id;
         let job = Arc::new(Mutex::new(job));
         self.jobs.insert(job_id, Arc::clone(&job));
@@ -100,6 +102,7 @@ impl Manager {
     }
 
     /// Get a job to be assigned to a worker.
+    /// TODO: Consider resources!
     pub fn get_job_waiting_for_assignment(
         &mut self,
         exclude: &BTreeSet<usize>,
@@ -326,13 +329,15 @@ impl Manager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn add_new_job() {
         let mut manager = Manager::new();
         let cmd = vec!["ls".to_string(), "-la".to_string()];
         let cwd: PathBuf = "/tmp".into();
-        manager.add_new_job(cmd, cwd, None, None);
+        let job_info = JobInfo::new(cmd, cwd, 8, 8 * 1024, None, None);
+        manager.add_new_job(job_info);
         assert_eq!(manager.get_all_job_infos().len(), 1);
     }
 
@@ -341,7 +346,8 @@ mod tests {
         let mut manager = Manager::new();
         let cmd = vec!["ls".to_string(), "-la".to_string()];
         let cwd: PathBuf = "/tmp".into();
-        let job = manager.add_new_job(cmd, cwd, None, None);
+        let job_info = JobInfo::new(cmd, cwd, 8, 8 * 1024, None, None);
+        let job = manager.add_new_job(job_info);
 
         // Put job on exclude list.
         let mut exclude = BTreeSet::new();

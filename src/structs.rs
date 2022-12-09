@@ -13,6 +13,10 @@ pub struct JobInfo {
     pub id: usize,
     pub cmd: Vec<String>,
     pub cwd: PathBuf,
+    /// Required/reserved CPU cores to run the command.
+    pub cpus: usize,
+    /// Required/reserved RAM (in megabytes) to run the command.
+    pub ram_mb: usize,
     pub status: JobStatus,
     /// If Some(), redirect stdout to given file path.
     pub stdout_path: Option<String>,
@@ -24,6 +28,8 @@ impl JobInfo {
     pub fn new(
         cmd: Vec<String>,
         cwd: PathBuf,
+        cpus: usize,
+        ram_mb: usize,
         stdout_path: Option<String>,
         stderr_path: Option<String>,
     ) -> Self {
@@ -32,6 +38,8 @@ impl JobInfo {
             id: JOB_COUNTER.fetch_add(1, Ordering::Relaxed),
             cmd,
             cwd,
+            cpus,
+            ram_mb,
             status: JobStatus::Pending { issued: Utc::now() },
             stdout_path,
             stderr_path,

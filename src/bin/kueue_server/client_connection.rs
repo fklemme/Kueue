@@ -100,10 +100,7 @@ impl ClientConnection {
                 // Add new job. We create a new JobInfo instance to make sure to
                 // not adopt remote (non-unique) job ids or inconsistent states.
                 let job = self.manager.lock().unwrap().add_new_job(
-                    job_info.cmd,
-                    job_info.cwd,
-                    job_info.stdout_path,
-                    job_info.stderr_path,
+                    job_info
                 );
                 let job_info = job.lock().unwrap().info.clone();
 

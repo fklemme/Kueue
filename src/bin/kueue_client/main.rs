@@ -55,6 +55,8 @@ async fn main() -> Result<()> {
     // Process subcommands.
     match args.command {
         Command::Cmd {
+            cpus,
+            ram_mb,
             stdout,
             stderr,
             args,
@@ -71,7 +73,7 @@ async fn main() -> Result<()> {
             // Issue job.
             let cwd = std::env::current_dir()?;
             let cwd = canonicalize(cwd)?;
-            let message = ClientToServerMessage::IssueJob(JobInfo::new(cmd, cwd, stdout, stderr));
+            let message = ClientToServerMessage::IssueJob(JobInfo::new(cmd, cwd, cpus, ram_mb, stdout, stderr));
             stream.send(&message).await?;
 
             // Await acceptance.

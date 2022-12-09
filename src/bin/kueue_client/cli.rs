@@ -15,6 +15,12 @@ pub struct Cli {
 pub enum Command {
     /// Issue command to be off-loaded to remote workers.
     Cmd {
+        /// Required/reserved CPU cores to run the command.
+        #[arg(short, long, default_value_t = 8)]
+        cpus: usize,
+        /// Required/reserved RAM (in megabytes) to run the command.
+        #[arg(short, long, default_value_t = 8 * 1024)]
+        ram_mb: usize,
         /// Redirect stdout to the given file path. If "null" is provided, stdout is discarded.
         #[arg(short = 'o', long)]
         stdout: Option<String>,
