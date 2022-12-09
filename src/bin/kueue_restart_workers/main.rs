@@ -1,12 +1,26 @@
 use anyhow::{anyhow, Result};
+use clap::Parser;
 use kueue::config::Config;
 use simple_logger::SimpleLogger;
 use ssh2::Session;
-use std::{io::Read, net::TcpStream, thread::sleep, time::Duration};
+use std::{io::Read, net::TcpStream, path::PathBuf, thread::sleep, time::Duration};
+
+#[derive(Parser, Debug)]
+#[command(version, author, about)]
+pub struct Cli {
+    /// Path to config file.
+    #[arg(short, long)]
+    pub config: Option<PathBuf>,
+}
 
 fn main() -> Result<()> {
-    // Read configuration from file or defaults.
-    let config = Config::new(None).map_err(|e| anyhow!("Failed to load config: {}", e))?;
+    // Read command line arguments.
+    let args = Cli::parse();
+    log::debug!("{:?}", args);
+
+    // Read configuration from file.
+    let config =
+        Config::new(args.config.clone()).map_err(|e| anyhow!("Failed to load config: {}", e))?;
     let restart_workers = config
         .restart_workers
         .clone()

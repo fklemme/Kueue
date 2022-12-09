@@ -3,6 +3,7 @@ mod job_manager;
 mod worker_connection;
 
 use anyhow::{anyhow, bail, Result};
+use clap::Parser;
 use client_connection::ClientConnection;
 use futures::future::join_all;
 use job_manager::Manager;
@@ -12,19 +13,35 @@ use kueue::{
     messages::{HelloMessage, ServerToClientMessage, ServerToWorkerMessage},
 };
 use simple_logger::SimpleLogger;
-use std::sync::{Arc, Mutex};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 use tokio::{
     net::{TcpListener, TcpStream},
     time::{sleep, Duration},
 };
 use worker_connection::WorkerConnection;
 
+#[derive(Parser, Debug)]
+#[command(version, author, about)]
+pub struct Cli {
+    /// Path to config file.
+    #[arg(short, long)]
+    pub config: Option<PathBuf>,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Read command line arguments.
+    let args = Cli::parse();
+    log::debug!("{:?}", args);
+
     // Read configuration from file or defaults.
-    let config = Config::new(None).map_err(|e| anyhow!("Failed to load config: {}", e))?;
+    let config =
+        Config::new(args.config.clone()).map_err(|e| anyhow!("Failed to load config: {}", e))?;
     // If there is no config file, create template.
-    if let Err(e) = config.create_default_config(None) {
+    if let Err(e) = config.create_default_config(args.config) {
         log::error!("Could not create default config: {}", e);
     }
 
