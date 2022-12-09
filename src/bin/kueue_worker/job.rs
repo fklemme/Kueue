@@ -95,6 +95,7 @@ impl Job {
             }
         }
 
+        // FIXME: What happens if stdout_path == stderr_path?
         cmd.stdin(Stdio::null());
         let (cfg, stdout_path, mut stdout_file) =
             get_path_and_file(&self.info.stdout_path, &self.info.cwd).await?;
