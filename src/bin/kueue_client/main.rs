@@ -11,7 +11,7 @@ use kueue::{
     config::Config,
     messages::stream::MessageStream,
     messages::{ClientToServerMessage, HelloMessage, ServerToClientMessage},
-    structs::JobInfo,
+    structs::{JobInfo, Resources},
 };
 use sha2::{Digest, Sha256};
 use simple_logger::SimpleLogger;
@@ -73,7 +73,9 @@ async fn main() -> Result<()> {
             // Issue job.
             let cwd = std::env::current_dir()?;
             let cwd = canonicalize(cwd)?;
-            let message = ClientToServerMessage::IssueJob(JobInfo::new(cmd, cwd, cpus, ram_mb, stdout, stderr));
+            let resources = Resources::new(cpus, ram_mb);
+            let job_info = JobInfo::new(cmd, cwd, resources, stdout, stderr);
+            let message = ClientToServerMessage::IssueJob(job_info);
             stream.send(&message).await?;
 
             // Await acceptance.

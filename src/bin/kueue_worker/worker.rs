@@ -5,13 +5,10 @@ use kueue::{
     config::Config,
     messages::stream::{MessageError, MessageStream},
     messages::{HelloMessage, ServerToWorkerMessage, WorkerToServerMessage},
-    structs::{HwInfo, JobStatus, LoadInfo},
+    structs::{HwInfo, JobStatus, LoadInfo, Resources},
 };
 use sha2::{Digest, Sha256};
-use std::{
-    cmp::{max, min},
-    sync::Arc,
-};
+use std::sync::Arc;
 use sysinfo::{CpuExt, CpuRefreshKind, System, SystemExt};
 use tokio::{
     net::TcpStream,
@@ -26,9 +23,12 @@ pub struct Worker {
     notify_update_hw: Arc<Notify>,
     notify_job_status: Arc<Notify>,
     system_info: System,
+    /// Base resources offered by the worker.
+    resources: Resources,
+    /// Jobs offered to the worker but not yet confirmed or started.
     offered_jobs: Vec<Job>,
+    /// Currently running jobs on the worker.
     running_jobs: Vec<Job>,
-    max_parallel_jobs: usize,
 }
 
 impl Worker {
@@ -37,28 +37,35 @@ impl Worker {
         config: Config,
         addr: T,
     ) -> Result<Self, std::io::Error> {
+        // Connect to the server.
         let stream = TcpStream::connect(addr).await?;
+
+        // Set total system resources.
+        let system_info = System::new_all();
+        let ram_mb = (system_info.available_memory() / 1024 / 1024) as usize;
+        let resources = Resources::new(system_info.cpus().len(), ram_mb);
+
         Ok(Worker {
             name,
             config,
             stream: MessageStream::new(stream),
             notify_update_hw: Arc::new(Notify::new()),
             notify_job_status: Arc::new(Notify::new()),
-            system_info: System::new_all(),
+            system_info,
+            resources,
             offered_jobs: Vec::new(),
             running_jobs: Vec::new(),
-            max_parallel_jobs: 0,
         })
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        // Do hello/welcome handshake.
+        // Perform hello/welcome handshake.
         self.connect_to_server().await?;
 
-        // Do challenge-response authentification.
+        // Perform challenge-response authentification.
         self.authenticate().await?;
 
-        // Notify worker regularly to send updates.
+        // Send regular updates about hardware and load to the server.
         let notify_update_hw = Arc::clone(&self.notify_update_hw);
         tokio::spawn(async move {
             loop {
@@ -67,8 +74,10 @@ impl Worker {
             }
         });
 
-        // Send job capacity to server and get ready to accept jobs
-        self.accept_jobs_based_on_hw().await?;
+        // Inform server about available resources. This information
+        // triggers the server to send new job offers to the worker.
+        let message = WorkerToServerMessage::UpdateResources(self.resources.clone());
+        self.stream.send(&message).await?;
 
         // Main loop
         loop {
@@ -77,11 +86,12 @@ impl Worker {
                 message = self.stream.receive::<ServerToWorkerMessage>() => {
                     self.handle_message(message?).await?;
                 }
-                // Or, get active when notified.
+                // Or, get active when notified by timer.
                 _ = self.notify_update_hw.notified() => {
                     self.update_hw_status().await?;
                     self.update_load_status().await?;
                 }
+                // Or, get active when a job finishes.
                 _ = self.notify_job_status.notified() => {
                     self.update_job_status().await?;
                 }
@@ -128,34 +138,6 @@ impl Worker {
         }
     }
 
-    async fn accept_jobs_based_on_hw(&mut self) -> Result<(), MessageError> {
-        let cpu_cores = self.system_info.cpus().len();
-        let total_memory = self.system_info.total_memory() as usize;
-        let total_memory_gb = (total_memory / 1024 / 1024 / 1024) as usize;
-
-        // TODO: Do something smart to set the hw-based default.
-        let cpu_cores_required: usize = 8;
-        let memory_gb_required: usize = 24;
-        self.max_parallel_jobs = max(
-            0, // min number of jobs the worker always provide.
-            min(
-                cpu_cores / cpu_cores_required,
-                total_memory_gb / memory_gb_required,
-            ),
-        );
-
-        // FIXME: For the moment, let's limit max. 1 job per worker.
-        // This is temp. on purpose. Atm. no other way to achieve this.
-        self.max_parallel_jobs = min(1, self.max_parallel_jobs);
-
-        // Send to server
-        self.stream
-            .send(&WorkerToServerMessage::AcceptParallelJobs(
-                self.max_parallel_jobs,
-            ))
-            .await
-    }
-
     async fn handle_message(&mut self, message: ServerToWorkerMessage) -> Result<(), MessageError> {
         match message {
             ServerToWorkerMessage::WelcomeWorker => {
@@ -169,24 +151,30 @@ impl Worker {
                 Ok(())
             }
             ServerToWorkerMessage::OfferJob(job_info) => {
-                // Make some smart checks whether or not to accept the job offer.
-                let free_slots =
-                    (self.running_jobs.len() + self.offered_jobs.len()) < self.max_parallel_jobs;
-                let cwd_available = job_info.cwd.is_dir();
+                // Reject job when the worker cannot see the working directory.
+                if !job_info.cwd.is_dir() {
+                    // Reject job offer.
+                    return self
+                        .stream
+                        .send(&WorkerToServerMessage::RejectJobOffer(job_info))
+                        .await;
+                }
 
-                if free_slots && cwd_available {
-                    // Accept job offer
+                // Accept job if required resources can be acquired.
+                if self.resources_available(&job_info.resources) {
+                    // Remember accepted job for confirmation.
                     self.offered_jobs.push(Job::new(
                         job_info.clone(),
                         Arc::clone(&self.notify_job_status),
-                    )); // remember
+                    ));
+                    // Accept job offer.
                     self.stream
                         .send(&WorkerToServerMessage::AcceptJobOffer(job_info))
                         .await
                 } else {
-                    // Reject job offer
+                    // Defer job offer (until resources become available).
                     self.stream
-                        .send(&WorkerToServerMessage::RejectJobOffer(job_info))
+                        .send(&WorkerToServerMessage::DeferJobOffer(job_info))
                         .await
                 }
             }
@@ -205,7 +193,15 @@ impl Worker {
 
                         // Run job as child process
                         match self.running_jobs.last_mut().unwrap().run().await {
-                            Ok(()) => Ok(()),
+                            Ok(()) => {
+                                // Inform server about available resources.
+                                // This information triggers the server to
+                                // send new job offers to the worker.
+                                let message = WorkerToServerMessage::UpdateResources(
+                                    self.get_available_resources(),
+                                );
+                                self.stream.send(&message).await
+                            }
                             Err(e) => {
                                 log::error!("Failed to start job: {}", e);
                                 let job = self.running_jobs.last_mut().unwrap();
@@ -215,6 +211,9 @@ impl Worker {
                                 result_lock.run_time = chrono::Duration::seconds(0);
                                 result_lock.comment = format!("Failed to start job: {}", e);
                                 drop(result_lock); // unlock
+
+                                // Update server. This will also send an undate on
+                                // available resources and thus trigger new job offers.
                                 self.update_job_status().await
                             }
                         }
@@ -280,6 +279,35 @@ impl Worker {
                 }
             }
         }
+    }
+
+    /// Returns available, unused resources of the worker.
+    fn get_available_resources(&self) -> Resources {
+        let busy_cpus: usize = self
+            .offered_jobs
+            .iter()
+            .chain(self.running_jobs.iter())
+            .map(|job| job.info.resources.cpus)
+            .sum();
+        let busy_ram_mb: usize = self
+            .offered_jobs
+            .iter()
+            .chain(self.running_jobs.iter())
+            .map(|job| job.info.resources.ram_mb)
+            .sum();
+
+        Resources::new(
+            self.resources.cpus - busy_cpus,
+            self.resources.ram_mb - busy_ram_mb,
+        )
+    }
+
+    /// Returns "true" if there are enough resources free to
+    /// fit the demand of the given "required" resources.
+    fn resources_available(&self, required: &Resources) -> bool {
+        let available = self.get_available_resources();
+
+        (available.cpus >= required.cpus) && (available.ram_mb >= required.ram_mb)
     }
 
     async fn update_hw_status(&mut self) -> Result<(), MessageError> {
@@ -388,6 +416,12 @@ impl Worker {
                     stderr_text,
                 };
                 self.stream.send(&job_results).await?;
+
+                // Inform server about available resources. This information
+                // triggers the server to send new job offers to the worker.
+                let message =
+                    WorkerToServerMessage::UpdateResources(self.get_available_resources());
+                self.stream.send(&message).await?;
 
                 // TODO: Store/remember finished jobs?
             } else {

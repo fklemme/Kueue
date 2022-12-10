@@ -10,13 +10,16 @@ use std::{
 // Struct that are shared among crates and parts of messages.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct JobInfo {
+    /// Unique job ID, assigned by the server.
     pub id: usize,
+    /// Command to be executed. First element is the name of the
+    /// program. Futher elements are arguments to the program.
     pub cmd: Vec<String>,
+    /// Working directory for the job to be executed in.
     pub cwd: PathBuf,
-    /// Required/reserved CPU cores to run the command.
-    pub cpus: usize,
-    /// Required/reserved RAM (in megabytes) to run the command.
-    pub ram_mb: usize,
+    /// Required/reserved resources to run the command.
+    pub resources: Resources,
+    /// Current status of the job. E.g., running, finished, etc.
     pub status: JobStatus,
     /// If Some(), redirect stdout to given file path.
     pub stdout_path: Option<String>,
@@ -24,26 +27,56 @@ pub struct JobInfo {
     pub stderr_path: Option<String>,
 }
 
+fn next_job_id() -> usize {
+    static JOB_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    JOB_COUNTER.fetch_add(1, Ordering::Relaxed)
+}
+
 impl JobInfo {
+    /// Creates a new job.
     pub fn new(
         cmd: Vec<String>,
         cwd: PathBuf,
-        cpus: usize,
-        ram_mb: usize,
+        resources: Resources,
         stdout_path: Option<String>,
         stderr_path: Option<String>,
     ) -> Self {
-        static JOB_COUNTER: AtomicUsize = AtomicUsize::new(0);
         JobInfo {
-            id: JOB_COUNTER.fetch_add(1, Ordering::Relaxed),
+            id: next_job_id(),
             cmd,
             cwd,
-            cpus,
-            ram_mb,
+            resources,
             status: JobStatus::Pending { issued: Utc::now() },
             stdout_path,
             stderr_path,
         }
+    }
+
+    /// Creates a new job based on the given job information.
+    pub fn from(job_info: JobInfo) -> Self {
+        JobInfo {
+            id: next_job_id(),
+            cmd: job_info.cmd,
+            cwd: job_info.cwd,
+            resources: job_info.resources,
+            status: JobStatus::Pending { issued: Utc::now() },
+            stdout_path: job_info.stdout_path,
+            stderr_path: job_info.stderr_path,
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct Resources {
+    /// Required/reserved CPU cores to run the command.
+    pub cpus: usize,
+    /// Required/reserved RAM (in megabytes) to run the command.
+    pub ram_mb: usize,
+}
+
+impl Resources {
+    pub fn new(cpus: usize, ram_mb: usize) -> Self {
+        Resources { cpus, ram_mb }
     }
 }
 
@@ -113,7 +146,6 @@ pub struct WorkerInfo {
     pub last_updated: DateTime<Utc>,
     pub jobs_running: BTreeSet<usize>,
     pub jobs_reserved: BTreeSet<usize>,
-    pub max_parallel_jobs: usize,
 }
 
 impl WorkerInfo {
@@ -126,16 +158,11 @@ impl WorkerInfo {
             last_updated: Utc::now(),
             jobs_running: BTreeSet::new(),
             jobs_reserved: BTreeSet::new(),
-            max_parallel_jobs: 0,
         }
     }
 
     pub fn jobs_total(&self) -> usize {
         self.jobs_running.len() + self.jobs_reserved.len()
-    }
-
-    pub fn free_slots(&self) -> bool {
-        self.jobs_total() < self.max_parallel_jobs
     }
 
     pub fn timed_out(&self) -> bool {

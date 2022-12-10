@@ -45,14 +45,7 @@ impl Manager {
     pub fn add_new_job(&mut self, job_info: JobInfo) -> Arc<Mutex<Job>> {
         // Add new job. We create a new JobInfo instance to make sure to
         // not adopt remote (non-unique) job ids or inconsistent states.
-        let job = Job::new(
-            job_info.cmd,
-            job_info.cwd,
-            job_info.cpus,
-            job_info.ram_mb,
-            job_info.stdout_path,
-            job_info.stderr_path,
-        );
+        let job = Job::from(job_info);
         let job_id = job.info.id;
         let job = Arc::new(Mutex::new(job));
         self.jobs.insert(job_id, Arc::clone(&job));
@@ -328,6 +321,8 @@ impl Manager {
 
 #[cfg(test)]
 mod tests {
+    use kueue::structs::Resources;
+
     use super::*;
     use std::path::PathBuf;
 
@@ -336,7 +331,8 @@ mod tests {
         let mut manager = Manager::new();
         let cmd = vec!["ls".to_string(), "-la".to_string()];
         let cwd: PathBuf = "/tmp".into();
-        let job_info = JobInfo::new(cmd, cwd, 8, 8 * 1024, None, None);
+        let resources = Resources::new(8, 8 * 1024);
+        let job_info = JobInfo::new(cmd, cwd, resources, None, None);
         manager.add_new_job(job_info);
         assert_eq!(manager.get_all_job_infos().len(), 1);
     }
@@ -346,7 +342,8 @@ mod tests {
         let mut manager = Manager::new();
         let cmd = vec!["ls".to_string(), "-la".to_string()];
         let cwd: PathBuf = "/tmp".into();
-        let job_info = JobInfo::new(cmd, cwd, 8, 8 * 1024, None, None);
+        let resources = Resources::new(8, 8 * 1024);
+        let job_info = JobInfo::new(cmd, cwd, resources, None, None);
         let job = manager.add_new_job(job_info);
 
         // Put job on exclude list.

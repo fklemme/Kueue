@@ -3,7 +3,7 @@
 
 pub mod stream;
 
-use crate::structs::{HwInfo, JobInfo, LoadInfo, WorkerInfo};
+use crate::structs::{HwInfo, JobInfo, LoadInfo, Resources, WorkerInfo};
 use serde::{Deserialize, Serialize};
 
 /// Communication to the server is initialized with HelloFromClient or
@@ -119,8 +119,11 @@ pub enum WorkerToServerMessage {
         stdout_text: Option<String>,
         stderr_text: Option<String>,
     },
-    AcceptParallelJobs(usize),
+    // Update server about available resources on the worker. The worker
+    // might reply with new job offers based on the provided information.
+    UpdateResources(Resources),
     AcceptJobOffer(JobInfo),
+    DeferJobOffer(JobInfo),
     RejectJobOffer(JobInfo),
     Bye,
 }
