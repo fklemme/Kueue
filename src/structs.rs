@@ -144,8 +144,8 @@ pub struct WorkerInfo {
     pub hw: HwInfo,
     pub load: LoadInfo,
     pub last_updated: DateTime<Utc>,
+    pub jobs_offered: BTreeSet<usize>,
     pub jobs_running: BTreeSet<usize>,
-    pub jobs_reserved: BTreeSet<usize>,
 }
 
 impl WorkerInfo {
@@ -156,13 +156,13 @@ impl WorkerInfo {
             hw: HwInfo::default(),
             load: LoadInfo::default(),
             last_updated: Utc::now(),
-            jobs_running: BTreeSet::new(),
-            jobs_reserved: BTreeSet::new(),
+            jobs_offered: BTreeSet::new(),
+            jobs_running: BTreeSet::new()
         }
     }
 
     pub fn jobs_total(&self) -> usize {
-        self.jobs_running.len() + self.jobs_reserved.len()
+        self.jobs_offered.len() + self.jobs_running.len()
     }
 
     pub fn timed_out(&self) -> bool {

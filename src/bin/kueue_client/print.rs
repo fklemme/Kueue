@@ -475,6 +475,8 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
     println!("job id: {}", job_info.id);
     println!("command: {}", job_info.cmd.join(" "));
     println!("working directory: {}", job_info.cwd.to_string_lossy());
+    println!("required CPU cores: {}", job_info.resources.cpus);
+    println!("required RAM: {} megabytes", job_info.resources.ram_mb);
     match job_info.status {
         JobStatus::Pending { issued } => {
             println!("job status: pending");

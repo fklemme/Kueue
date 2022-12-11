@@ -3,7 +3,7 @@ use anyhow::{anyhow, Result};
 use chrono::Utc;
 use kueue::{
     constants::{CLEANUP_JOB_AFTER_HOURS, OFFER_TIMEOUT_MINUTES},
-    structs::{JobInfo, JobStatus, WorkerInfo},
+    structs::{JobInfo, JobStatus, Resources, WorkerInfo},
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -95,25 +95,31 @@ impl Manager {
     }
 
     /// Get a job to be assigned to a worker.
-    /// TODO: Consider resources!
     pub fn get_job_waiting_for_assignment(
         &mut self,
         exclude: &BTreeSet<usize>,
+        resource_limit: &Resources,
     ) -> Option<Arc<Mutex<Job>>> {
         if self.jobs_waiting_for_assignment.is_empty() {
-            None // no jobs marked waiting for assignment
+            // No jobs marked waiting for assignment.
+            None
         } else {
-            let option_job_id = self
+            for job_id in self
                 .jobs_waiting_for_assignment
                 .iter()
-                .find(|job_id| !exclude.contains(job_id))
-                .cloned();
-            if let Some(job_id) = option_job_id {
-                // Found matching job
-                self.jobs_waiting_for_assignment.remove(&job_id);
-                return Some(Arc::clone(self.jobs.get(&job_id).unwrap()));
+                .filter(|job_id| !exclude.contains(job_id))
+            {
+                if let Some(job) = self.jobs.get(job_id) {
+                    let job_res = job.lock().unwrap().info.resources.clone();
+                    if (job_res.cpus <= resource_limit.cpus) && (job_res.ram_mb <= resource_limit.ram_mb) {
+                        // Found matching job.
+                        self.jobs_waiting_for_assignment.remove(&job_id);
+                        return Some(Arc::clone(job));
+                    }
+                }
             }
-            None // no job fulfilling requirements
+            // No job fulfilling requirements.
+            None
         }
     }
 
@@ -351,16 +357,16 @@ mod tests {
         exclude.insert(job.lock().unwrap().info.id);
 
         // Now, we should not get it.
-        let job = manager.get_job_waiting_for_assignment(&exclude);
+        let job = manager.get_job_waiting_for_assignment(&exclude, &resources);
         assert!(job.is_none());
 
         // Now we want any job. One is waiting to be assigned.
         exclude.clear();
-        let job = manager.get_job_waiting_for_assignment(&exclude);
+        let job = manager.get_job_waiting_for_assignment(&exclude, &resources);
         assert!(job.is_some());
 
         // We want any job, again. But none are left.
-        let job = manager.get_job_waiting_for_assignment(&exclude);
+        let job = manager.get_job_waiting_for_assignment(&exclude, &resources);
         assert!(job.is_none());
     }
 }
