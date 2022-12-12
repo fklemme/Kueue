@@ -104,12 +104,12 @@ impl Manager {
             // No jobs marked waiting for assignment.
             None
         } else {
-            for job_id in self
+            let job_ids :Vec<usize> = self
                 .jobs_waiting_for_assignment
                 .iter()
-                .filter(|job_id| !exclude.contains(job_id))
-            {
-                if let Some(job) = self.jobs.get(job_id) {
+                .filter(|job_id| !exclude.contains(job_id)).cloned().collect();
+            for job_id in job_ids {
+                if let Some(job) = self.jobs.get(&job_id) {
                     let job_res = job.lock().unwrap().info.resources.clone();
                     if (job_res.cpus <= resource_limit.cpus) && (job_res.ram_mb <= resource_limit.ram_mb) {
                         // Found matching job.
@@ -349,7 +349,7 @@ mod tests {
         let cmd = vec!["ls".to_string(), "-la".to_string()];
         let cwd: PathBuf = "/tmp".into();
         let resources = Resources::new(8, 8 * 1024);
-        let job_info = JobInfo::new(cmd, cwd, resources, None, None);
+        let job_info = JobInfo::new(cmd, cwd, resources.clone(), None, None);
         let job = manager.add_new_job(job_info);
 
         // Put job on exclude list.

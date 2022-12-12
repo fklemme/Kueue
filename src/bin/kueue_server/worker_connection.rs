@@ -164,7 +164,11 @@ impl WorkerConnection {
             WorkerToServerMessage::UpdateResources(resources) => {
                 self.check_authenticated()?;
 
+                // Update resources.
                 self.free_resources = resources;
+
+                // Forget all defered jobs.
+                self.defered_jobs.clear();
 
                 // Offer new job.
                 if self.worker.lock().unwrap().info.jobs_offered.is_empty() {
@@ -343,7 +347,52 @@ impl WorkerConnection {
 
     /// Called upon receiving WorkerToServerMessage::DeferJobOffer.
     async fn on_defer_job_offer(&mut self, job_info: JobInfo) -> Result<()> {
-        // TODO
+        self.check_authenticated()?;
+
+        let job = self.manager.lock().unwrap().get_job(job_info.id);
+        if let Some(job) = job {
+            // Perform small check and update job status.
+            {
+                let mut job_lock = job.lock().unwrap();
+                match &job_lock.info.status {
+                    JobStatus::Offered {
+                        issued,
+                        offered: _,
+                        to,
+                    } if to == &self.name => {
+                        job_lock.info.status = JobStatus::Pending {
+                            issued: issued.clone(),
+                        };
+                        job_lock.worker_id = None;
+                        // TODO: The job should also be made available again!
+
+                        // Remember defer and avoid fetching the same job again soon.
+                        self.defered_jobs.insert(job_lock.info.id);
+                    }
+                    _ => {
+                        return Err(anyhow!(
+                            "Defered job was not offered to worker {}: {:?}",
+                            self.name,
+                            job_lock.info.status
+                        ));
+                    }
+                }
+            };
+
+            // Update worker.
+            let no_jobs_offered = {
+                let mut worker_lock = self.worker.lock().unwrap();
+                worker_lock.info.jobs_offered.remove(&job_info.id);
+                worker_lock.info.jobs_offered.is_empty()
+            };
+
+            // Offer new job.
+            if no_jobs_offered {
+                self.offer_pending_job().await?;
+            }
+        } else {
+            return Err(anyhow!("Defered job not found: {:?}", job_info));
+        }
         Ok(())
     }
 
@@ -366,6 +415,8 @@ impl WorkerConnection {
                             issued: issued.clone(),
                         };
                         job_lock.worker_id = None;
+                        // TODO: The job should also be made available again!
+
                         // Remember reject and avoid fetching the same job again.
                         self.rejected_jobs.insert(job_lock.info.id);
                     }
@@ -397,11 +448,18 @@ impl WorkerConnection {
     }
 
     async fn offer_pending_job(&mut self) -> Result<(), MessageError> {
+        let excluded_jobs: BTreeSet<usize> = self
+            .rejected_jobs
+            .iter()
+            .chain(self.defered_jobs.iter())
+            .cloned()
+            .collect();
+
         let available_job = self
             .manager
             .lock()
             .unwrap()
-            .get_job_waiting_for_assignment(&self.rejected_jobs, &self.free_resources);
+            .get_job_waiting_for_assignment(&excluded_jobs, &self.free_resources);
 
         if let Some(job) = available_job {
             let job_info = {

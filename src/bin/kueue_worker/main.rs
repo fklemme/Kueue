@@ -1,4 +1,4 @@
-pub mod job;
+mod job;
 mod worker;
 
 use anyhow::{anyhow, Result};

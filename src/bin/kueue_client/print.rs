@@ -290,14 +290,9 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             .map(|info| format_memory_mb(info.hw.total_memory).len())
             .max()
             .unwrap();
-        let max_run_jobs_col_width = worker_list
+        let max_jobs_col_width = worker_list
             .iter()
             .map(|info| format!("{}", info.jobs_total()).len())
-            .max()
-            .unwrap();
-        let max_max_jobs_col_width = worker_list
-            .iter()
-            .map(|info| format!("{}", info.max_parallel_jobs).len())
             .max()
             .unwrap();
         let max_load_1_col_width = worker_list
@@ -327,8 +322,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             max("cpus".len(), max_cores_col_width),
             max("avg freq".len(), max_freq_col_width),
             max("memory".len(), max_memory_col_width),
-            max_run_jobs_col_width,
-            max_max_jobs_col_width,
+            max("jobs".len(), max_jobs_col_width),
             max_load_1_col_width,
             max_load_5_col_width,
             max_load_15_col_width,
@@ -340,8 +334,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             0, // cpu cores
             0, // cpu frequency
             0, // memory
-            0, // running jobs
-            0, // max jobs
+            0, // jobs
             0, // load 1
             0, // load 5
             0, // load 15
@@ -355,8 +348,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             cores_col,
             freq_col,
             memory_col,
-            run_jobs_col,
-            max_jobs_col,
+            jobs_col,
             load_1_col,
             load_5_col,
             load_15_col,
@@ -372,10 +364,8 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             col_widths[7],
             col_widths[8],
             col_widths[9],
-            col_widths[10],
         );
 
-        let jobs_col = run_jobs_col + max_jobs_col + 3; // " / " seperator
         let load_col = max(
             "load 1/5/15m".len(),
             load_1_col + load_5_col + load_15_col + 2,
@@ -410,24 +400,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             let cpu_cores = format_cores(info.hw.cpu_cores);
             let cpu_frequency = format_frequency(info.hw.cpu_frequency);
             let memory_mb = format_memory_mb(info.hw.total_memory);
-
-            // jobs
-            let (running_jobs, max_jobs) = if info.jobs_total() * 2 < info.max_parallel_jobs {
-                (
-                    style(info.jobs_total()).green(),
-                    style(info.max_parallel_jobs).green(),
-                )
-            } else if info.jobs_total() < info.max_parallel_jobs {
-                (
-                    style(info.jobs_total()).yellow(),
-                    style(info.max_parallel_jobs).yellow(),
-                )
-            } else {
-                (
-                    style(info.jobs_total()).red(),
-                    style(info.max_parallel_jobs).red(),
-                )
-            };
+            let jobs = format!("{}", info.jobs_total());
 
             // loads
             let load_style = |load| {
@@ -451,7 +424,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             println!(
                 "| {: <worker_col$} | {: <os_col$} \
                 | {: >cores_col$} | {: >freq_col$} | {: >memory_col$} \
-                | {: >run_jobs_col$} / {: >max_jobs_col$} \
+                | {: >jobs_col$} \
                 | {: >load_1_col$} {: >load_5_col$} {: >load_15_col$} \
                 | {: >uptime_col$} |",
                 worker_name,
@@ -459,8 +432,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
                 cpu_cores,
                 cpu_frequency,
                 memory_mb,
-                running_jobs,
-                max_jobs,
+                jobs,
                 load_one,
                 load_five,
                 load_fifteen,
