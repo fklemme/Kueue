@@ -42,7 +42,7 @@ impl Worker {
 
         // Set total system resources.
         let system_info = System::new_all();
-        let ram_mb = (system_info.available_memory() / 1024 / 1024) as usize;
+        let ram_mb = (system_info.total_memory() / 1024 / 1024) as usize;
         let resources = Resources::new(system_info.cpus().len(), ram_mb);
 
         Ok(Worker {
