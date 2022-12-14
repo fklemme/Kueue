@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use console::style;
+use console::{style, StyledObject};
 use kueue::structs::{JobInfo, JobStatus, WorkerInfo};
 use std::{cmp::max, collections::BTreeSet};
 use terminal_size::terminal_size;
@@ -248,9 +248,11 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
     println!("working directory: {}", job_info.cwd.to_string_lossy());
     println!("required CPU cores: {}", job_info.resources.cpus);
     println!("required RAM: {} megabytes", job_info.resources.ram_mb);
+    println!(); // line break
+
     match job_info.status {
         JobStatus::Pending { issued } => {
-            println!("job status: pending");
+            println!("{}: pending", style("job status").bold());
             println!("   issued on: {}", issued);
         }
         JobStatus::Offered {
@@ -258,7 +260,7 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
             offered,
             to,
         } => {
-            println!("job status: {}", style("pending").dim());
+            println!("{}: {}", style("job status").bold(), style("pending").dim());
             println!("   issued on: {}", issued);
             println!("   offered on: {}", offered);
             println!("   offered to: {}", to);
@@ -268,7 +270,11 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
             started,
             on,
         } => {
-            println!("job status: {}", style("running").blue());
+            println!(
+                "{}: {}",
+                style("job status").bold(),
+                style("running").blue()
+            );
             println!("   issued on: {}", issued);
             println!("   started on: {}", started);
             println!("   running on: {}", on);
@@ -281,9 +287,13 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
             comment,
         } => {
             if return_code == 0 {
-                println!("job status: {}", style("finished").green());
+                println!(
+                    "{}: {}",
+                    style("job status").bold(),
+                    style("finished").green()
+                );
             } else {
-                println!("job status: {}", style("failed").red());
+                println!("{}: {}", style("job status").bold(), style("failed").red());
             }
             println!("   finished on: {}", finished);
             println!("   return code: {}", return_code);
@@ -292,17 +302,21 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
             println!("   comment: {}", comment);
         }
         JobStatus::Canceled { canceled } => {
-            println!("job status: {}", style("canceled").yellow());
+            println!(
+                "{}: {}",
+                style("job status").bold(),
+                style("canceled").yellow()
+            );
             println!("   canceled on: {}", canceled);
         }
     }
 
     if let Some(text) = stdout_text {
-        println!("=== {} ===\n{}", style("stdout").bold(), text);
+        println!("\n=== {} ===\n{}", style("stdout").bold(), text);
     }
 
     if let Some(text) = stderr_text {
-        println!("=== {} ===\n{}", style("stderr").red(), text);
+        println!("\n=== {} ===\n{}", style("stderr").red(), text);
     }
 }
 
@@ -328,6 +342,17 @@ fn format_jobs(jobs_offered: &BTreeSet<usize>, jobs_running: &BTreeSet<usize>) -
         String::from("---")
     } else {
         jobs.join(", ")
+    }
+}
+
+fn format_load(load: f64, cpu_cores: usize) -> StyledObject<String> {
+    let load_fmt = format!("{:.1}", load);
+    if load < (0.25 * cpu_cores as f64) {
+        style(load_fmt).green()
+    } else if load < (0.75 * cpu_cores as f64) {
+        style(load_fmt).yellow()
+    } else {
+        style(load_fmt).red()
     }
 }
 
@@ -484,26 +509,15 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             let cpu_cores = format_cores(info.hw.cpu_cores);
             let cpu_frequency = format_frequency(info.hw.cpu_frequency);
             let memory_mb = format_memory_mb(info.hw.total_memory);
+
             let jobs = dots_back(
                 format_jobs(&info.jobs_offered, &info.jobs_running),
                 jobs_col,
             );
 
-            // loads
-            let load_style = |load| {
-                let load_fmt = format!("{:.1}", load);
-                if load < (0.25 * info.hw.cpu_cores as f64) {
-                    style(load_fmt).green()
-                } else if load < (0.75 * info.hw.cpu_cores as f64) {
-                    style(load_fmt).yellow()
-                } else {
-                    style(load_fmt).red()
-                }
-            };
-
-            let load_one = load_style(info.load.one);
-            let load_five = load_style(info.load.five);
-            let load_fifteen = load_style(info.load.fifteen);
+            let load_one = format_load(info.load.one, info.hw.cpu_cores);
+            let load_five = format_load(info.load.five, info.hw.cpu_cores);
+            let load_fifteen = format_load(info.load.fifteen, info.hw.cpu_cores);
 
             let uptime = format_uptime(info.connected_since);
 
@@ -539,7 +553,7 @@ pub fn worker_info(worker_info: WorkerInfo) {
     println!("connected since: {}", worker_info.connected_since);
     println!(); // line break
 
-    println!("system information:");
+    println!("{}", style("system information").bold().underlined());
     println!("   kernel: {}", worker_info.hw.kernel);
     println!("   distribution: {}", worker_info.hw.distribution);
     println!("   cpu cores: {}", worker_info.hw.cpu_cores);
@@ -547,6 +561,12 @@ pub fn worker_info(worker_info: WorkerInfo) {
     println!("   total memory: {} bytes", worker_info.hw.total_memory);
     println!("last updated: {}", worker_info.last_updated);
     println!(); // line break
+
+    println!("{}", style("sytem load and resources").bold().underlined());
+    let load_one = format_load(worker_info.load.one, worker_info.hw.cpu_cores);
+    let load_five = format_load(worker_info.load.five, worker_info.hw.cpu_cores);
+    let load_fifteen = format_load(worker_info.load.fifteen, worker_info.hw.cpu_cores);
+    println!("   load: {} / {} / {}", load_one, load_five, load_fifteen);
 
     let jobs_offered: Vec<String> = worker_info
         .jobs_offered
@@ -558,7 +578,7 @@ pub fn worker_info(worker_info: WorkerInfo) {
     } else {
         jobs_offered.join(", ")
     };
-    println!("job offered: {}", jobs_offered);
+    println!("   jobs offered: {}", jobs_offered);
 
     let jobs_running: Vec<String> = worker_info
         .jobs_running
@@ -570,14 +590,18 @@ pub fn worker_info(worker_info: WorkerInfo) {
     } else {
         jobs_running.join(", ")
     };
-    println!("job offered: {}", jobs_running);
-    println!(); // line break
+    println!("   jobs running: {}", jobs_running);
 
-    println!("free resources:");
-    println!("   cpus: {}", worker_info.free_resources.cpus);
-    println!("   ram: {} megabytes", worker_info.free_resources.ram_mb);
+    println!("   free cpus: {}", worker_info.free_resources.cpus);
     println!(
-        "relative free: {:.2} %",
-        worker_info.relative_resources_free() / 100.0
+        "   free ram: {} megabytes",
+        worker_info.free_resources.ram_mb
     );
+
+    let occupation = match worker_info.resource_load() {
+        x if x < 0.25 => style(x * 100.0).green(),
+        x if x < 0.75 => style(x * 100.0).yellow(),
+        x => style(x * 100.0).red(), // else
+    };
+    println!("{}: {:.2} %", style("total occupation").bold(), occupation);
 }

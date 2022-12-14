@@ -178,8 +178,24 @@ impl WorkerInfo {
         (Utc::now() - self.last_updated).num_minutes() > WORKER_TIMEOUT_MINUTES
     }
 
-    pub fn relative_resources_free(&self) -> f32 {
-        // TODO...
+    /// Returns the percentage of resources occupied on the worker. For multiple
+    /// resources, the maximum occupation is returned. E.g., if some memory is
+    /// still available but all cpus are take, 100% occupation is returned.
+    pub fn resource_load(&self) -> f64 {
+        let cpu_busy = if self.hw.cpu_cores == 0 {
+            1.0
+        } else {
+            1.0 - (self.free_resources.cpus as f64 / self.hw.cpu_cores as f64)
+        };
+
+        let ram_mb = self.hw.total_memory / 1024 / 1024;
+        let ram_busy = if ram_mb == 0 {
+            1.0
+        } else {
+            1.0 - (self.free_resources.ram_mb as f64 / ram_mb as f64)
+        };
+
+        f64::max(cpu_busy, ram_busy)
     }
 }
 
