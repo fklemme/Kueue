@@ -537,11 +537,47 @@ pub fn worker_info(worker_info: WorkerInfo) {
     println!("worker id: {}", worker_info.id);
     println!("name: {}", worker_info.name);
     println!("connected since: {}", worker_info.connected_since);
+    println!(); // line break
+
     println!("system information:");
     println!("   kernel: {}", worker_info.hw.kernel);
     println!("   distribution: {}", worker_info.hw.distribution);
     println!("   cpu cores: {}", worker_info.hw.cpu_cores);
     println!("   cpu frequency: {}", worker_info.hw.cpu_frequency);
     println!("   total memory: {} bytes", worker_info.hw.total_memory);
-    // TODO: add load, free resources, etc.
+    println!("last updated: {}", worker_info.last_updated);
+    println!(); // line break
+
+    let jobs_offered: Vec<String> = worker_info
+        .jobs_offered
+        .iter()
+        .map(|id| format!("{}", id))
+        .collect();
+    let jobs_offered = if jobs_offered.is_empty() {
+        String::from("---")
+    } else {
+        jobs_offered.join(", ")
+    };
+    println!("job offered: {}", jobs_offered);
+
+    let jobs_running: Vec<String> = worker_info
+        .jobs_running
+        .iter()
+        .map(|id| format!("{}", id))
+        .collect();
+    let jobs_running = if jobs_running.is_empty() {
+        String::from("---")
+    } else {
+        jobs_running.join(", ")
+    };
+    println!("job offered: {}", jobs_running);
+    println!(); // line break
+
+    println!("free resources:");
+    println!("   cpus: {}", worker_info.free_resources.cpus);
+    println!("   ram: {} megabytes", worker_info.free_resources.ram_mb);
+    println!(
+        "relative free: {:.2} %",
+        worker_info.relative_resources_free() / 100.0
+    );
 }

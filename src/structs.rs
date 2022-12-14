@@ -177,6 +177,10 @@ impl WorkerInfo {
     pub fn timed_out(&self) -> bool {
         (Utc::now() - self.last_updated).num_minutes() > WORKER_TIMEOUT_MINUTES
     }
+
+    pub fn relative_resources_free(&self) -> f32 {
+        // TODO...
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
