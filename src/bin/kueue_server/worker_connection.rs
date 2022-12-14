@@ -45,7 +45,7 @@ impl WorkerConnection {
             .lock()
             .unwrap()
             .add_new_worker(name.clone(), kill_job_tx);
-        let id = worker.lock().unwrap().id;
+        let id = worker.lock().unwrap().info.id;
 
         // Salt is generated for each worker.
         let salt: String = thread_rng()
@@ -165,13 +165,22 @@ impl WorkerConnection {
                 self.check_authenticated()?;
 
                 // Update resources.
-                self.free_resources = resources;
+                self.free_resources = resources.clone();
 
                 // Forget all defered jobs.
                 self.defered_jobs.clear();
 
+                let no_job_offered = {
+                    let mut worker_lock = self.worker.lock().unwrap();
+
+                    // Keep copy of free resources in info.
+                    worker_lock.info.free_resources = resources;
+
+                    worker_lock.info.jobs_offered.is_empty()
+                };
+
                 // Offer new job.
-                if self.worker.lock().unwrap().info.jobs_offered.is_empty() {
+                if no_job_offered {
                     self.offer_pending_job().await?;
                 }
                 Ok(())

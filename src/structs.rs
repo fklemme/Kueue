@@ -139,6 +139,7 @@ impl JobStatus {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct WorkerInfo {
+    pub id: usize,
     pub name: String,
     pub connected_since: DateTime<Utc>,
     pub hw: HwInfo,
@@ -146,18 +147,26 @@ pub struct WorkerInfo {
     pub last_updated: DateTime<Utc>,
     pub jobs_offered: BTreeSet<usize>,
     pub jobs_running: BTreeSet<usize>,
+    pub free_resources: Resources,
+}
+
+fn next_worker_id() -> usize {
+    static JOB_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    JOB_COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
 impl WorkerInfo {
     pub fn new(name: String) -> Self {
         WorkerInfo {
+            id: next_worker_id(),
             name,
             connected_since: Utc::now(),
             hw: HwInfo::default(),
             load: LoadInfo::default(),
             last_updated: Utc::now(),
             jobs_offered: BTreeSet::new(),
-            jobs_running: BTreeSet::new()
+            jobs_running: BTreeSet::new(),
+            free_resources: Resources::new(0, 0),
         }
     }
 

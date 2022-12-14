@@ -55,8 +55,6 @@ pub enum Command {
         #[arg(short, long)]
         canceled: bool,
     },
-    /// Query information about available workers.
-    ListWorkers,
     /// Show information about a specific job.
     ShowJob {
         /// ID of the job to be queried.
@@ -70,6 +68,13 @@ pub enum Command {
         /// worker. Otherwise, the job will continue without any effect.
         #[arg(short, long, default_value_t = false)]
         kill: bool,
+    },
+    /// Query information about available workers.
+    ListWorkers,
+    /// Show information about a specific worker.
+    ShowWorker {
+        /// ID of the worker to be queried.
+        id: usize,
     },
 }
 

@@ -48,13 +48,16 @@ pub enum ClientToServerMessage {
         failed: bool,
         canceled: bool,
     },
-    ListWorkers,
     ShowJob {
         id: usize,
     },
     RemoveJob {
         id: usize,
         kill: bool,
+    },
+    ListWorkers,
+    ShowWorker {
+        id: usize,
     },
     Bye,
 }
@@ -78,12 +81,13 @@ pub enum ServerToClientMessage {
         jobs_canceled: usize,
         job_infos: Vec<JobInfo>,
     },
-    WorkerList(Vec<WorkerInfo>),
     JobInfo {
         job_info: JobInfo,
         stdout_text: Option<String>,
         stderr_text: Option<String>,
     },
+    WorkerList(Vec<WorkerInfo>),
+    WorkerInfo(WorkerInfo),
     /// Generic response signaling the client if the requested action has
     /// succeeded or if something went wrong. This is used for instance, when
     /// the client requests information about a job that does not exist.

@@ -185,16 +185,6 @@ impl ClientConnection {
                 self.stream.send(&message).await?;
                 Ok(())
             }
-            ClientToServerMessage::ListWorkers => {
-                // Get worker list.
-                let worker_list = self.manager.lock().unwrap().get_all_worker_infos();
-
-                // Send response to client.
-                self.stream
-                    .send(&ServerToClientMessage::WorkerList(worker_list))
-                    .await?;
-                Ok(())
-            }
             ClientToServerMessage::ShowJob { id } => {
                 // Get job.
                 let job = self.manager.lock().unwrap().get_job(id);
@@ -239,6 +229,39 @@ impl ClientConnection {
                         success: false,
                         text: e.to_string(),
                     },
+                };
+                self.stream.send(&message).await?;
+                Ok(())
+            }
+            ClientToServerMessage::ListWorkers => {
+                // Get worker list.
+                let worker_list = self.manager.lock().unwrap().get_all_worker_infos();
+
+                // Send response to client.
+                self.stream
+                    .send(&ServerToClientMessage::WorkerList(worker_list))
+                    .await?;
+                Ok(())
+            }
+            ClientToServerMessage::ShowWorker { id } => {
+                // Get worker.
+                let worker = self.manager.lock().unwrap().get_worker(id);
+
+                let message = if let Some(worker) = worker {
+                    if let Some(worker) = worker.upgrade() {
+                        let worker_lock = worker.lock().unwrap();
+                        ServerToClientMessage::WorkerInfo(worker_lock.info.clone())
+                    } else {
+                        ServerToClientMessage::RequestResponse {
+                            success: false,
+                            text: "Worker no longer available!".into(),
+                        }
+                    }
+                } else {
+                    ServerToClientMessage::RequestResponse {
+                        success: false,
+                        text: "Worker not found!".into(),
+                    }
                 };
                 self.stream.send(&message).await?;
                 Ok(())

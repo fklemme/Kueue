@@ -35,7 +35,7 @@ impl Manager {
         kill_job_tx: mpsc::Sender<usize>,
     ) -> Arc<Mutex<Worker>> {
         let worker = Worker::new(name, kill_job_tx);
-        let worker_id = worker.id;
+        let worker_id = worker.info.id;
         let worker = Arc::new(Mutex::new(worker));
         self.workers.insert(worker_id, Arc::downgrade(&worker));
         worker
@@ -76,12 +76,12 @@ impl Manager {
     }
 
     /// Get worker by ID.
-    // pub fn get_worker(&self, id:usize) -> Option<Weak<Mutex<Worker>>> {
-    //     match self.workers.get(&id) {
-    //         Some(worker) => Some(Weak::clone(worker)),
-    //         None => None,
-    //     }
-    // }
+    pub fn get_worker(&self, id: usize) -> Option<Weak<Mutex<Worker>>> {
+        match self.workers.get(&id) {
+            Some(worker) => Some(Weak::clone(worker)),
+            None => None,
+        }
+    }
 
     /// Collect worker information about all workers.
     pub fn get_all_worker_infos(&self) -> Vec<WorkerInfo> {
@@ -104,14 +104,18 @@ impl Manager {
             // No jobs marked waiting for assignment.
             None
         } else {
-            let job_ids :Vec<usize> = self
+            let job_ids: Vec<usize> = self
                 .jobs_waiting_for_assignment
                 .iter()
-                .filter(|job_id| !exclude.contains(job_id)).cloned().collect();
+                .filter(|job_id| !exclude.contains(job_id))
+                .cloned()
+                .collect();
             for job_id in job_ids {
                 if let Some(job) = self.jobs.get(&job_id) {
                     let job_res = job.lock().unwrap().info.resources.clone();
-                    if (job_res.cpus <= resource_limit.cpus) && (job_res.ram_mb <= resource_limit.ram_mb) {
+                    if (job_res.cpus <= resource_limit.cpus)
+                        && (job_res.ram_mb <= resource_limit.ram_mb)
+                    {
                         // Found matching job.
                         self.jobs_waiting_for_assignment.remove(&job_id);
                         return Some(Arc::clone(job));

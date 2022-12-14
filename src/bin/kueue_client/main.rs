@@ -136,20 +136,6 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Command::ListWorkers => {
-            // Query workers.
-            stream.send(&ClientToServerMessage::ListWorkers).await?;
-
-            // Await results.
-            match stream.receive::<ServerToClientMessage>().await? {
-                ServerToClientMessage::WorkerList(worker_list) => {
-                    print::worker_list(worker_list);
-                }
-                other => {
-                    return Err(anyhow!("Expected WorkerList, received: {:?}", other));
-                }
-            }
-        }
         Command::ShowJob { id } => {
             // Query job.
             let message = ClientToServerMessage::ShowJob { id };
@@ -183,6 +169,36 @@ async fn main() -> Result<()> {
                 ServerToClientMessage::RequestResponse { success: _, text } => println!("{}", text),
                 other => {
                     return Err(anyhow!("Expected RequestResponse, received: {:?}", other));
+                }
+            }
+        }
+        Command::ListWorkers => {
+            // Query workers.
+            stream.send(&ClientToServerMessage::ListWorkers).await?;
+
+            // Await results.
+            match stream.receive::<ServerToClientMessage>().await? {
+                ServerToClientMessage::WorkerList(worker_list) => {
+                    print::worker_list(worker_list);
+                }
+                other => {
+                    return Err(anyhow!("Expected WorkerList, received: {:?}", other));
+                }
+            }
+        }
+        Command::ShowWorker { id } => {
+            // Query worker.
+            let message = ClientToServerMessage::ShowWorker { id };
+            stream.send(&message).await?;
+
+            // Await results.
+            match stream.receive::<ServerToClientMessage>().await? {
+                ServerToClientMessage::WorkerInfo(worker_info) => print::worker_info(worker_info),
+                ServerToClientMessage::RequestResponse { success, text } if !success => {
+                    println!("{}", text);
+                }
+                other => {
+                    return Err(anyhow!("Expected WorkerInfo, received: {:?}", other));
                 }
             }
         }
