@@ -1,6 +1,4 @@
-use std::path::PathBuf;
-
-use kueue::structs::{JobInfo, Resources};
+use kueue::structs::JobInfo;
 
 pub struct Job {
     pub info: JobInfo,
@@ -10,20 +8,20 @@ pub struct Job {
 }
 
 impl Job {
-    pub fn new(
-        cmd: Vec<String>,
-        cwd: PathBuf,
-        resources: Resources,
-        stdout_path: Option<String>,
-        stderr_path: Option<String>,
-    ) -> Self {
-        Job {
-            info: JobInfo::new(cmd, cwd, resources, stdout_path, stderr_path),
-            worker_id: None,
-            stdout_text: None,
-            stderr_text: None,
-        }
-    }
+    // pub fn new(
+    //     cmd: Vec<String>,
+    //     cwd: PathBuf,
+    //     resources: Resources,
+    //     stdout_path: Option<String>,
+    //     stderr_path: Option<String>,
+    // ) -> Self {
+    //     Job {
+    //         info: JobInfo::new(cmd, cwd, resources, stdout_path, stderr_path),
+    //         worker_id: None,
+    //         stdout_text: None,
+    //         stderr_text: None,
+    //     }
+    // }
 
     pub fn from(job_info: JobInfo) -> Self {
         Job {

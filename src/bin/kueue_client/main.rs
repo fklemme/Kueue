@@ -5,7 +5,7 @@ use crate::{
     cli::{Cli, CmdArgs, Command},
     print::term_size,
 };
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use clap::Parser;
 use kueue::{
     config::Config,
@@ -22,14 +22,13 @@ use tokio::net::TcpStream;
 async fn main() -> Result<()> {
     // Read command line arguments.
     let args = Cli::parse();
-    log::debug!("{:?}", args);
 
     // Read configuration from file or defaults.
     let config =
         Config::new(args.config.clone()).map_err(|e| anyhow!("Failed to load config: {}", e))?;
     // If there is no config file, create template.
     if let Err(e) = config.create_default_config(args.config) {
-        log::error!("Could not create default config: {}", e);
+        bail!("Could not create default config: {}", e);
     }
 
     // Initialize logger.
@@ -203,7 +202,7 @@ async fn authenticate(stream: &mut MessageStream, config: &Config) -> Result<()>
     match stream.receive::<ServerToClientMessage>().await? {
         ServerToClientMessage::AuthChallenge(salt) => {
             // Calculate response.
-            let salted_secret = config.shared_secret.clone() + &salt;
+            let salted_secret = config.common.shared_secret.clone() + &salt;
             let salted_secret = salted_secret.into_bytes();
             let mut hasher = Sha256::new();
             hasher.update(salted_secret);

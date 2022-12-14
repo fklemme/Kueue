@@ -1,4 +1,9 @@
-//! Reads and holds informations from "config.toml".
+//! Shared config file "config.toml".
+//!
+//! All binary crates share a common config file, which is separated into
+//! groups. The "common" group contains settings related to multiple crates
+//! while "server", "worker", "client", and "restart_workers" contain settings
+//! for their respective crates.
 
 use anyhow::{anyhow, Result};
 use directories::ProjectDirs;
@@ -11,6 +16,38 @@ use std::{
     path::PathBuf,
 };
 use tokio::net::lookup_host;
+
+/// Common settings shared among all binary crates.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct CommonSettings {
+    pub shared_secret: String,
+    pub server_name: String,
+    pub server_port: u16,
+    pub log_level: String,
+}
+
+/// Server settings.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ServerSettings {
+    pub address_bindings: String,
+}
+
+/// Setting for the optional "restart_workers" crate.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct RestartWorkers {
+    pub ssh_user: String,
+    pub hostnames: String,
+    pub sleep_minutes_before_recheck: Option<f64>,
+}
+
+/// The Config struct represents the read TOML config file
+/// and holds the settings for all individual crates.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct Config {
+    pub common: CommonSettings,
+    pub server: ServerSettings,
+    pub restart_workers: Option<RestartWorkers>,
+}
 
 /// Returns the system-specific default path of the config file.
 pub fn default_path() -> PathBuf {
@@ -27,25 +64,6 @@ pub fn default_path() -> PathBuf {
     }
 }
 
-/// The Config struct holds many important settings for the Kueue binaries.
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct Config {
-    pub log_level: String,
-    pub server_binds: String,
-    pub server_name: String,
-    pub server_port: u16,
-    pub shared_secret: String,
-    pub restart_workers: Option<RestartWorkers>,
-}
-
-/// The RestartWorkers struct holds additional information for the "start_workers" helper tool.
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct RestartWorkers {
-    pub ssh_user: String,
-    pub hostnames: String,
-    pub sleep_minutes_before_recheck: Option<f64>,
-}
-
 impl Config {
     pub fn new(config_path: Option<PathBuf>) -> Result<Self, config::ConfigError> {
         let config_path = config_path.unwrap_or(default_path());
@@ -57,23 +75,32 @@ impl Config {
             "info"
         };
 
+        // Generate initial random shared secret.
         let random_secret: String = thread_rng()
             .sample_iter(&Alphanumeric)
             .take(30)
             .map(char::from)
             .collect();
 
-        let s = config::Config::builder()
-            .set_default("log_level", default_log_level)?
-            .set_default("server_binds", "0.0.0.0 [::]")?
-            .set_default("server_name", "localhost")?
-            .set_default("server_port", 11236)?
-            .set_default("shared_secret", random_secret)?
+        let s = config::Config::builder();
+
+        // Default common settings.
+        let s = s
+            .set_default("common.shared_secret", random_secret)?
+            .set_default("common.server_name", "localhost")?
+            .set_default("common.server_port", 11236)?
+            .set_default("common.log_level", default_log_level)?;
+
+        // Default server settings.
+        let s = s.set_default("server.address_bindings", "0.0.0.0 [::]")?;
+
+        let s = s
             .add_source(
                 config::File::with_name(config_path.to_string_lossy().as_ref()).required(false),
             )
             .build()?;
 
+        // Deserialize into Config.
         s.try_deserialize()
     }
 
@@ -94,30 +121,26 @@ impl Config {
 
         Ok(())
     }
+
     pub fn get_log_level(&self) -> log::Level {
-        if self.log_level.to_lowercase() == "trace" {
-            log::Level::Trace
-        } else if self.log_level.to_lowercase() == "debug" {
-            log::Level::Debug
-        } else if self.log_level.to_lowercase() == "info" {
-            log::Level::Info
-        } else if self.log_level.to_lowercase() == "warn" {
-            log::Level::Warn
-        } else if self.log_level.to_lowercase() == "error" {
-            log::Level::Error
-        } else {
-            log::Level::Info // default
+        match self.common.log_level.to_lowercase().as_str() {
+            "trace" => log::Level::Trace,
+            "debug" => log::Level::Debug,
+            "info" => log::Level::Info,
+            "warn" => log::Level::Warn,
+            "error" => log::Level::Error,
+            _ => log::Level::Info, // default
         }
     }
 
     pub async fn get_server_address(&self) -> Result<SocketAddr> {
-        let host = format!("{}:{}", self.server_name, self.server_port);
+        let host = format!("{}:{}", self.common.server_name, self.common.server_port);
         let mut addr_iter = lookup_host(host).await?;
         match addr_iter.next() {
             Some(socket_address) => Ok(socket_address),
             None => Err(anyhow!(
                 "Could not resolve server address: {}",
-                self.server_name
+                self.common.server_name
             )),
         }
     }

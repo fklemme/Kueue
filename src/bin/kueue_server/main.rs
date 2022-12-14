@@ -35,14 +35,13 @@ pub struct Cli {
 async fn main() -> Result<()> {
     // Read command line arguments.
     let args = Cli::parse();
-    log::debug!("{:?}", args);
 
     // Read configuration from file or defaults.
     let config =
         Config::new(args.config.clone()).map_err(|e| anyhow!("Failed to load config: {}", e))?;
     // If there is no config file, create template.
     if let Err(e) = config.create_default_config(args.config) {
-        log::error!("Could not create default config: {}", e);
+        bail!("Could not create default config: {}", e);
     }
 
     // Initialize logger.
@@ -65,13 +64,13 @@ async fn main() -> Result<()> {
     });
 
     // Start accepting incoming connections.
-    let bind_addresses: Vec<&str> = config.server_binds.split_whitespace().collect();
+    let bind_addresses: Vec<&str> = config.server.address_bindings.split_whitespace().collect();
     let listeners = bind_addresses
         .iter()
         .map(|addr| {
             listen_on(
                 addr.to_string(),
-                config.server_port.clone(),
+                config.common.server_port.clone(),
                 config.clone(),
                 manager.clone(),
             )

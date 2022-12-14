@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use console::style;
 use kueue::structs::{JobInfo, JobStatus, WorkerInfo};
-use std::cmp::max;
+use std::{cmp::max, collections::BTreeSet};
 use terminal_size::terminal_size;
 
 /// Returns the terminal's width and height.
@@ -253,6 +253,19 @@ fn format_memory_mb(memory_bytes: u64) -> String {
     format!("{} MB", memory_bytes / 1024 / 1024)
 }
 
+fn format_jobs(jobs_offered: &BTreeSet<usize>, jobs_running: &BTreeSet<usize>) -> String {
+    let jobs: Vec<String> = jobs_running
+        .iter()
+        .chain(jobs_offered.iter())
+        .map(|id| format!("{}", id))
+        .collect();
+    if jobs.is_empty() {
+        String::from("---")
+    } else {
+        jobs.join(", ")
+    }
+}
+
 fn format_uptime(connected_since: DateTime<Utc>) -> String {
     let uptime = Utc::now() - connected_since;
     let hours = uptime.num_hours() % 24;
@@ -292,7 +305,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             .unwrap();
         let max_jobs_col_width = worker_list
             .iter()
-            .map(|info| format!("{}", info.jobs_total()).len())
+            .map(|info| format_jobs(&info.jobs_offered, &info.jobs_running).len())
             .max()
             .unwrap();
         let max_load_1_col_width = worker_list
@@ -322,7 +335,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             max("cpus".len(), max_cores_col_width),
             max("avg freq".len(), max_freq_col_width),
             max("memory".len(), max_memory_col_width),
-            max("jobs".len(), max_jobs_col_width),
+            "jobs".len(),
             max_load_1_col_width,
             max_load_5_col_width,
             max_load_15_col_width,
@@ -334,7 +347,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             0, // cpu cores
             0, // cpu frequency
             0, // memory
-            0, // jobs
+            max_jobs_col_width,
             0, // load 1
             0, // load 5
             0, // load 15
@@ -400,7 +413,10 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             let cpu_cores = format_cores(info.hw.cpu_cores);
             let cpu_frequency = format_frequency(info.hw.cpu_frequency);
             let memory_mb = format_memory_mb(info.hw.total_memory);
-            let jobs = format!("{}", info.jobs_total());
+            let jobs = dots_back(
+                format_jobs(&info.jobs_offered, &info.jobs_running),
+                jobs_col,
+            );
 
             // loads
             let load_style = |load| {
@@ -422,9 +438,8 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
 
             // Print line
             println!(
-                "| {: <worker_col$} | {: <os_col$} \
-                | {: >cores_col$} | {: >freq_col$} | {: >memory_col$} \
-                | {: >jobs_col$} \
+                "| {: <worker_col$} | {: <os_col$} | {: >cores_col$} \
+                | {: >freq_col$} | {: >memory_col$} | {: <jobs_col$} \
                 | {: >load_1_col$} {: >load_5_col$} {: >load_15_col$} \
                 | {: >uptime_col$} |",
                 worker_name,
