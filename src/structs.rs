@@ -143,7 +143,6 @@ pub struct WorkerInfo {
     pub name: String,
     pub connected_since: DateTime<Utc>,
     pub hw: HwInfo,
-    pub load: LoadInfo,
     pub last_updated: DateTime<Utc>,
     pub jobs_offered: BTreeSet<usize>,
     pub jobs_running: BTreeSet<usize>,
@@ -162,7 +161,6 @@ impl WorkerInfo {
             name,
             connected_since: Utc::now(),
             hw: HwInfo::default(),
-            load: LoadInfo::default(),
             last_updated: Utc::now(),
             jobs_offered: BTreeSet::new(),
             jobs_running: BTreeSet::new(),
@@ -188,11 +186,10 @@ impl WorkerInfo {
             1.0 - (self.free_resources.cpus as f64 / self.hw.cpu_cores as f64)
         };
 
-        let ram_mb = self.hw.total_memory / 1024 / 1024;
-        let ram_busy = if ram_mb == 0 {
+        let ram_busy = if self.hw.total_ram_mb == 0 {
             1.0
         } else {
-            1.0 - (self.free_resources.ram_mb as f64 / ram_mb as f64)
+            1.0 - (self.free_resources.ram_mb as f64 / self.hw.total_ram_mb as f64)
         };
 
         f64::max(cpu_busy, ram_busy)
@@ -204,8 +201,9 @@ pub struct HwInfo {
     pub kernel: String,
     pub distribution: String,
     pub cpu_cores: usize,
-    pub cpu_frequency: u64,
-    pub total_memory: u64,
+    pub cpu_frequency: usize,
+    pub total_ram_mb: usize,
+    pub load_info: LoadInfo
 }
 
 impl HwInfo {
@@ -215,7 +213,8 @@ impl HwInfo {
             distribution: "unknown".into(),
             cpu_cores: 0,
             cpu_frequency: 0,
-            total_memory: 0,
+            total_ram_mb: 0,
+            load_info: LoadInfo::default()
         }
     }
 }

@@ -324,12 +324,12 @@ fn format_cores(cpu_cores: usize) -> String {
     format!("{} x", cpu_cores)
 }
 
-fn format_frequency(cpu_frequency: u64) -> String {
+fn format_frequency(cpu_frequency: usize) -> String {
     format!("{} MHz", cpu_frequency)
 }
 
-fn format_memory_mb(memory_bytes: u64) -> String {
-    format!("{} MB", memory_bytes / 1024 / 1024)
+fn format_memory_mb(memory_mb: usize) -> String {
+    format!("{} MB", memory_mb)
 }
 
 fn format_jobs(jobs_offered: &BTreeSet<usize>, jobs_running: &BTreeSet<usize>) -> String {
@@ -391,7 +391,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             .unwrap();
         let max_memory_col_width = worker_list
             .iter()
-            .map(|info| format_memory_mb(info.hw.total_memory).len())
+            .map(|info| format_memory_mb(info.hw.total_ram_mb).len())
             .max()
             .unwrap();
         let max_jobs_col_width = worker_list
@@ -508,7 +508,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             let operation_system = dots_back(info.hw.distribution.clone(), os_col);
             let cpu_cores = format_cores(info.hw.cpu_cores);
             let cpu_frequency = format_frequency(info.hw.cpu_frequency);
-            let memory_mb = format_memory_mb(info.hw.total_memory);
+            let memory_mb = format_memory_mb(info.hw.total_ram_mb);
 
             let jobs = dots_back(
                 format_jobs(&info.jobs_offered, &info.jobs_running),
@@ -558,7 +558,7 @@ pub fn worker_info(worker_info: WorkerInfo) {
     println!("   distribution: {}", worker_info.hw.distribution);
     println!("   cpu cores: {}", worker_info.hw.cpu_cores);
     println!("   cpu frequency: {}", worker_info.hw.cpu_frequency);
-    println!("   total memory: {} bytes", worker_info.hw.total_memory);
+    println!("   total memory: {} megabytes", worker_info.hw.total_ram_mb);
     println!("last updated: {}", worker_info.last_updated);
     println!(); // line break
 

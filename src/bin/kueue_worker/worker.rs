@@ -17,13 +17,13 @@ use tokio::{
 };
 
 pub struct Worker {
-    name: String,
     config: Config,
+    name: String,
     stream: MessageStream,
     notify_update_hw: Arc<Notify>,
     notify_job_status: Arc<Notify>,
     system_info: System,
-    /// Base resources offered by the worker.
+    /// Total resources offered by the worker.
     resources: Resources,
     /// Jobs offered to the worker but not yet confirmed or started.
     offered_jobs: Vec<Job>,
@@ -32,22 +32,31 @@ pub struct Worker {
 }
 
 impl Worker {
-    pub async fn new<T: tokio::net::ToSocketAddrs>(
-        name: String,
-        config: Config,
-        addr: T,
-    ) -> Result<Self, std::io::Error> {
+    pub async fn new(config: Config) -> Result<Self> {
+        // Generate unique name from hostname and random suffix.
+        let fqdn: String = gethostname::gethostname().to_string_lossy().into();
+        let hostname = fqdn.split(|c| c == '.').next().unwrap().to_string();
+        let mut generator = names::Generator::default();
+        let name_suffix = generator.next().unwrap_or("default".into());
+        let name = format!("{}-{}", hostname, name_suffix);
+        log::debug!("Worker name: {}", name);
+
         // Connect to the server.
-        let stream = TcpStream::connect(addr).await?;
+        let server_addr = config.get_server_address().await?;
+        let stream = TcpStream::connect(server_addr).await?;
 
         // Set total system resources.
         let system_info = System::new_all();
-        let ram_mb = (system_info.total_memory() / 1024 / 1024) as usize;
+        let ram_mb = if config.worker_settings.dynamic_check_free_resources {
+            (system_info.available_memory() / 1024 / 1024) as usize
+        } else {
+            (system_info.total_memory() / 1024 / 1024) as usize
+        };
         let resources = Resources::new(system_info.cpus().len(), ram_mb);
 
         Ok(Worker {
-            name,
             config,
+            name,
             stream: MessageStream::new(stream),
             notify_update_hw: Arc::new(Notify::new()),
             notify_job_status: Arc::new(Notify::new()),
@@ -89,7 +98,6 @@ impl Worker {
                 // Or, get active when notified by timer.
                 _ = self.notify_update_hw.notified() => {
                     self.update_hw_status().await?;
-                    self.update_load_status().await?;
                 }
                 // Or, get active when a job finishes.
                 _ = self.notify_job_status.notified() => {
@@ -121,7 +129,7 @@ impl Worker {
         match self.stream.receive::<ServerToWorkerMessage>().await? {
             ServerToWorkerMessage::AuthChallenge(salt) => {
                 // Calculate response.
-                let salted_secret = self.config.common.shared_secret.clone() + &salt;
+                let salted_secret = self.config.common_settings.shared_secret.clone() + &salt;
                 let salted_secret = salted_secret.into_bytes();
                 let mut hasher = Sha256::new();
                 hasher.update(salted_secret);
@@ -310,22 +318,32 @@ impl Worker {
         (available.cpus >= required.cpus) && (available.ram_mb >= required.ram_mb)
     }
 
+    /// Update and report hardware information and system load.
     async fn update_hw_status(&mut self) -> Result<(), MessageError> {
         // Refresh relevant system information.
         self.system_info
             .refresh_cpu_specifics(CpuRefreshKind::new().with_frequency());
 
-        // Get CPU cores and frequency.
+        // Get CPU cores, frequency, and RAM.
         let cpu_cores = self.system_info.cpus().len();
         let cpu_frequency = if cpu_cores > 0 {
             self.system_info
                 .cpus()
                 .iter()
-                .map(|cpu| cpu.frequency())
-                .sum::<u64>()
-                / cpu_cores as u64
+                .map(|cpu| cpu.frequency() as usize)
+                .sum::<usize>()
+                / cpu_cores
         } else {
-            0u64
+            0
+        };
+        let total_ram_mb = (self.system_info.total_memory() / 1024 / 1024) as usize;
+
+        // Read system load.
+        let load_avg = self.system_info.load_average();
+        let load_info = LoadInfo {
+            one: load_avg.one,
+            five: load_avg.five,
+            fifteen: load_avg.fifteen,
         };
 
         // Collect hardware information.
@@ -340,27 +358,19 @@ impl Worker {
                 .unwrap_or("unknown".into()),
             cpu_cores,
             cpu_frequency,
-            total_memory: self.system_info.total_memory(),
+            total_ram_mb,
+            load_info
         };
+
+        if self.config.worker_settings.dynamic_check_free_resources {
+            // Also update the total resources the worker will assign.
+            self.resources.cpus = f64::max(0.0, cpu_cores as f64 - load_avg.one) as usize;
+            self.resources.ram_mb = total_ram_mb;
+        }
 
         // Send to server.
         self.stream
             .send(&WorkerToServerMessage::UpdateHwInfo(hw_info))
-            .await
-    }
-
-    async fn update_load_status(&mut self) -> Result<(), MessageError> {
-        // Read system load.
-        let load_avg = self.system_info.load_average();
-        let load_info = LoadInfo {
-            one: load_avg.one,
-            five: load_avg.five,
-            fifteen: load_avg.fifteen,
-        };
-
-        // Send to server.
-        self.stream
-            .send(&WorkerToServerMessage::UpdateLoadInfo(load_info))
             .await
     }
 

@@ -29,7 +29,15 @@ pub struct CommonSettings {
 /// Server settings.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ServerSettings {
-    pub address_bindings: String,
+    pub bind_addresses: String,
+}
+
+/// Worker settings.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct WorkerSettings {
+    /// If set "true", the worker's maximum available resources will
+    /// dynamically grow and shrink with free resources on the host system.
+    pub dynamic_check_free_resources: bool,
 }
 
 /// Setting for the optional "restart_workers" crate.
@@ -44,8 +52,9 @@ pub struct RestartWorkers {
 /// and holds the settings for all individual crates.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Config {
-    pub common: CommonSettings,
-    pub server: ServerSettings,
+    pub common_settings: CommonSettings,
+    pub server_settings: ServerSettings,
+    pub worker_settings: WorkerSettings,
     pub restart_workers: Option<RestartWorkers>,
 }
 
@@ -123,7 +132,7 @@ impl Config {
     }
 
     pub fn get_log_level(&self) -> log::Level {
-        match self.common.log_level.to_lowercase().as_str() {
+        match self.common_settings.log_level.to_lowercase().as_str() {
             "trace" => log::Level::Trace,
             "debug" => log::Level::Debug,
             "info" => log::Level::Info,
@@ -134,13 +143,16 @@ impl Config {
     }
 
     pub async fn get_server_address(&self) -> Result<SocketAddr> {
-        let host = format!("{}:{}", self.common.server_name, self.common.server_port);
+        let host = format!(
+            "{}:{}",
+            self.common_settings.server_name, self.common_settings.server_port
+        );
         let mut addr_iter = lookup_host(host).await?;
         match addr_iter.next() {
             Some(socket_address) => Ok(socket_address),
             None => Err(anyhow!(
                 "Could not resolve server address: {}",
-                self.common.server_name
+                self.common_settings.server_name
             )),
         }
     }

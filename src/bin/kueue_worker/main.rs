@@ -35,17 +35,6 @@ async fn main() -> Result<()> {
         .init()
         .unwrap();
 
-    // Generate unique name from hostname and random suffix.
-    let fqdn: String = gethostname::gethostname().to_string_lossy().into();
-    let hostname = fqdn.split(|c| c == '.').next().unwrap().to_string();
-    let mut generator = names::Generator::default();
-    let name_suffix = generator.next().unwrap_or("default".into());
-    let worker_name = format!("{}-{}", hostname, name_suffix);
-    log::debug!("Worker name: {}", worker_name);
-
-    // Connect to server and process work.
-    let server_addr = config.get_server_address().await?;
-    log::debug!("Server address: {}", server_addr);
-    let mut worker = Worker::new(worker_name, config, server_addr).await?;
+    let mut worker = Worker::new(config).await?;
     worker.run().await // do worker things
 }

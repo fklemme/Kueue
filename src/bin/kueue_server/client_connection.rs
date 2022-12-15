@@ -79,7 +79,7 @@ impl ClientConnection {
             }
             ClientToServerMessage::AuthResponse(response) => {
                 // Calculate baseline result.
-                let salted_secret = self.config.common.shared_secret.clone() + &self.salt;
+                let salted_secret = self.config.common_settings.shared_secret.clone() + &self.salt;
                 let salted_secret = salted_secret.into_bytes();
                 let mut hasher = Sha256::new();
                 hasher.update(salted_secret);

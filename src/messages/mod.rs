@@ -115,8 +115,8 @@ pub enum ServerToWorkerMessage {
 pub enum WorkerToServerMessage {
     // Send Sha256(secret + salt) back to server.
     AuthResponse(String),
+    /// Update hardware information and system load.
     UpdateHwInfo(HwInfo),
-    UpdateLoadInfo(LoadInfo),
     UpdateJobStatus(JobInfo),
     UpdateJobResults {
         job_id: usize,

@@ -218,7 +218,7 @@ async fn authenticate(stream: &mut MessageStream, config: &Config) -> Result<()>
     match stream.receive::<ServerToClientMessage>().await? {
         ServerToClientMessage::AuthChallenge(salt) => {
             // Calculate response.
-            let salted_secret = config.common.shared_secret.clone() + &salt;
+            let salted_secret = config.common_settings.shared_secret.clone() + &salt;
             let salted_secret = salted_secret.into_bytes();
             let mut hasher = Sha256::new();
             hasher.update(salted_secret);
