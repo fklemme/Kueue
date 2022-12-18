@@ -3,7 +3,7 @@
 
 pub mod stream;
 
-use crate::structs::{HwInfo, JobInfo, LoadInfo, Resources, WorkerInfo};
+use crate::structs::{HwInfo, JobInfo, Resources, WorkerInfo};
 use serde::{Deserialize, Serialize};
 
 /// Communication to the server is initialized with HelloFromClient or

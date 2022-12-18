@@ -37,6 +37,9 @@ async fn main() -> Result<()> {
         .init()
         .unwrap();
 
+    // Run client.
+    // TODO: Wrap client into own struct.
+
     // Connect to server.
     let server_addr = config.get_server_address().await?;
     let stream = TcpStream::connect(server_addr).await?;

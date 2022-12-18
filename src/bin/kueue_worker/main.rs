@@ -35,6 +35,7 @@ async fn main() -> Result<()> {
         .init()
         .unwrap();
 
+    // Run worker.
     let mut worker = Worker::new(config).await?;
-    worker.run().await // do worker things
+    worker.run().await
 }

@@ -22,3 +22,15 @@ pub mod constants {
     pub const WORKER_TIMEOUT_MINUTES: i64 = 15;
     pub const CLEANUP_JOB_AFTER_HOURS: i64 = 48;
 }
+
+
+#[cfg(test)]
+mod tests {
+    use crate::config::Config;
+
+    #[test]
+    fn general_test_setup() {
+        let config = Config::new(None);
+        // TODO...
+    }
+}

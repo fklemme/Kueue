@@ -95,13 +95,16 @@ impl Config {
 
         // Default common settings.
         let s = s
-            .set_default("common.shared_secret", random_secret)?
-            .set_default("common.server_name", "localhost")?
-            .set_default("common.server_port", 11236)?
-            .set_default("common.log_level", default_log_level)?;
+            .set_default("common_settings.shared_secret", random_secret)?
+            .set_default("common_settings.server_name", "localhost")?
+            .set_default("common_settings.server_port", 11236)?
+            .set_default("common_settings.log_level", default_log_level)?;
 
         // Default server settings.
-        let s = s.set_default("server.address_bindings", "0.0.0.0 [::]")?;
+        let s = s.set_default("server_settings.bind_addresses", "0.0.0.0 [::]")?;
+
+        // Default worker settings.
+        let s = s.set_default("worker_settings.dynamic_check_free_resources", false)?;
 
         let s = s
             .add_source(

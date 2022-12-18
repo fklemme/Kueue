@@ -37,6 +37,7 @@ async fn main() -> Result<()> {
         .init()
         .unwrap();
 
+    // Run server.
     let server = Server::new(config);
-    server.run().await // do server things
+    server.run().await
 }
