@@ -401,17 +401,17 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             .unwrap();
         let max_load_1_col_width = worker_list
             .iter()
-            .map(|info| format!("{:.1}", info.load.one).len())
+            .map(|info| format!("{:.1}", info.hw.load_info.one).len())
             .max()
             .unwrap();
         let max_load_5_col_width = worker_list
             .iter()
-            .map(|info| format!("{:.1}", info.load.five).len())
+            .map(|info| format!("{:.1}", info.hw.load_info.five).len())
             .max()
             .unwrap();
         let max_load_15_col_width = worker_list
             .iter()
-            .map(|info| format!("{:.1}", info.load.fifteen).len())
+            .map(|info| format!("{:.1}", info.hw.load_info.fifteen).len())
             .max()
             .unwrap();
         let max_uptime_col_width = worker_list
@@ -515,9 +515,9 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
                 jobs_col,
             );
 
-            let load_one = format_load(info.load.one, info.hw.cpu_cores);
-            let load_five = format_load(info.load.five, info.hw.cpu_cores);
-            let load_fifteen = format_load(info.load.fifteen, info.hw.cpu_cores);
+            let load_one = format_load(info.hw.load_info.one, info.hw.cpu_cores);
+            let load_five = format_load(info.hw.load_info.five, info.hw.cpu_cores);
+            let load_fifteen = format_load(info.hw.load_info.fifteen, info.hw.cpu_cores);
 
             let uptime = format_uptime(info.connected_since);
 
@@ -563,9 +563,9 @@ pub fn worker_info(worker_info: WorkerInfo) {
     println!(); // line break
 
     println!("{}", style("sytem load and resources").bold().underlined());
-    let load_one = format_load(worker_info.load.one, worker_info.hw.cpu_cores);
-    let load_five = format_load(worker_info.load.five, worker_info.hw.cpu_cores);
-    let load_fifteen = format_load(worker_info.load.fifteen, worker_info.hw.cpu_cores);
+    let load_one = format_load(worker_info.hw.load_info.one, worker_info.hw.cpu_cores);
+    let load_five = format_load(worker_info.hw.load_info.five, worker_info.hw.cpu_cores);
+    let load_fifteen = format_load(worker_info.hw.load_info.fifteen, worker_info.hw.cpu_cores);
     println!("   load: {} / {} / {}", load_one, load_five, load_fifteen);
 
     let jobs_offered: Vec<String> = worker_info
