@@ -6,6 +6,7 @@ use crate::{
     print::term_size,
 };
 use anyhow::{anyhow, bail, Result};
+use base64::{engine::general_purpose, Engine as _};
 use clap::Parser;
 use kueue::{
     config::Config,
@@ -226,7 +227,7 @@ async fn authenticate(stream: &mut MessageStream, config: &Config) -> Result<()>
             let mut hasher = Sha256::new();
             hasher.update(salted_secret);
             let response = hasher.finalize().to_vec();
-            let response = base64::encode(response);
+            let response = general_purpose::STANDARD_NO_PAD.encode(response);
 
             // Send response back to server.
             let message = ClientToServerMessage::AuthResponse(response);

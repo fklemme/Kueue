@@ -118,7 +118,7 @@ impl Config {
 
     pub fn create_default_config(&self, config_path: Option<PathBuf>) -> Result<()> {
         let config_path = config_path.unwrap_or(default_path());
-        let toml = toml::to_vec(&self)?;
+        let toml = toml::to_string(&self)?;
 
         if let Some(config_dir) = config_path.parent() {
             if !config_dir.is_dir() {
@@ -128,7 +128,7 @@ impl Config {
 
         if !config_path.is_file() {
             let mut file = File::create(config_path)?;
-            file.write_all(&toml)?;
+            file.write_all(toml.as_bytes())?;
         }
 
         Ok(())

@@ -88,8 +88,8 @@ pub enum ServerToClientMessage {
     },
     WorkerList(Vec<WorkerInfo>),
     WorkerInfo(WorkerInfo),
-    /// Generic response signaling the client if the requested action has
-    /// succeeded or if something went wrong. This is used for instance, when
+    /// Generic response, signaling the client if the requested action has
+    /// succeeded or if something went wrong. This is used, for instance, when
     /// the client requests information about a job that does not exist.
     RequestResponse {
         success: bool,

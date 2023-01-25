@@ -1,5 +1,6 @@
 use crate::job_manager::Manager;
 use anyhow::{anyhow, Result};
+use base64::{engine::general_purpose, Engine as _};
 use kueue::{
     config::Config,
     messages::{stream::MessageStream, ClientToServerMessage, ServerToClientMessage},
@@ -84,7 +85,7 @@ impl ClientConnection {
                 let mut hasher = Sha256::new();
                 hasher.update(salted_secret);
                 let baseline = hasher.finalize().to_vec();
-                let baseline = base64::encode(baseline);
+                let baseline = general_purpose::STANDARD_NO_PAD.encode(baseline);
 
                 // Update status and send reply.
                 if response == baseline {

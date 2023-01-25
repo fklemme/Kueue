@@ -1,5 +1,6 @@
 use crate::job::Job;
 use anyhow::{anyhow, Result};
+use base64::{engine::general_purpose, Engine as _};
 use chrono::Utc;
 use kueue::{
     config::Config,
@@ -134,7 +135,7 @@ impl Worker {
                 let mut hasher = Sha256::new();
                 hasher.update(salted_secret);
                 let response = hasher.finalize().to_vec();
-                let response = base64::encode(response);
+                let response = general_purpose::STANDARD_NO_PAD.encode(response);
 
                 // Send response back to server.
                 let message = WorkerToServerMessage::AuthResponse(response);
@@ -359,7 +360,7 @@ impl Worker {
             cpu_cores,
             cpu_frequency,
             total_ram_mb,
-            load_info
+            load_info,
         };
 
         if self.config.worker_settings.dynamic_check_free_resources {
