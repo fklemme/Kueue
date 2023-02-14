@@ -674,7 +674,7 @@ dependencies = [
 
 [[package]]
 name = "kueue"
-version = "0.12.0"
+version = "0.11.4"
 dependencies = [
  "anyhow",
  "base64",

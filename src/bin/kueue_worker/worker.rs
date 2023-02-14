@@ -135,7 +135,7 @@ impl Worker {
 
         // TODO: Do something smart to set the hw-based default.
         let cpu_cores_required: usize = 8;
-        let memory_gb_required: usize = 24;
+        let memory_gb_required: usize = 16;
         self.max_parallel_jobs = max(
             0, // min number of jobs the worker always provide.
             min(
@@ -146,7 +146,7 @@ impl Worker {
 
         // FIXME: For the moment, let's limit max. 1 job per worker.
         // This is temp. on purpose. Atm. no other way to achieve this.
-        self.max_parallel_jobs = min(1, self.max_parallel_jobs);
+        //self.max_parallel_jobs = min(1, self.max_parallel_jobs);
 
         // Send to server
         self.stream
