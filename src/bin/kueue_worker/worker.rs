@@ -33,6 +33,7 @@ pub struct Worker {
 }
 
 impl Worker {
+    /// Set up a new Worker instance and connect to the server.
     pub async fn new(config: Config) -> Result<Self> {
         // Generate unique name from hostname and random suffix.
         let fqdn: String = gethostname::gethostname().to_string_lossy().into();
@@ -40,7 +41,7 @@ impl Worker {
         let mut generator = names::Generator::default();
         let name_suffix = generator.next().unwrap_or("default".into());
         let name = format!("{}-{}", hostname, name_suffix);
-        log::debug!("Worker name: {}", name);
+        log::info!("Worker name: {}", name);
 
         // Connect to the server.
         let server_addr = config.get_server_address().await?;
@@ -68,6 +69,7 @@ impl Worker {
         })
     }
 
+    /// Perform message and job handling. This function will run indefinitly.
     pub async fn run(&mut self) -> Result<()> {
         // Perform hello/welcome handshake.
         self.connect_to_server().await?;
@@ -108,6 +110,7 @@ impl Worker {
         }
     }
 
+    /// Perform hello/welcome handshake with the server.
     async fn connect_to_server(&mut self) -> Result<()> {
         // Send hello from worker.
         let hello = HelloMessage::HelloFromWorker {
@@ -125,6 +128,7 @@ impl Worker {
         }
     }
 
+    /// Perform challenge-response authentification.
     async fn authenticate(&mut self) -> Result<()> {
         // Authentification challenge is sent automatically after welcome.
         match self.stream.receive::<ServerToWorkerMessage>().await? {
@@ -147,6 +151,7 @@ impl Worker {
         }
     }
 
+    /// Called in the main loop to handle different incoming messages from the server.
     async fn handle_message(&mut self, message: ServerToWorkerMessage) -> Result<(), MessageError> {
         match message {
             ServerToWorkerMessage::WelcomeWorker => {
@@ -171,12 +176,12 @@ impl Worker {
 
                 // Accept job if required resources can be acquired.
                 if self.resources_available(&job_info.resources) {
-                    // Remember accepted job for confirmation.
+                    // Remember accepted job for later confirmation.
                     self.offered_jobs.push(Job::new(
                         job_info.clone(),
                         Arc::clone(&self.notify_job_status),
                     ));
-                    // Accept job offer.
+                    // Notify server about accepted job offer.
                     self.stream
                         .send(&WorkerToServerMessage::AcceptJobOffer(job_info))
                         .await
@@ -200,12 +205,14 @@ impl Worker {
                         job.info.status = job_info.status;
                         self.running_jobs.push(job);
 
+                        // TODO: Also compare entire "job_info"s for consistency?
+
                         // Run job as child process
                         match self.running_jobs.last_mut().unwrap().run().await {
                             Ok(()) => {
                                 // Inform server about available resources.
                                 // This information triggers the server to
-                                // send new job offers to the worker.
+                                // send new job offers to this worker.
                                 let message = WorkerToServerMessage::UpdateResources(
                                     self.get_available_resources(),
                                 );
@@ -214,12 +221,13 @@ impl Worker {
                             Err(e) => {
                                 log::error!("Failed to start job: {}", e);
                                 let job = self.running_jobs.last_mut().unwrap();
-                                let mut result_lock = job.result.lock().unwrap();
-                                result_lock.finished = true;
-                                result_lock.exit_code = -43;
-                                result_lock.run_time = chrono::Duration::seconds(0);
-                                result_lock.comment = format!("Failed to start job: {}", e);
-                                drop(result_lock); // unlock
+                                {
+                                    let mut job_result = job.result.lock().unwrap();
+                                    job_result.finished = true;
+                                    job_result.exit_code = -43;
+                                    job_result.run_time = chrono::Duration::seconds(0);
+                                    job_result.comment = format!("Failed to start job: {}", e);
+                                }
 
                                 // Update server. This will also send an undate on
                                 // available resources and thus trigger new job offers.
@@ -235,7 +243,7 @@ impl Worker {
                             "Confirmed job with ID={} that has not been offered previously!",
                             job_info.id
                         );
-                        Ok(()) // Error but we can continue running
+                        Ok(()) // Error occured, but we can continue running.
                     }
                 }
             }
@@ -257,7 +265,7 @@ impl Worker {
                             "Withdrawn job with ID={} that has not been offered previously!",
                             job_info.id
                         );
-                        Ok(()) // Error but we can continue running
+                        Ok(()) // Error occured, but we can continue running.
                     }
                 }
             }
@@ -283,7 +291,7 @@ impl Worker {
                             "Job to be killed with ID={} is not running on this worker!",
                             job_info.id
                         );
-                        Ok(()) // Error but we can continue running
+                        Ok(()) // Error occured, but we can continue running.
                     }
                 }
             }

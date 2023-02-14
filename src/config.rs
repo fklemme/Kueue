@@ -35,8 +35,9 @@ pub struct ServerSettings {
 /// Worker settings.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct WorkerSettings {
-    /// If set "true", the worker's maximum available resources will
-    /// dynamically grow and shrink with free resources on the host system.
+    /// If set "true", the worker's maximum available resources will dynamically
+    /// grow and shrink with free resources on the host system. This setting is
+    /// useful for shared machines, not exclusively used with Kueue.
     pub dynamic_check_free_resources: bool,
 }
 
@@ -104,7 +105,7 @@ impl Config {
         let s = s.set_default("server_settings.bind_addresses", "0.0.0.0 [::]")?;
 
         // Default worker settings.
-        let s = s.set_default("worker_settings.dynamic_check_free_resources", false)?;
+        let s = s.set_default("worker_settings.dynamic_check_free_resources", true)?;
 
         let s = s
             .add_source(
