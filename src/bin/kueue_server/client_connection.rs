@@ -1,5 +1,6 @@
 use crate::job_manager::Manager;
 use anyhow::{anyhow, Result};
+use base64::{engine::general_purpose, Engine as _};
 use kueue::{
     config::Config,
     messages::{stream::MessageStream, ClientToServerMessage, ServerToClientMessage},
@@ -79,12 +80,12 @@ impl ClientConnection {
             }
             ClientToServerMessage::AuthResponse(response) => {
                 // Calculate baseline result.
-                let salted_secret = self.config.shared_secret.clone() + &self.salt;
+                let salted_secret = self.config.common_settings.shared_secret.clone() + &self.salt;
                 let salted_secret = salted_secret.into_bytes();
                 let mut hasher = Sha256::new();
                 hasher.update(salted_secret);
                 let baseline = hasher.finalize().to_vec();
-                let baseline = base64::encode(baseline);
+                let baseline = general_purpose::STANDARD_NO_PAD.encode(baseline);
 
                 // Update status and send reply.
                 if response == baseline {
@@ -99,12 +100,7 @@ impl ClientConnection {
 
                 // Add new job. We create a new JobInfo instance to make sure to
                 // not adopt remote (non-unique) job ids or inconsistent states.
-                let job = self.manager.lock().unwrap().add_new_job(
-                    job_info.cmd,
-                    job_info.cwd,
-                    job_info.stdout_path,
-                    job_info.stderr_path,
-                );
+                let job = self.manager.lock().unwrap().add_new_job(job_info);
                 let job_info = job.lock().unwrap().info.clone();
 
                 // Send response to client.
@@ -190,16 +186,6 @@ impl ClientConnection {
                 self.stream.send(&message).await?;
                 Ok(())
             }
-            ClientToServerMessage::ListWorkers => {
-                // Get worker list.
-                let worker_list = self.manager.lock().unwrap().get_all_worker_infos();
-
-                // Send response to client.
-                self.stream
-                    .send(&ServerToClientMessage::WorkerList(worker_list))
-                    .await?;
-                Ok(())
-            }
             ClientToServerMessage::ShowJob { id } => {
                 // Get job.
                 let job = self.manager.lock().unwrap().get_job(id);
@@ -244,6 +230,39 @@ impl ClientConnection {
                         success: false,
                         text: e.to_string(),
                     },
+                };
+                self.stream.send(&message).await?;
+                Ok(())
+            }
+            ClientToServerMessage::ListWorkers => {
+                // Get worker list.
+                let worker_list = self.manager.lock().unwrap().get_all_worker_infos();
+
+                // Send response to client.
+                self.stream
+                    .send(&ServerToClientMessage::WorkerList(worker_list))
+                    .await?;
+                Ok(())
+            }
+            ClientToServerMessage::ShowWorker { id } => {
+                // Get worker.
+                let worker = self.manager.lock().unwrap().get_worker(id);
+
+                let message = if let Some(worker) = worker {
+                    if let Some(worker) = worker.upgrade() {
+                        let worker_lock = worker.lock().unwrap();
+                        ServerToClientMessage::WorkerInfo(worker_lock.info.clone())
+                    } else {
+                        ServerToClientMessage::RequestResponse {
+                            success: false,
+                            text: "Worker no longer available!".into(),
+                        }
+                    }
+                } else {
+                    ServerToClientMessage::RequestResponse {
+                        success: false,
+                        text: "Worker not found!".into(),
+                    }
                 };
                 self.stream.send(&message).await?;
                 Ok(())

@@ -1,17 +1,15 @@
 use crate::job::Job;
 use anyhow::{anyhow, Result};
+use base64::{engine::general_purpose, Engine as _};
 use chrono::Utc;
 use kueue::{
     config::Config,
     messages::stream::{MessageError, MessageStream},
     messages::{HelloMessage, ServerToWorkerMessage, WorkerToServerMessage},
-    structs::{HwInfo, JobStatus, LoadInfo},
+    structs::{HwInfo, JobStatus, LoadInfo, Resources},
 };
 use sha2::{Digest, Sha256};
-use std::{
-    cmp::{max, min},
-    sync::Arc,
-};
+use std::sync::Arc;
 use sysinfo::{CpuExt, CpuRefreshKind, System, SystemExt};
 use tokio::{
     net::TcpStream,
@@ -20,45 +18,57 @@ use tokio::{
 };
 
 pub struct Worker {
-    name: String,
     config: Config,
+    name: String,
     stream: MessageStream,
     notify_update_hw: Arc<Notify>,
     notify_job_status: Arc<Notify>,
     system_info: System,
+    /// Jobs offered to the worker but not yet confirmed or started.
     offered_jobs: Vec<Job>,
+    /// Currently running jobs on the worker.
     running_jobs: Vec<Job>,
-    max_parallel_jobs: usize,
 }
 
 impl Worker {
-    pub async fn new<T: tokio::net::ToSocketAddrs>(
-        name: String,
-        config: Config,
-        addr: T,
-    ) -> Result<Self, std::io::Error> {
-        let stream = TcpStream::connect(addr).await?;
+    /// Set up a new Worker instance and connect to the server.
+    pub async fn new(config: Config) -> Result<Self> {
+        // Generate unique name from hostname and random suffix.
+        let fqdn: String = gethostname::gethostname().to_string_lossy().into();
+        let hostname = fqdn.split(|c| c == '.').next().unwrap().to_string();
+        let mut generator = names::Generator::default();
+        let name_suffix = generator.next().unwrap_or("default".into());
+        let name = format!("{}-{}", hostname, name_suffix);
+        log::info!("Worker name: {}", name);
+
+        // Connect to the server.
+        let server_addr = config.get_server_address().await?;
+        let stream = TcpStream::connect(server_addr).await?;
+
+        // Initialize system resources.
+        let system_info = System::new_all();
+
         Ok(Worker {
-            name,
             config,
+            name,
             stream: MessageStream::new(stream),
             notify_update_hw: Arc::new(Notify::new()),
             notify_job_status: Arc::new(Notify::new()),
-            system_info: System::new_all(),
+            system_info,
             offered_jobs: Vec::new(),
             running_jobs: Vec::new(),
-            max_parallel_jobs: 0,
         })
     }
 
+    /// Perform message and job handling. This function will run indefinitly.
     pub async fn run(&mut self) -> Result<()> {
-        // Do hello/welcome handshake.
+        // Perform hello/welcome handshake.
         self.connect_to_server().await?;
 
-        // Do challenge-response authentification.
+        // Perform challenge-response authentification.
         self.authenticate().await?;
 
-        // Notify worker regularly to send updates.
+        // Send regular updates about hardware and load to the server.
         let notify_update_hw = Arc::clone(&self.notify_update_hw);
         tokio::spawn(async move {
             loop {
@@ -67,8 +77,10 @@ impl Worker {
             }
         });
 
-        // Send job capacity to server and get ready to accept jobs
-        self.accept_jobs_based_on_hw().await?;
+        // Inform server about available resources. This information
+        // triggers the server to send new job offers to the worker.
+        let message = WorkerToServerMessage::UpdateResources(self.get_available_resources());
+        self.stream.send(&message).await?;
 
         // Main loop
         loop {
@@ -77,11 +89,11 @@ impl Worker {
                 message = self.stream.receive::<ServerToWorkerMessage>() => {
                     self.handle_message(message?).await?;
                 }
-                // Or, get active when notified.
+                // Or, get active when notified by timer.
                 _ = self.notify_update_hw.notified() => {
                     self.update_hw_status().await?;
-                    self.update_load_status().await?;
                 }
+                // Or, get active when a job finishes.
                 _ = self.notify_job_status.notified() => {
                     self.update_job_status().await?;
                 }
@@ -89,6 +101,7 @@ impl Worker {
         }
     }
 
+    /// Perform hello/welcome handshake with the server.
     async fn connect_to_server(&mut self) -> Result<()> {
         // Send hello from worker.
         let hello = HelloMessage::HelloFromWorker {
@@ -106,17 +119,18 @@ impl Worker {
         }
     }
 
+    /// Perform challenge-response authentification.
     async fn authenticate(&mut self) -> Result<()> {
         // Authentification challenge is sent automatically after welcome.
         match self.stream.receive::<ServerToWorkerMessage>().await? {
             ServerToWorkerMessage::AuthChallenge(salt) => {
                 // Calculate response.
-                let salted_secret = self.config.shared_secret.clone() + &salt;
+                let salted_secret = self.config.common_settings.shared_secret.clone() + &salt;
                 let salted_secret = salted_secret.into_bytes();
                 let mut hasher = Sha256::new();
                 hasher.update(salted_secret);
                 let response = hasher.finalize().to_vec();
-                let response = base64::encode(response);
+                let response = general_purpose::STANDARD_NO_PAD.encode(response);
 
                 // Send response back to server.
                 let message = WorkerToServerMessage::AuthResponse(response);
@@ -128,34 +142,7 @@ impl Worker {
         }
     }
 
-    async fn accept_jobs_based_on_hw(&mut self) -> Result<(), MessageError> {
-        let cpu_cores = self.system_info.cpus().len();
-        let total_memory = self.system_info.total_memory() as usize;
-        let total_memory_gb = (total_memory / 1024 / 1024 / 1024) as usize;
-
-        // TODO: Do something smart to set the hw-based default.
-        let cpu_cores_required: usize = 8;
-        let memory_gb_required: usize = 16;
-        self.max_parallel_jobs = max(
-            0, // min number of jobs the worker always provide.
-            min(
-                cpu_cores / cpu_cores_required,
-                total_memory_gb / memory_gb_required,
-            ),
-        );
-
-        // FIXME: For the moment, let's limit max. 1 job per worker.
-        // This is temp. on purpose. Atm. no other way to achieve this.
-        //self.max_parallel_jobs = min(1, self.max_parallel_jobs);
-
-        // Send to server
-        self.stream
-            .send(&WorkerToServerMessage::AcceptParallelJobs(
-                self.max_parallel_jobs,
-            ))
-            .await
-    }
-
+    /// Called in the main loop to handle different incoming messages from the server.
     async fn handle_message(&mut self, message: ServerToWorkerMessage) -> Result<(), MessageError> {
         match message {
             ServerToWorkerMessage::WelcomeWorker => {
@@ -169,24 +156,30 @@ impl Worker {
                 Ok(())
             }
             ServerToWorkerMessage::OfferJob(job_info) => {
-                // Make some smart checks whether or not to accept the job offer.
-                let free_slots =
-                    (self.running_jobs.len() + self.offered_jobs.len()) < self.max_parallel_jobs;
-                let cwd_available = job_info.cwd.is_dir();
+                // Reject job when the worker cannot see the working directory.
+                if !job_info.cwd.is_dir() {
+                    // Reject job offer.
+                    return self
+                        .stream
+                        .send(&WorkerToServerMessage::RejectJobOffer(job_info))
+                        .await;
+                }
 
-                if free_slots && cwd_available {
-                    // Accept job offer
+                // Accept job if required resources can be acquired.
+                if self.resources_available(&job_info.resources) {
+                    // Remember accepted job for later confirmation.
                     self.offered_jobs.push(Job::new(
                         job_info.clone(),
                         Arc::clone(&self.notify_job_status),
-                    )); // remember
+                    ));
+                    // Notify server about accepted job offer.
                     self.stream
                         .send(&WorkerToServerMessage::AcceptJobOffer(job_info))
                         .await
                 } else {
-                    // Reject job offer
+                    // Defer job offer (until resources become available).
                     self.stream
-                        .send(&WorkerToServerMessage::RejectJobOffer(job_info))
+                        .send(&WorkerToServerMessage::DeferJobOffer(job_info))
                         .await
                 }
             }
@@ -203,18 +196,32 @@ impl Worker {
                         job.info.status = job_info.status;
                         self.running_jobs.push(job);
 
+                        // TODO: Also compare entire "job_info"s for consistency?
+
                         // Run job as child process
                         match self.running_jobs.last_mut().unwrap().run().await {
-                            Ok(()) => Ok(()),
+                            Ok(()) => {
+                                // Inform server about available resources.
+                                // This information triggers the server to
+                                // send new job offers to this worker.
+                                let message = WorkerToServerMessage::UpdateResources(
+                                    self.get_available_resources(),
+                                );
+                                self.stream.send(&message).await
+                            }
                             Err(e) => {
                                 log::error!("Failed to start job: {}", e);
                                 let job = self.running_jobs.last_mut().unwrap();
-                                let mut result_lock = job.result.lock().unwrap();
-                                result_lock.finished = true;
-                                result_lock.exit_code = -43;
-                                result_lock.run_time = chrono::Duration::seconds(0);
-                                result_lock.comment = format!("Failed to start job: {}", e);
-                                drop(result_lock); // unlock
+                                {
+                                    let mut job_result = job.result.lock().unwrap();
+                                    job_result.finished = true;
+                                    job_result.exit_code = -43;
+                                    job_result.run_time = chrono::Duration::seconds(0);
+                                    job_result.comment = format!("Failed to start job: {}", e);
+                                }
+
+                                // Update server. This will also send an undate on
+                                // available resources and thus trigger new job offers.
                                 self.update_job_status().await
                             }
                         }
@@ -227,7 +234,7 @@ impl Worker {
                             "Confirmed job with ID={} that has not been offered previously!",
                             job_info.id
                         );
-                        Ok(()) // Error but we can continue running
+                        Ok(()) // Error occured, but we can continue running.
                     }
                 }
             }
@@ -249,7 +256,7 @@ impl Worker {
                             "Withdrawn job with ID={} that has not been offered previously!",
                             job_info.id
                         );
-                        Ok(()) // Error but we can continue running
+                        Ok(()) // Error occured, but we can continue running.
                     }
                 }
             }
@@ -275,29 +282,82 @@ impl Worker {
                             "Job to be killed with ID={} is not running on this worker!",
                             job_info.id
                         );
-                        Ok(()) // Error but we can continue running
+                        Ok(()) // Error occured, but we can continue running.
                     }
                 }
             }
         }
     }
 
+    /// Returns available, unused resources of the worker.
+    fn get_available_resources(&self) -> Resources {
+        let allocated_cpus: usize = self
+            .offered_jobs
+            .iter()
+            .chain(self.running_jobs.iter())
+            .map(|job| job.info.resources.cpus)
+            .sum();
+
+        let allocated_ram_mb: usize = self
+            .offered_jobs
+            .iter()
+            .chain(self.running_jobs.iter())
+            .map(|job| job.info.resources.ram_mb)
+            .sum();
+
+        let available_cpus = if self.config.worker_settings.dynamic_check_free_resources {
+            let busy_cpus = self.system_info.load_average().one.ceil() as usize;
+            self.system_info.cpus().len() - core::cmp::max(allocated_cpus, busy_cpus)
+        } else {
+            self.system_info.cpus().len() - allocated_cpus
+        };
+
+        let available_ram_mb = if self.config.worker_settings.dynamic_check_free_resources {
+            let total_ram_mb = (self.system_info.total_memory() / 1024 / 1024) as usize;
+            let available_ram_mb = (self.system_info.available_memory() / 1024 / 1024) as usize;
+            core::cmp::min(total_ram_mb - allocated_ram_mb, available_ram_mb)
+        } else {
+            let total_ram_mb = (self.system_info.total_memory() / 1024 / 1024) as usize;
+            total_ram_mb - allocated_ram_mb
+        };
+
+        Resources::new(available_cpus, available_ram_mb)
+    }
+
+    /// Returns "true" if there are enough resources free to
+    /// fit the demand of the given "required" resources.
+    fn resources_available(&self, required: &Resources) -> bool {
+        let available = self.get_available_resources();
+
+        (available.cpus >= required.cpus) && (available.ram_mb >= required.ram_mb)
+    }
+
+    /// Update and report hardware information and system load.
     async fn update_hw_status(&mut self) -> Result<(), MessageError> {
         // Refresh relevant system information.
         self.system_info
             .refresh_cpu_specifics(CpuRefreshKind::new().with_frequency());
 
-        // Get CPU cores and frequency.
+        // Get CPU cores, frequency, and RAM.
         let cpu_cores = self.system_info.cpus().len();
         let cpu_frequency = if cpu_cores > 0 {
             self.system_info
                 .cpus()
                 .iter()
-                .map(|cpu| cpu.frequency())
-                .sum::<u64>()
-                / cpu_cores as u64
+                .map(|cpu| cpu.frequency() as usize)
+                .sum::<usize>()
+                / cpu_cores
         } else {
-            0u64
+            0
+        };
+        let total_ram_mb = (self.system_info.total_memory() / 1024 / 1024) as usize;
+
+        // Read system load.
+        let load_avg = self.system_info.load_average();
+        let load_info = LoadInfo {
+            one: load_avg.one,
+            five: load_avg.five,
+            fifteen: load_avg.fifteen,
         };
 
         // Collect hardware information.
@@ -312,27 +372,13 @@ impl Worker {
                 .unwrap_or("unknown".into()),
             cpu_cores,
             cpu_frequency,
-            total_memory: self.system_info.total_memory(),
+            total_ram_mb,
+            load_info,
         };
 
         // Send to server.
         self.stream
             .send(&WorkerToServerMessage::UpdateHwInfo(hw_info))
-            .await
-    }
-
-    async fn update_load_status(&mut self) -> Result<(), MessageError> {
-        // Read system load.
-        let load_avg = self.system_info.load_average();
-        let load_info = LoadInfo {
-            one: load_avg.one,
-            five: load_avg.five,
-            fifteen: load_avg.fifteen,
-        };
-
-        // Send to server.
-        self.stream
-            .send(&WorkerToServerMessage::UpdateLoadInfo(load_info))
             .await
     }
 
@@ -388,6 +434,12 @@ impl Worker {
                     stderr_text,
                 };
                 self.stream.send(&job_results).await?;
+
+                // Inform server about available resources. This information
+                // triggers the server to send new job offers to the worker.
+                let message =
+                    WorkerToServerMessage::UpdateResources(self.get_available_resources());
+                self.stream.send(&message).await?;
 
                 // TODO: Store/remember finished jobs?
             } else {

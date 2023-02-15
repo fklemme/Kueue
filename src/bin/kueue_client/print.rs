@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
-use console::style;
+use console::{style, StyledObject};
 use kueue::structs::{JobInfo, JobStatus, WorkerInfo};
-use std::cmp::max;
+use std::{cmp::max, collections::BTreeSet};
 use terminal_size::terminal_size;
 
 /// Returns the terminal's width and height.
@@ -86,6 +86,14 @@ fn dots_back(text: String, len: usize) -> String {
     }
 }
 
+fn format_cores(cpu_cores: usize) -> String {
+    format!("{} x", cpu_cores)
+}
+
+fn format_memory_mb(memory_mb: usize) -> String {
+    format!("{} MB", memory_mb)
+}
+
 fn format_status(job_info: &JobInfo) -> String {
     match &job_info.status {
         JobStatus::Pending { issued } => format!(
@@ -154,6 +162,16 @@ pub fn job_list(
             .map(|job_info| job_info.cmd.join(" ").len())
             .max()
             .unwrap();
+        let max_cores_col_width = job_infos
+            .iter()
+            .map(|job_info| format_cores(job_info.resources.cpus).len())
+            .max()
+            .unwrap();
+        let max_memory_col_width = job_infos
+            .iter()
+            .map(|job_info| format_memory_mb(job_info.resources.ram_mb).len())
+            .max()
+            .unwrap();
         let max_status_col_width = job_infos
             .iter()
             .map(|job_info| format_status(job_info).len())
@@ -161,28 +179,40 @@ pub fn job_list(
             .unwrap();
 
         let min_col_widths = vec![
-            "id".len(),
+            max("id".len(), max_id_col_width),
             "working dir".len(),
             "command".len(),
+            max("cpus".len(), max_cores_col_width),
+            max("memory".len(), max_memory_col_width),
             "status".len(),
         ];
         let max_col_widths = vec![
-            max_id_col_width,
+            0, // id
             max_cwd_col_width,
             max_cmd_col_width,
+            0, // cpu cores
+            0, // memory
             max_status_col_width,
         ];
 
         let col_widths = get_col_widths(min_col_widths, max_col_widths);
-        let (id_col, cwd_col, cmd_col, status_col) =
-            (col_widths[0], col_widths[1], col_widths[2], col_widths[3]);
+        let (id_col, cwd_col, cmd_col, cores_col, memory_col, status_col) = (
+            col_widths[0],
+            col_widths[1],
+            col_widths[2],
+            col_widths[3],
+            col_widths[4],
+            col_widths[5],
+        );
 
         // Print header
         println!(
-            "| {: ^id_col$} | {: <cwd_col$} | {: <cmd_col$} | {: <status_col$} |",
+            "| {: ^id_col$} | {: <cwd_col$} | {: <cmd_col$} | {: ^cores_col$} | {: ^memory_col$} | {: <status_col$} |",
             style("id").bold().underlined(),
             style("working dir").bold().underlined(),
             style("command").bold().underlined(),
+            style("cpus").bold().underlined(),
+            style("memory").bold().underlined(),
             style("status").bold().underlined(),
         );
 
@@ -194,6 +224,9 @@ pub fn job_list(
             // command
             let command = job_info.cmd.join(" ");
             let command = dots_back(command, cmd_col);
+
+            let cpu_cores = format_cores(job_info.resources.cpus);
+            let memory_mb = format_memory_mb(job_info.resources.ram_mb);
 
             // status
             let status = dots_back(format_status(&job_info), status_col);
@@ -213,8 +246,8 @@ pub fn job_list(
 
             // Print line.
             println!(
-                "| {: >id_col$} | {: <cwd_col$} | {: <cmd_col$} | {: <status_col$} |",
-                job_info.id, working_dir, command, status
+                "| {: >id_col$} | {: <cwd_col$} | {: <cmd_col$} | {: >cores_col$} | {: >memory_col$} | {: <status_col$} |",
+                job_info.id, working_dir, command, cpu_cores, memory_mb, status
             );
         }
     }
@@ -241,16 +274,120 @@ pub fn job_list(
     println!(""); // end line
 }
 
-fn format_cores(cpu_cores: usize) -> String {
-    format!("{} x", cpu_cores)
+pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Option<String>) {
+    println!("=== {} ===", style("job information").bold().underlined());
+    println!("job id: {}", job_info.id);
+    println!("command: {}", job_info.cmd.join(" "));
+    println!("working directory: {}", job_info.cwd.to_string_lossy());
+    println!("required CPU cores: {}", job_info.resources.cpus);
+    println!("required RAM: {} megabytes", job_info.resources.ram_mb);
+    println!(); // line break
+
+    match job_info.status {
+        JobStatus::Pending { issued } => {
+            println!("{}: pending", style("job status").bold());
+            println!("   issued on: {}", issued);
+        }
+        JobStatus::Offered {
+            issued,
+            offered,
+            to,
+        } => {
+            println!("{}: {}", style("job status").bold(), style("pending").dim());
+            println!("   issued on: {}", issued);
+            println!("   offered on: {}", offered);
+            println!("   offered to: {}", to);
+        }
+        JobStatus::Running {
+            issued,
+            started,
+            on,
+        } => {
+            println!(
+                "{}: {}",
+                style("job status").bold(),
+                style("running").blue()
+            );
+            println!("   issued on: {}", issued);
+            println!("   started on: {}", started);
+            println!("   running on: {}", on);
+        }
+        JobStatus::Finished {
+            finished,
+            return_code,
+            on,
+            run_time_seconds,
+            comment,
+        } => {
+            if return_code == 0 {
+                println!(
+                    "{}: {}",
+                    style("job status").bold(),
+                    style("finished").green()
+                );
+            } else {
+                println!("{}: {}", style("job status").bold(), style("failed").red());
+            }
+            println!("   finished on: {}", finished);
+            println!("   return code: {}", return_code);
+            println!("   executed on: {}", on);
+            println!("   runtime: {} seconds", run_time_seconds);
+            println!("   comment: {}", comment);
+        }
+        JobStatus::Canceled { canceled } => {
+            println!(
+                "{}: {}",
+                style("job status").bold(),
+                style("canceled").yellow()
+            );
+            println!("   canceled on: {}", canceled);
+        }
+    }
+
+    if let Some(text) = stdout_text {
+        println!("\n=== {} ===\n{}", style("stdout").bold(), text);
+    }
+
+    if let Some(text) = stderr_text {
+        println!("\n=== {} ===\n{}", style("stderr").red(), text);
+    }
 }
 
-fn format_frequency(cpu_frequency: u64) -> String {
+fn format_frequency(cpu_frequency: usize) -> String {
     format!("{} MHz", cpu_frequency)
 }
 
-fn format_memory_mb(memory_bytes: u64) -> String {
-    format!("{} MB", memory_bytes / 1024 / 1024)
+fn format_jobs(jobs_offered: &BTreeSet<usize>, jobs_running: &BTreeSet<usize>) -> String {
+    let jobs: Vec<String> = jobs_running
+        .iter()
+        .chain(jobs_offered.iter())
+        .map(|id| format!("{}", id))
+        .collect();
+    if jobs.is_empty() {
+        String::from("---")
+    } else {
+        jobs.join(", ")
+    }
+}
+
+fn format_resource_load(load: f64, decimal: usize) -> StyledObject<String> {
+    let load_fmt = format!("{:.decimal$} %", load * 100.0);
+    match load {
+        x if x < 0.25 => style(load_fmt).green(),
+        x if x < 0.75 => style(load_fmt).yellow(),
+        _ => style(load_fmt).red(), // else
+    }
+}
+
+fn format_cpu_load(load: f64, cpu_cores: usize) -> StyledObject<String> {
+    let load_fmt = format!("{:.1}", load);
+    if load < (0.25 * cpu_cores as f64) {
+        style(load_fmt).green()
+    } else if load < (0.75 * cpu_cores as f64) {
+        style(load_fmt).yellow()
+    } else {
+        style(load_fmt).red()
+    }
 }
 
 fn format_uptime(connected_since: DateTime<Utc>) -> String {
@@ -265,6 +402,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
         println!("No workers registered on server!");
     } else {
         // Calculate spacing for columns.
+        let max_id_col_width = format!("{}", worker_list.last().unwrap().id).len();
         let max_worker_col_width = worker_list
             .iter()
             .map(|info| info.name.len())
@@ -287,32 +425,32 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             .unwrap();
         let max_memory_col_width = worker_list
             .iter()
-            .map(|info| format_memory_mb(info.hw.total_memory).len())
+            .map(|info| format_memory_mb(info.hw.total_ram_mb).len())
             .max()
             .unwrap();
-        let max_run_jobs_col_width = worker_list
+        let max_jobs_col_width = worker_list
             .iter()
-            .map(|info| format!("{}", info.jobs_total()).len())
+            .map(|info| format_jobs(&info.jobs_offered, &info.jobs_running).len())
             .max()
             .unwrap();
-        let max_max_jobs_col_width = worker_list
+        let max_busy_col_width = worker_list
             .iter()
-            .map(|info| format!("{}", info.max_parallel_jobs).len())
+            .map(|info| format!("{:.0} %", info.resource_load() * 100.0).len())
             .max()
             .unwrap();
         let max_load_1_col_width = worker_list
             .iter()
-            .map(|info| format!("{:.1}", info.load.one).len())
+            .map(|info| format!("{:.1}", info.hw.load_info.one).len())
             .max()
             .unwrap();
         let max_load_5_col_width = worker_list
             .iter()
-            .map(|info| format!("{:.1}", info.load.five).len())
+            .map(|info| format!("{:.1}", info.hw.load_info.five).len())
             .max()
             .unwrap();
         let max_load_15_col_width = worker_list
             .iter()
-            .map(|info| format!("{:.1}", info.load.fifteen).len())
+            .map(|info| format!("{:.1}", info.hw.load_info.fifteen).len())
             .max()
             .unwrap();
         let max_uptime_col_width = worker_list
@@ -322,26 +460,28 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             .unwrap();
 
         let min_col_widths = vec![
+            max("id".len(), max_id_col_width),
             "worker name".len(),
             "operating system".len(),
             max("cpus".len(), max_cores_col_width),
             max("avg freq".len(), max_freq_col_width),
             max("memory".len(), max_memory_col_width),
-            max_run_jobs_col_width,
-            max_max_jobs_col_width,
+            "jobs".len(),
+            "busy".len(),
             max_load_1_col_width,
             max_load_5_col_width,
             max_load_15_col_width,
             max("uptime".len(), max_uptime_col_width),
         ];
         let max_col_widths = vec![
+            0, // id
             max_worker_col_width,
             max_os_col_width,
             0, // cpu cores
             0, // cpu frequency
             0, // memory
-            0, // running jobs
-            0, // max jobs
+            max_jobs_col_width,
+            max_busy_col_width,
             0, // load 1
             0, // load 5
             0, // load 15
@@ -350,13 +490,14 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
 
         let col_widths = get_col_widths(min_col_widths, max_col_widths);
         let (
+            id_col,
             worker_col,
             os_col,
             cores_col,
             freq_col,
             memory_col,
-            run_jobs_col,
-            max_jobs_col,
+            jobs_col,
+            busy_col,
             load_1_col,
             load_5_col,
             load_15_col,
@@ -373,9 +514,9 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             col_widths[8],
             col_widths[9],
             col_widths[10],
+            col_widths[11],
         );
 
-        let jobs_col = run_jobs_col + max_jobs_col + 3; // " / " seperator
         let load_col = max(
             "load 1/5/15m".len(),
             load_1_col + load_5_col + load_15_col + 2,
@@ -390,16 +531,17 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
 
         // Print header
         println!(
-            "| {: <worker_col$} | {: <os_col$} \
-            | {: ^cores_col$} | {: ^freq_col$} \
-            | {: ^memory_col$} | {: ^jobs_col$} \
-            | {: ^load_col$} | {: ^uptime_col$} |",
+            "| {: ^id_col$} | {: <worker_col$} | {: <os_col$} \
+            | {: ^cores_col$} | {: ^freq_col$} | {: ^memory_col$} \
+            | {: ^jobs_col$} | {: ^busy_col$} | {: ^load_col$} | {: ^uptime_col$} |",
+            style("id").bold().underlined(),
             style("worker name").bold().underlined(),
             style("operating system").bold().underlined(),
             style("cpus").bold().underlined(),
             style("avg freq").bold().underlined(),
             style("memory").bold().underlined(),
             style("jobs").bold().underlined(),
+            style("busy").bold().underlined(),
             style("load 1/5/15m").bold().underlined(),
             style("uptime").bold().underlined(),
         );
@@ -409,58 +551,35 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             let operation_system = dots_back(info.hw.distribution.clone(), os_col);
             let cpu_cores = format_cores(info.hw.cpu_cores);
             let cpu_frequency = format_frequency(info.hw.cpu_frequency);
-            let memory_mb = format_memory_mb(info.hw.total_memory);
+            let memory_mb = format_memory_mb(info.hw.total_ram_mb);
 
-            // jobs
-            let (running_jobs, max_jobs) = if info.jobs_total() * 2 < info.max_parallel_jobs {
-                (
-                    style(info.jobs_total()).green(),
-                    style(info.max_parallel_jobs).green(),
-                )
-            } else if info.jobs_total() < info.max_parallel_jobs {
-                (
-                    style(info.jobs_total()).yellow(),
-                    style(info.max_parallel_jobs).yellow(),
-                )
-            } else {
-                (
-                    style(info.jobs_total()).red(),
-                    style(info.max_parallel_jobs).red(),
-                )
-            };
+            let jobs = dots_back(
+                format_jobs(&info.jobs_offered, &info.jobs_running),
+                jobs_col,
+            );
 
-            // loads
-            let load_style = |load| {
-                let load_fmt = format!("{:.1}", load);
-                if load < (0.25 * info.hw.cpu_cores as f64) {
-                    style(load_fmt).green()
-                } else if load < (0.75 * info.hw.cpu_cores as f64) {
-                    style(load_fmt).yellow()
-                } else {
-                    style(load_fmt).red()
-                }
-            };
+            let busy = format_resource_load(info.resource_load(), 0);
 
-            let load_one = load_style(info.load.one);
-            let load_five = load_style(info.load.five);
-            let load_fifteen = load_style(info.load.fifteen);
+            let load_one = format_cpu_load(info.hw.load_info.one, info.hw.cpu_cores);
+            let load_five = format_cpu_load(info.hw.load_info.five, info.hw.cpu_cores);
+            let load_fifteen = format_cpu_load(info.hw.load_info.fifteen, info.hw.cpu_cores);
 
             let uptime = format_uptime(info.connected_since);
 
             // Print line
             println!(
-                "| {: <worker_col$} | {: <os_col$} \
-                | {: >cores_col$} | {: >freq_col$} | {: >memory_col$} \
-                | {: >run_jobs_col$} / {: >max_jobs_col$} \
+                "| {: >id_col$} | {: <worker_col$} | {: <os_col$} | {: >cores_col$} \
+                | {: >freq_col$} | {: >memory_col$} | {: <jobs_col$} | {: >busy_col$} \
                 | {: >load_1_col$} {: >load_5_col$} {: >load_15_col$} \
                 | {: >uptime_col$} |",
+                info.id,
                 worker_name,
                 operation_system,
                 cpu_cores,
                 cpu_frequency,
                 memory_mb,
-                running_jobs,
-                max_jobs,
+                jobs,
+                busy,
                 load_one,
                 load_five,
                 load_fifteen,
@@ -470,65 +589,70 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
     }
 }
 
-pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Option<String>) {
-    println!("=== {} ===", style("job information").bold().underlined());
-    println!("job id: {}", job_info.id);
-    println!("command: {}", job_info.cmd.join(" "));
-    println!("working directory: {}", job_info.cwd.to_string_lossy());
-    match job_info.status {
-        JobStatus::Pending { issued } => {
-            println!("job status: pending");
-            println!("   issued on: {}", issued);
-        }
-        JobStatus::Offered {
-            issued,
-            offered,
-            to,
-        } => {
-            println!("job status: {}", style("pending").dim());
-            println!("   issued on: {}", issued);
-            println!("   offered on: {}", offered);
-            println!("   offered to: {}", to);
-        }
-        JobStatus::Running {
-            issued,
-            started,
-            on,
-        } => {
-            println!("job status: {}", style("running").blue());
-            println!("   issued on: {}", issued);
-            println!("   started on: {}", started);
-            println!("   running on: {}", on);
-        }
-        JobStatus::Finished {
-            finished,
-            return_code,
-            on,
-            run_time_seconds,
-            comment,
-        } => {
-            if return_code == 0 {
-                println!("job status: {}", style("finished").green());
-            } else {
-                println!("job status: {}", style("failed").red());
-            }
-            println!("   finished on: {}", finished);
-            println!("   return code: {}", return_code);
-            println!("   executed on: {}", on);
-            println!("   runtime: {} seconds", run_time_seconds);
-            println!("   comment: {}", comment);
-        }
-        JobStatus::Canceled { canceled } => {
-            println!("job status: {}", style("canceled").yellow());
-            println!("   canceled on: {}", canceled);
-        }
-    }
+pub fn worker_info(worker_info: WorkerInfo) {
+    println!(
+        "=== {} ===",
+        style("worker information").bold().underlined()
+    );
+    println!("worker id: {}", worker_info.id);
+    println!("name: {}", worker_info.name);
+    println!("connected since: {}", worker_info.connected_since);
+    println!(); // line break
 
-    if let Some(text) = stdout_text {
-        println!("=== {} ===\n{}", style("stdout").bold(), text);
-    }
+    println!("{}", style("system information").bold().underlined());
+    println!("   kernel: {}", worker_info.hw.kernel);
+    println!("   distribution: {}", worker_info.hw.distribution);
+    println!("   cpu cores: {}", worker_info.hw.cpu_cores);
+    println!(
+        "   cpu frequency: {} megahertz",
+        worker_info.hw.cpu_frequency
+    );
+    println!("   total memory: {} megabytes", worker_info.hw.total_ram_mb);
+    println!("last updated: {}", worker_info.last_updated);
+    println!(); // line break
 
-    if let Some(text) = stderr_text {
-        println!("=== {} ===\n{}", style("stderr").red(), text);
-    }
+    println!("{}", style("sytem load and resources").bold().underlined());
+    let load_one = format_cpu_load(worker_info.hw.load_info.one, worker_info.hw.cpu_cores);
+    let load_five = format_cpu_load(worker_info.hw.load_info.five, worker_info.hw.cpu_cores);
+    let load_fifteen = format_cpu_load(worker_info.hw.load_info.fifteen, worker_info.hw.cpu_cores);
+    println!("   load: {} / {} / {}", load_one, load_five, load_fifteen);
+
+    let jobs_offered: Vec<String> = worker_info
+        .jobs_offered
+        .iter()
+        .map(|id| format!("{}", id))
+        .collect();
+    let jobs_offered = if jobs_offered.is_empty() {
+        String::from("---")
+    } else {
+        jobs_offered.join(", ")
+    };
+    println!("   jobs offered: {}", jobs_offered);
+
+    let jobs_running: Vec<String> = worker_info
+        .jobs_running
+        .iter()
+        .map(|id| format!("{}", id))
+        .collect();
+    let jobs_running = if jobs_running.is_empty() {
+        String::from("---")
+    } else {
+        jobs_running.join(", ")
+    };
+    println!("   jobs running: {}", jobs_running);
+
+    println!(
+        "   free cpus: {} / {}",
+        worker_info.free_resources.cpus, worker_info.hw.cpu_cores
+    );
+    println!(
+        "   free ram: {} / {} megabytes",
+        worker_info.free_resources.ram_mb, worker_info.hw.total_ram_mb
+    );
+
+    println!(
+        "{}: {}",
+        style("total occupation").bold(),
+        format_resource_load(worker_info.resource_load(), 2)
+    );
 }

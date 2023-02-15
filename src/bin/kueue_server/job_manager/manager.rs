@@ -3,11 +3,10 @@ use anyhow::{anyhow, Result};
 use chrono::Utc;
 use kueue::{
     constants::{CLEANUP_JOB_AFTER_HOURS, OFFER_TIMEOUT_MINUTES},
-    structs::{JobInfo, JobStatus, WorkerInfo},
+    structs::{JobInfo, JobStatus, Resources, WorkerInfo},
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::PathBuf,
     sync::{Arc, Mutex, Weak},
 };
 use tokio::sync::{mpsc, Notify};
@@ -36,21 +35,17 @@ impl Manager {
         kill_job_tx: mpsc::Sender<usize>,
     ) -> Arc<Mutex<Worker>> {
         let worker = Worker::new(name, kill_job_tx);
-        let worker_id = worker.id;
+        let worker_id = worker.info.id;
         let worker = Arc::new(Mutex::new(worker));
         self.workers.insert(worker_id, Arc::downgrade(&worker));
         worker
     }
 
     /// Adds a new job to be processed.
-    pub fn add_new_job(
-        &mut self,
-        cmd: Vec<String>,
-        cwd: PathBuf,
-        stdout_path: Option<String>,
-        stderr_path: Option<String>,
-    ) -> Arc<Mutex<Job>> {
-        let job = Job::new(cmd, cwd, stdout_path, stderr_path);
+    pub fn add_new_job(&mut self, job_info: JobInfo) -> Arc<Mutex<Job>> {
+        // Add new job. We create a new JobInfo instance to make sure to
+        // not adopt remote (non-unique) job ids or inconsistent states.
+        let job = Job::from(job_info);
         let job_id = job.info.id;
         let job = Arc::new(Mutex::new(job));
         self.jobs.insert(job_id, Arc::clone(&job));
@@ -81,12 +76,12 @@ impl Manager {
     }
 
     /// Get worker by ID.
-    // pub fn get_worker(&self, id:usize) -> Option<Weak<Mutex<Worker>>> {
-    //     match self.workers.get(&id) {
-    //         Some(worker) => Some(Weak::clone(worker)),
-    //         None => None,
-    //     }
-    // }
+    pub fn get_worker(&self, id: usize) -> Option<Weak<Mutex<Worker>>> {
+        match self.workers.get(&id) {
+            Some(worker) => Some(Weak::clone(worker)),
+            None => None,
+        }
+    }
 
     /// Collect worker information about all workers.
     pub fn get_all_worker_infos(&self) -> Vec<WorkerInfo> {
@@ -103,21 +98,32 @@ impl Manager {
     pub fn get_job_waiting_for_assignment(
         &mut self,
         exclude: &BTreeSet<usize>,
+        resource_limit: &Resources,
     ) -> Option<Arc<Mutex<Job>>> {
         if self.jobs_waiting_for_assignment.is_empty() {
-            None // no jobs marked waiting for assignment
+            // No jobs marked waiting for assignment.
+            None
         } else {
-            let option_job_id = self
+            let job_ids: Vec<usize> = self
                 .jobs_waiting_for_assignment
                 .iter()
-                .find(|job_id| !exclude.contains(job_id))
-                .cloned();
-            if let Some(job_id) = option_job_id {
-                // Found matching job
-                self.jobs_waiting_for_assignment.remove(&job_id);
-                return Some(Arc::clone(self.jobs.get(&job_id).unwrap()));
+                .filter(|job_id| !exclude.contains(job_id))
+                .cloned()
+                .collect();
+            for job_id in job_ids {
+                if let Some(job) = self.jobs.get(&job_id) {
+                    let job_res = job.lock().unwrap().info.resources.clone();
+                    if (job_res.cpus <= resource_limit.cpus)
+                        && (job_res.ram_mb <= resource_limit.ram_mb)
+                    {
+                        // Found matching job.
+                        self.jobs_waiting_for_assignment.remove(&job_id);
+                        return Some(Arc::clone(job));
+                    }
+                }
             }
-            None // no job fulfilling requirements
+            // No job fulfilling requirements.
+            None
         }
     }
 
@@ -325,14 +331,19 @@ impl Manager {
 
 #[cfg(test)]
 mod tests {
+    use kueue::structs::Resources;
+
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn add_new_job() {
         let mut manager = Manager::new();
         let cmd = vec!["ls".to_string(), "-la".to_string()];
         let cwd: PathBuf = "/tmp".into();
-        manager.add_new_job(cmd, cwd, None, None);
+        let resources = Resources::new(8, 8 * 1024);
+        let job_info = JobInfo::new(cmd, cwd, resources, None, None);
+        manager.add_new_job(job_info);
         assert_eq!(manager.get_all_job_infos().len(), 1);
     }
 
@@ -341,23 +352,25 @@ mod tests {
         let mut manager = Manager::new();
         let cmd = vec!["ls".to_string(), "-la".to_string()];
         let cwd: PathBuf = "/tmp".into();
-        let job = manager.add_new_job(cmd, cwd, None, None);
+        let resources = Resources::new(8, 8 * 1024);
+        let job_info = JobInfo::new(cmd, cwd, resources.clone(), None, None);
+        let job = manager.add_new_job(job_info);
 
         // Put job on exclude list.
         let mut exclude = BTreeSet::new();
         exclude.insert(job.lock().unwrap().info.id);
 
         // Now, we should not get it.
-        let job = manager.get_job_waiting_for_assignment(&exclude);
+        let job = manager.get_job_waiting_for_assignment(&exclude, &resources);
         assert!(job.is_none());
 
         // Now we want any job. One is waiting to be assigned.
         exclude.clear();
-        let job = manager.get_job_waiting_for_assignment(&exclude);
+        let job = manager.get_job_waiting_for_assignment(&exclude, &resources);
         assert!(job.is_some());
 
         // We want any job, again. But none are left.
-        let job = manager.get_job_waiting_for_assignment(&exclude);
+        let job = manager.get_job_waiting_for_assignment(&exclude, &resources);
         assert!(job.is_none());
     }
 }

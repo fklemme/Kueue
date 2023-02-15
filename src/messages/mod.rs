@@ -3,7 +3,7 @@
 
 pub mod stream;
 
-use crate::structs::{HwInfo, JobInfo, LoadInfo, WorkerInfo};
+use crate::structs::{HwInfo, JobInfo, Resources, WorkerInfo};
 use serde::{Deserialize, Serialize};
 
 /// Communication to the server is initialized with HelloFromClient or
@@ -48,13 +48,16 @@ pub enum ClientToServerMessage {
         failed: bool,
         canceled: bool,
     },
-    ListWorkers,
     ShowJob {
         id: usize,
     },
     RemoveJob {
         id: usize,
         kill: bool,
+    },
+    ListWorkers,
+    ShowWorker {
+        id: usize,
     },
     Bye,
 }
@@ -78,14 +81,15 @@ pub enum ServerToClientMessage {
         jobs_canceled: usize,
         job_infos: Vec<JobInfo>,
     },
-    WorkerList(Vec<WorkerInfo>),
     JobInfo {
         job_info: JobInfo,
         stdout_text: Option<String>,
         stderr_text: Option<String>,
     },
-    /// Generic response signaling the client if the requested action has
-    /// succeeded or if something went wrong. This is used for instance, when
+    WorkerList(Vec<WorkerInfo>),
+    WorkerInfo(WorkerInfo),
+    /// Generic response, signaling the client if the requested action has
+    /// succeeded or if something went wrong. This is used, for instance, when
     /// the client requests information about a job that does not exist.
     RequestResponse {
         success: bool,
@@ -111,16 +115,19 @@ pub enum ServerToWorkerMessage {
 pub enum WorkerToServerMessage {
     // Send Sha256(secret + salt) back to server.
     AuthResponse(String),
+    /// Update hardware information and system load.
     UpdateHwInfo(HwInfo),
-    UpdateLoadInfo(LoadInfo),
     UpdateJobStatus(JobInfo),
     UpdateJobResults {
         job_id: usize,
         stdout_text: Option<String>,
         stderr_text: Option<String>,
     },
-    AcceptParallelJobs(usize),
+    // Update server about available resources on the worker. The worker
+    // might reply with new job offers based on the provided information.
+    UpdateResources(Resources),
     AcceptJobOffer(JobInfo),
+    DeferJobOffer(JobInfo),
     RejectJobOffer(JobInfo),
     Bye,
 }

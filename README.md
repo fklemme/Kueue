@@ -34,13 +34,13 @@ This will install `kueue` (the client), `kueue_server`, and `kueue_worker` into 
 ## Basic configuration
 
 Upon first start of any Kueue binary, a template config file is created at `~/.config/kueue/config.toml`.
-Make sure that the shared secret in that file is the same on all systems you want to use.
+Make sure that the `shared_secret` in that file is the same on all systems you want to use. The same is probably true for `server_name` and `server_port`.
 
-    log_level = "info"
-    server_binds = "0.0.0.0 [::]"
+    [common_settings]
+    shared_secret = "keep private!"
     server_name = "ralab29"
     server_port = 11236
-    shared_secret = "keep private!"
+    log_level = "info"
 
 ## Restart workers
 

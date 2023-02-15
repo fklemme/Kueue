@@ -5,13 +5,14 @@ use crate::{
     cli::{Cli, CmdArgs, Command},
     print::term_size,
 };
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
+use base64::{engine::general_purpose, Engine as _};
 use clap::Parser;
 use kueue::{
     config::Config,
     messages::stream::MessageStream,
     messages::{ClientToServerMessage, HelloMessage, ServerToClientMessage},
-    structs::JobInfo,
+    structs::{JobInfo, Resources},
 };
 use sha2::{Digest, Sha256};
 use simple_logger::SimpleLogger;
@@ -22,14 +23,13 @@ use tokio::net::TcpStream;
 async fn main() -> Result<()> {
     // Read command line arguments.
     let args = Cli::parse();
-    log::debug!("{:?}", args);
 
     // Read configuration from file or defaults.
     let config =
         Config::new(args.config.clone()).map_err(|e| anyhow!("Failed to load config: {}", e))?;
     // If there is no config file, create template.
     if let Err(e) = config.create_default_config(args.config) {
-        log::error!("Could not create default config: {}", e);
+        bail!("Could not create default config: {}", e);
     }
 
     // Initialize logger.
@@ -37,6 +37,9 @@ async fn main() -> Result<()> {
         .with_level(config.get_log_level().to_level_filter())
         .init()
         .unwrap();
+
+    // Run client.
+    // TODO: Wrap client into own struct.
 
     // Connect to server.
     let server_addr = config.get_server_address().await?;
@@ -55,6 +58,8 @@ async fn main() -> Result<()> {
     // Process subcommands.
     match args.command {
         Command::Cmd {
+            cpus,
+            ram_mb,
             stdout,
             stderr,
             args,
@@ -71,7 +76,9 @@ async fn main() -> Result<()> {
             // Issue job.
             let cwd = std::env::current_dir()?;
             let cwd = canonicalize(cwd)?;
-            let message = ClientToServerMessage::IssueJob(JobInfo::new(cmd, cwd, stdout, stderr));
+            let resources = Resources::new(cpus, ram_mb);
+            let job_info = JobInfo::new(cmd, cwd, resources, stdout, stderr);
+            let message = ClientToServerMessage::IssueJob(job_info);
             stream.send(&message).await?;
 
             // Await acceptance.
@@ -133,20 +140,6 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Command::ListWorkers => {
-            // Query workers.
-            stream.send(&ClientToServerMessage::ListWorkers).await?;
-
-            // Await results.
-            match stream.receive::<ServerToClientMessage>().await? {
-                ServerToClientMessage::WorkerList(worker_list) => {
-                    print::worker_list(worker_list);
-                }
-                other => {
-                    return Err(anyhow!("Expected WorkerList, received: {:?}", other));
-                }
-            }
-        }
         Command::ShowJob { id } => {
             // Query job.
             let message = ClientToServerMessage::ShowJob { id };
@@ -183,6 +176,36 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        Command::ListWorkers => {
+            // Query workers.
+            stream.send(&ClientToServerMessage::ListWorkers).await?;
+
+            // Await results.
+            match stream.receive::<ServerToClientMessage>().await? {
+                ServerToClientMessage::WorkerList(worker_list) => {
+                    print::worker_list(worker_list);
+                }
+                other => {
+                    return Err(anyhow!("Expected WorkerList, received: {:?}", other));
+                }
+            }
+        }
+        Command::ShowWorker { id } => {
+            // Query worker.
+            let message = ClientToServerMessage::ShowWorker { id };
+            stream.send(&message).await?;
+
+            // Await results.
+            match stream.receive::<ServerToClientMessage>().await? {
+                ServerToClientMessage::WorkerInfo(worker_info) => print::worker_info(worker_info),
+                ServerToClientMessage::RequestResponse { success, text } if !success => {
+                    println!("{}", text);
+                }
+                other => {
+                    return Err(anyhow!("Expected WorkerInfo, received: {:?}", other));
+                }
+            }
+        }
     }
 
     // Say bye to gracefully shut down connection.
@@ -199,12 +222,12 @@ async fn authenticate(stream: &mut MessageStream, config: &Config) -> Result<()>
     match stream.receive::<ServerToClientMessage>().await? {
         ServerToClientMessage::AuthChallenge(salt) => {
             // Calculate response.
-            let salted_secret = config.shared_secret.clone() + &salt;
+            let salted_secret = config.common_settings.shared_secret.clone() + &salt;
             let salted_secret = salted_secret.into_bytes();
             let mut hasher = Sha256::new();
             hasher.update(salted_secret);
             let response = hasher.finalize().to_vec();
-            let response = base64::encode(response);
+            let response = general_purpose::STANDARD_NO_PAD.encode(response);
 
             // Send response back to server.
             let message = ClientToServerMessage::AuthResponse(response);
