@@ -24,8 +24,6 @@ pub struct Worker {
     notify_update_hw: Arc<Notify>,
     notify_job_status: Arc<Notify>,
     system_info: System,
-    /// Total resources offered by the worker.
-    resources: Resources,
     /// Jobs offered to the worker but not yet confirmed or started.
     offered_jobs: Vec<Job>,
     /// Currently running jobs on the worker.
@@ -47,14 +45,8 @@ impl Worker {
         let server_addr = config.get_server_address().await?;
         let stream = TcpStream::connect(server_addr).await?;
 
-        // Set total system resources.
+        // Initialize system resources.
         let system_info = System::new_all();
-        let ram_mb = if config.worker_settings.dynamic_check_free_resources {
-            (system_info.available_memory() / 1024 / 1024) as usize
-        } else {
-            (system_info.total_memory() / 1024 / 1024) as usize
-        };
-        let resources = Resources::new(system_info.cpus().len(), ram_mb);
 
         Ok(Worker {
             config,
@@ -63,7 +55,6 @@ impl Worker {
             notify_update_hw: Arc::new(Notify::new()),
             notify_job_status: Arc::new(Notify::new()),
             system_info,
-            resources,
             offered_jobs: Vec::new(),
             running_jobs: Vec::new(),
         })
@@ -88,7 +79,7 @@ impl Worker {
 
         // Inform server about available resources. This information
         // triggers the server to send new job offers to the worker.
-        let message = WorkerToServerMessage::UpdateResources(self.resources.clone());
+        let message = WorkerToServerMessage::UpdateResources(self.get_available_resources());
         self.stream.send(&message).await?;
 
         // Main loop
@@ -300,23 +291,37 @@ impl Worker {
 
     /// Returns available, unused resources of the worker.
     fn get_available_resources(&self) -> Resources {
-        let busy_cpus: usize = self
+        let allocated_cpus: usize = self
             .offered_jobs
             .iter()
             .chain(self.running_jobs.iter())
             .map(|job| job.info.resources.cpus)
             .sum();
-        let busy_ram_mb: usize = self
+
+        let allocated_ram_mb: usize = self
             .offered_jobs
             .iter()
             .chain(self.running_jobs.iter())
             .map(|job| job.info.resources.ram_mb)
             .sum();
 
-        Resources::new(
-            self.resources.cpus - busy_cpus,
-            self.resources.ram_mb - busy_ram_mb,
-        )
+        let available_cpus = if self.config.worker_settings.dynamic_check_free_resources {
+            let busy_cpus = self.system_info.load_average().one.ceil() as usize;
+            self.system_info.cpus().len() - core::cmp::max(allocated_cpus, busy_cpus)
+        } else {
+            self.system_info.cpus().len() - allocated_cpus
+        };
+
+        let available_ram_mb = if self.config.worker_settings.dynamic_check_free_resources {
+            let total_ram_mb = (self.system_info.total_memory() / 1024 / 1024) as usize;
+            let available_ram_mb = (self.system_info.available_memory() / 1024 / 1024) as usize;
+            core::cmp::min(total_ram_mb - allocated_ram_mb, available_ram_mb)
+        } else {
+            let total_ram_mb = (self.system_info.total_memory() / 1024 / 1024) as usize;
+            total_ram_mb - allocated_ram_mb
+        };
+
+        Resources::new(available_cpus, available_ram_mb)
     }
 
     /// Returns "true" if there are enough resources free to
@@ -370,12 +375,6 @@ impl Worker {
             total_ram_mb,
             load_info,
         };
-
-        if self.config.worker_settings.dynamic_check_free_resources {
-            // Also update the total resources the worker will assign.
-            self.resources.cpus = f64::max(0.0, cpu_cores as f64 - load_avg.one) as usize;
-            self.resources.ram_mb = total_ram_mb;
-        }
 
         // Send to server.
         self.stream

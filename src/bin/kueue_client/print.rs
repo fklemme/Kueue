@@ -86,6 +86,14 @@ fn dots_back(text: String, len: usize) -> String {
     }
 }
 
+fn format_cores(cpu_cores: usize) -> String {
+    format!("{} x", cpu_cores)
+}
+
+fn format_memory_mb(memory_mb: usize) -> String {
+    format!("{} MB", memory_mb)
+}
+
 fn format_status(job_info: &JobInfo) -> String {
     match &job_info.status {
         JobStatus::Pending { issued } => format!(
@@ -154,6 +162,16 @@ pub fn job_list(
             .map(|job_info| job_info.cmd.join(" ").len())
             .max()
             .unwrap();
+        let max_cores_col_width = job_infos
+            .iter()
+            .map(|job_info| format_cores(job_info.resources.cpus).len())
+            .max()
+            .unwrap();
+        let max_memory_col_width = job_infos
+            .iter()
+            .map(|job_info| format_memory_mb(job_info.resources.ram_mb).len())
+            .max()
+            .unwrap();
         let max_status_col_width = job_infos
             .iter()
             .map(|job_info| format_status(job_info).len())
@@ -161,28 +179,40 @@ pub fn job_list(
             .unwrap();
 
         let min_col_widths = vec![
-            "id".len(),
+            max("id".len(), max_id_col_width),
             "working dir".len(),
             "command".len(),
+            max("cpus".len(), max_cores_col_width),
+            max("memory".len(), max_memory_col_width),
             "status".len(),
         ];
         let max_col_widths = vec![
-            max_id_col_width,
+            0, // id
             max_cwd_col_width,
             max_cmd_col_width,
+            0, // cpu cores
+            0, // memory
             max_status_col_width,
         ];
 
         let col_widths = get_col_widths(min_col_widths, max_col_widths);
-        let (id_col, cwd_col, cmd_col, status_col) =
-            (col_widths[0], col_widths[1], col_widths[2], col_widths[3]);
+        let (id_col, cwd_col, cmd_col, cores_col, memory_col, status_col) = (
+            col_widths[0],
+            col_widths[1],
+            col_widths[2],
+            col_widths[3],
+            col_widths[4],
+            col_widths[5],
+        );
 
         // Print header
         println!(
-            "| {: ^id_col$} | {: <cwd_col$} | {: <cmd_col$} | {: <status_col$} |",
+            "| {: ^id_col$} | {: <cwd_col$} | {: <cmd_col$} | {: ^cores_col$} | {: ^memory_col$} | {: <status_col$} |",
             style("id").bold().underlined(),
             style("working dir").bold().underlined(),
             style("command").bold().underlined(),
+            style("cpus").bold().underlined(),
+            style("memory").bold().underlined(),
             style("status").bold().underlined(),
         );
 
@@ -194,6 +224,9 @@ pub fn job_list(
             // command
             let command = job_info.cmd.join(" ");
             let command = dots_back(command, cmd_col);
+
+            let cpu_cores = format_cores(job_info.resources.cpus);
+            let memory_mb = format_memory_mb(job_info.resources.ram_mb);
 
             // status
             let status = dots_back(format_status(&job_info), status_col);
@@ -213,8 +246,8 @@ pub fn job_list(
 
             // Print line.
             println!(
-                "| {: >id_col$} | {: <cwd_col$} | {: <cmd_col$} | {: <status_col$} |",
-                job_info.id, working_dir, command, status
+                "| {: >id_col$} | {: <cwd_col$} | {: <cmd_col$} | {: >cores_col$} | {: >memory_col$} | {: <status_col$} |",
+                job_info.id, working_dir, command, cpu_cores, memory_mb, status
             );
         }
     }
@@ -320,16 +353,8 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
     }
 }
 
-fn format_cores(cpu_cores: usize) -> String {
-    format!("{} x", cpu_cores)
-}
-
 fn format_frequency(cpu_frequency: usize) -> String {
     format!("{} MHz", cpu_frequency)
-}
-
-fn format_memory_mb(memory_mb: usize) -> String {
-    format!("{} MB", memory_mb)
 }
 
 fn format_jobs(jobs_offered: &BTreeSet<usize>, jobs_running: &BTreeSet<usize>) -> String {
@@ -345,7 +370,16 @@ fn format_jobs(jobs_offered: &BTreeSet<usize>, jobs_running: &BTreeSet<usize>) -
     }
 }
 
-fn format_load(load: f64, cpu_cores: usize) -> StyledObject<String> {
+fn format_resource_load(load: f64, decimal: usize) -> StyledObject<String> {
+    let load_fmt = format!("{:.decimal$} %", load * 100.0);
+    match load {
+        x if x < 0.25 => style(load_fmt).green(),
+        x if x < 0.75 => style(load_fmt).yellow(),
+        _ => style(load_fmt).red(), // else
+    }
+}
+
+fn format_cpu_load(load: f64, cpu_cores: usize) -> StyledObject<String> {
     let load_fmt = format!("{:.1}", load);
     if load < (0.25 * cpu_cores as f64) {
         style(load_fmt).green()
@@ -399,6 +433,11 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             .map(|info| format_jobs(&info.jobs_offered, &info.jobs_running).len())
             .max()
             .unwrap();
+        let max_busy_col_width = worker_list
+            .iter()
+            .map(|info| format!("{:.0} %", info.resource_load() * 100.0).len())
+            .max()
+            .unwrap();
         let max_load_1_col_width = worker_list
             .iter()
             .map(|info| format!("{:.1}", info.hw.load_info.one).len())
@@ -428,6 +467,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             max("avg freq".len(), max_freq_col_width),
             max("memory".len(), max_memory_col_width),
             "jobs".len(),
+            "busy".len(),
             max_load_1_col_width,
             max_load_5_col_width,
             max_load_15_col_width,
@@ -441,6 +481,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             0, // cpu frequency
             0, // memory
             max_jobs_col_width,
+            max_busy_col_width,
             0, // load 1
             0, // load 5
             0, // load 15
@@ -456,6 +497,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             freq_col,
             memory_col,
             jobs_col,
+            busy_col,
             load_1_col,
             load_5_col,
             load_15_col,
@@ -472,6 +514,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             col_widths[8],
             col_widths[9],
             col_widths[10],
+            col_widths[11],
         );
 
         let load_col = max(
@@ -489,9 +532,8 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
         // Print header
         println!(
             "| {: ^id_col$} | {: <worker_col$} | {: <os_col$} \
-            | {: ^cores_col$} | {: ^freq_col$} \
-            | {: ^memory_col$} | {: ^jobs_col$} \
-            | {: ^load_col$} | {: ^uptime_col$} |",
+            | {: ^cores_col$} | {: ^freq_col$} | {: ^memory_col$} \
+            | {: ^jobs_col$} | {: ^busy_col$} | {: ^load_col$} | {: ^uptime_col$} |",
             style("id").bold().underlined(),
             style("worker name").bold().underlined(),
             style("operating system").bold().underlined(),
@@ -499,6 +541,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             style("avg freq").bold().underlined(),
             style("memory").bold().underlined(),
             style("jobs").bold().underlined(),
+            style("busy").bold().underlined(),
             style("load 1/5/15m").bold().underlined(),
             style("uptime").bold().underlined(),
         );
@@ -515,16 +558,18 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
                 jobs_col,
             );
 
-            let load_one = format_load(info.hw.load_info.one, info.hw.cpu_cores);
-            let load_five = format_load(info.hw.load_info.five, info.hw.cpu_cores);
-            let load_fifteen = format_load(info.hw.load_info.fifteen, info.hw.cpu_cores);
+            let busy = format_resource_load(info.resource_load(), 0);
+
+            let load_one = format_cpu_load(info.hw.load_info.one, info.hw.cpu_cores);
+            let load_five = format_cpu_load(info.hw.load_info.five, info.hw.cpu_cores);
+            let load_fifteen = format_cpu_load(info.hw.load_info.fifteen, info.hw.cpu_cores);
 
             let uptime = format_uptime(info.connected_since);
 
             // Print line
             println!(
                 "| {: >id_col$} | {: <worker_col$} | {: <os_col$} | {: >cores_col$} \
-                | {: >freq_col$} | {: >memory_col$} | {: <jobs_col$} \
+                | {: >freq_col$} | {: >memory_col$} | {: <jobs_col$} | {: >busy_col$} \
                 | {: >load_1_col$} {: >load_5_col$} {: >load_15_col$} \
                 | {: >uptime_col$} |",
                 info.id,
@@ -534,6 +579,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
                 cpu_frequency,
                 memory_mb,
                 jobs,
+                busy,
                 load_one,
                 load_five,
                 load_fifteen,
@@ -557,15 +603,18 @@ pub fn worker_info(worker_info: WorkerInfo) {
     println!("   kernel: {}", worker_info.hw.kernel);
     println!("   distribution: {}", worker_info.hw.distribution);
     println!("   cpu cores: {}", worker_info.hw.cpu_cores);
-    println!("   cpu frequency: {}", worker_info.hw.cpu_frequency);
+    println!(
+        "   cpu frequency: {} megahertz",
+        worker_info.hw.cpu_frequency
+    );
     println!("   total memory: {} megabytes", worker_info.hw.total_ram_mb);
     println!("last updated: {}", worker_info.last_updated);
     println!(); // line break
 
     println!("{}", style("sytem load and resources").bold().underlined());
-    let load_one = format_load(worker_info.hw.load_info.one, worker_info.hw.cpu_cores);
-    let load_five = format_load(worker_info.hw.load_info.five, worker_info.hw.cpu_cores);
-    let load_fifteen = format_load(worker_info.hw.load_info.fifteen, worker_info.hw.cpu_cores);
+    let load_one = format_cpu_load(worker_info.hw.load_info.one, worker_info.hw.cpu_cores);
+    let load_five = format_cpu_load(worker_info.hw.load_info.five, worker_info.hw.cpu_cores);
+    let load_fifteen = format_cpu_load(worker_info.hw.load_info.fifteen, worker_info.hw.cpu_cores);
     println!("   load: {} / {} / {}", load_one, load_five, load_fifteen);
 
     let jobs_offered: Vec<String> = worker_info
@@ -592,16 +641,18 @@ pub fn worker_info(worker_info: WorkerInfo) {
     };
     println!("   jobs running: {}", jobs_running);
 
-    println!("   free cpus: {}", worker_info.free_resources.cpus);
     println!(
-        "   free ram: {} megabytes",
-        worker_info.free_resources.ram_mb
+        "   free cpus: {} / {}",
+        worker_info.free_resources.cpus, worker_info.hw.cpu_cores
+    );
+    println!(
+        "   free ram: {} / {} megabytes",
+        worker_info.free_resources.ram_mb, worker_info.hw.total_ram_mb
     );
 
-    let occupation = match worker_info.resource_load() {
-        x if x < 0.25 => style(x * 100.0).green(),
-        x if x < 0.75 => style(x * 100.0).yellow(),
-        x => style(x * 100.0).red(), // else
-    };
-    println!("{}: {:.2} %", style("total occupation").bold(), occupation);
+    println!(
+        "{}: {}",
+        style("total occupation").bold(),
+        format_resource_load(worker_info.resource_load(), 2)
+    );
 }
