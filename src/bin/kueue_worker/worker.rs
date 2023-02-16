@@ -305,19 +305,23 @@ impl Worker {
             .map(|job| job.info.resources.ram_mb)
             .sum();
 
+        let total_cpus = self.system_info.cpus().len();
         let available_cpus = if self.config.worker_settings.dynamic_check_free_resources {
             let busy_cpus = self.system_info.load_average().one.ceil() as usize;
-            self.system_info.cpus().len() - core::cmp::max(allocated_cpus, busy_cpus)
+            if busy_cpus > total_cpus {
+                0 // even more than 100% busy
+            } else {
+                total_cpus - core::cmp::max(allocated_cpus, busy_cpus)
+            }
         } else {
-            self.system_info.cpus().len() - allocated_cpus
+            total_cpus - allocated_cpus
         };
 
+        let total_ram_mb = (self.system_info.total_memory() / 1024 / 1024) as usize;
         let available_ram_mb = if self.config.worker_settings.dynamic_check_free_resources {
-            let total_ram_mb = (self.system_info.total_memory() / 1024 / 1024) as usize;
             let available_ram_mb = (self.system_info.available_memory() / 1024 / 1024) as usize;
             core::cmp::min(total_ram_mb - allocated_ram_mb, available_ram_mb)
         } else {
-            let total_ram_mb = (self.system_info.total_memory() / 1024 / 1024) as usize;
             total_ram_mb - allocated_ram_mb
         };
 
