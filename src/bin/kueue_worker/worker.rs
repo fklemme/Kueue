@@ -9,7 +9,10 @@ use kueue::{
     structs::{HwInfo, JobStatus, LoadInfo, Resources},
 };
 use sha2::{Digest, Sha256};
-use std::sync::Arc;
+use std::{
+    cmp::{max, min},
+    sync::Arc,
+};
 use sysinfo::{CpuExt, CpuRefreshKind, System, SystemExt};
 use tokio::{
     net::TcpStream,
@@ -311,7 +314,7 @@ impl Worker {
             if busy_cpus > total_cpus {
                 0 // even more than 100% busy
             } else {
-                total_cpus - core::cmp::max(allocated_cpus, busy_cpus)
+                total_cpus - max(allocated_cpus, busy_cpus)
             }
         } else {
             total_cpus - allocated_cpus
@@ -320,7 +323,7 @@ impl Worker {
         let total_ram_mb = (self.system_info.total_memory() / 1024 / 1024) as usize;
         let available_ram_mb = if self.config.worker_settings.dynamic_check_free_resources {
             let available_ram_mb = (self.system_info.available_memory() / 1024 / 1024) as usize;
-            core::cmp::min(total_ram_mb - allocated_ram_mb, available_ram_mb)
+            min(total_ram_mb - allocated_ram_mb, available_ram_mb)
         } else {
             total_ram_mb - allocated_ram_mb
         };

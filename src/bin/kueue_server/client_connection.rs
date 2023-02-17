@@ -1,6 +1,7 @@
 use crate::job_manager::Manager;
 use anyhow::{anyhow, Result};
 use base64::{engine::general_purpose, Engine as _};
+use chrono::Utc;
 use kueue::{
     config::Config,
     messages::{stream::MessageStream, ClientToServerMessage, ServerToClientMessage},
@@ -8,7 +9,10 @@ use kueue::{
 };
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use sha2::{Digest, Sha256};
-use std::sync::{Arc, Mutex};
+use std::{
+    cmp::max,
+    sync::{Arc, Mutex},
+};
 
 pub struct ClientConnection {
     stream: MessageStream,
@@ -122,10 +126,13 @@ impl ClientConnection {
                 failed,
                 canceled,
             } => {
-                // Get job list.
-                let mut job_infos = self.manager.lock().unwrap().get_all_job_infos();
+                // Get job and worker lists.
+                let (mut job_infos, worker_infos) = {
+                    let manager = self.manager.lock().unwrap();
+                    (manager.get_all_job_infos(), manager.get_all_worker_infos())
+                };
 
-                // Count total number of pending/running/finished jobs.
+                // Count total number of pending/offered/running/etc jobs.
                 let jobs_pending = job_infos
                     .iter()
                     .filter(|job_info| job_info.status.is_pending())
@@ -151,6 +158,54 @@ impl ClientConnection {
                     .filter(|job_info| job_info.status.is_canceled())
                     .count();
 
+                // Gather some information for metrics.
+                let now = Utc::now();
+                let running_jobs_run_times: Vec<i64> = job_infos
+                    .iter()
+                    .filter(|job_info| job_info.status.is_running())
+                    .map(|job_info| match job_info.status {
+                        JobStatus::Running { started, .. } => (now - started).num_seconds(),
+                        _ => 0,
+                    })
+                    .collect();
+                let finished_jobs_run_times: Vec<i64> = job_infos
+                    .iter()
+                    .filter(|job_info| job_info.status.is_finished())
+                    .map(|job_info| match job_info.status {
+                        JobStatus::Finished {
+                            run_time_seconds, ..
+                        } => run_time_seconds,
+                        _ => 0,
+                    })
+                    .collect();
+
+                // Calculate average job runtime.
+                let job_avg_run_time_seconds = if finished_jobs_run_times.len() > 0 {
+                    finished_jobs_run_times.iter().sum::<i64>()
+                        / finished_jobs_run_times.len() as i64
+                } else if running_jobs_run_times.len() > 0 {
+                    running_jobs_run_times.iter().max().unwrap().clone()
+                } else {
+                    0
+                };
+
+                // Calculate remaining jobs ETA. (TODO: Make more accurate.)
+                let running_job_eta_seconds = if jobs_running > 0 {
+                    let least_job_progress = running_jobs_run_times.iter().min().unwrap().clone();
+                    max(0, job_avg_run_time_seconds - least_job_progress)
+                } else {
+                    0
+                };
+                // As simplification, we assume that one worker handles one job at a time.
+                let pending_jobs_eta_seconds = if jobs_pending > worker_infos.len() {
+                    jobs_pending as i64 * job_avg_run_time_seconds / worker_infos.len() as i64
+                } else if jobs_pending > 0 {
+                    job_avg_run_time_seconds
+                } else {
+                    0
+                };
+                let remaining_jobs_eta_seconds = running_job_eta_seconds + pending_jobs_eta_seconds;
+
                 // Filter job list based on status.
                 if pending || offered || running || succeeded || failed || canceled {
                     job_infos = job_infos
@@ -175,13 +230,15 @@ impl ClientConnection {
 
                 // Send response to client.
                 let message = ServerToClientMessage::JobList {
+                    job_infos,
                     jobs_pending,
                     jobs_offered,
                     jobs_running,
                     jobs_succeeded,
                     jobs_failed,
                     jobs_canceled,
-                    job_infos,
+                    job_avg_run_time_seconds,
+                    remaining_jobs_eta_seconds,
                 };
                 self.stream.send(&message).await?;
                 Ok(())

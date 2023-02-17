@@ -141,14 +141,17 @@ fn format_status(job_info: &JobInfo) -> String {
 
 /// Print jobs to screen.
 pub fn job_list(
+    job_infos: Vec<JobInfo>,
     jobs_pending: usize,
     jobs_offered: usize,
     jobs_running: usize,
     jobs_succeeded: usize,
     jobs_failed: usize,
     jobs_canceled: usize,
-    job_infos: Vec<JobInfo>,
+    job_avg_run_time_seconds: i64,
+    remaining_jobs_eta_seconds: i64,
 ) {
+    let mut footer_width = term_size().0;
     if !job_infos.is_empty() {
         // Calculate spacing for columns.
         let max_id_col_width = format!("{}", job_infos.last().unwrap().id).len();
@@ -205,6 +208,8 @@ pub fn job_list(
             col_widths[5],
         );
 
+        footer_width = col_widths.iter().sum::<usize>() + 3 * col_widths.len() + 1;
+
         // Print header
         println!(
             "| {: ^id_col$} | {: <cwd_col$} | {: <cmd_col$} | {: ^cores_col$} | {: ^memory_col$} | {: <status_col$} |",
@@ -252,26 +257,68 @@ pub fn job_list(
         }
     }
 
-    // Print summary line.
-    println!("{}", style("--- job status summary ---").bold());
+    // Print bottom lines with overview information.
+    let format_time = |run_time_seconds: i64| {
+        let h = run_time_seconds / 3600;
+        let m = (run_time_seconds % 3600) / 60;
+        let s = run_time_seconds % 60;
+        format!("{}h:{:02}m:{:02}s", h, m, s)
+    };
 
+    // First line.
+    let summary_heading = "--- job status summary ---";
+    let avg_run_time = format!(
+        "average job runtime: {}",
+        format_time(job_avg_run_time_seconds)
+    );
+
+    if footer_width > summary_heading.len() + avg_run_time.len() {
+        let spaces = footer_width - summary_heading.len() - avg_run_time.len();
+        println!(
+            "{}{: <spaces$}{}",
+            style(summary_heading).bold(),
+            "",
+            avg_run_time
+        );
+    } else {
+        println!("{} {}", style(summary_heading).bold(), avg_run_time);
+    }
+
+    // Second line.
     print!("pending: {}", jobs_pending);
+    let mut printed = format!("pending: {}", jobs_pending).len();
     if jobs_offered > 0 {
         print!(", offered: {}", style(jobs_offered).dim());
+        printed += format!(", offered: {}", jobs_offered).len();
     }
     if jobs_running > 0 {
         print!(", running: {}", style(jobs_running).blue());
+        printed += format!(", running: {}", jobs_running).len();
     }
     if jobs_succeeded > 0 {
         print!(", succeeded: {}", style(jobs_succeeded).green());
+        printed += format!(", succeeded: {}", jobs_succeeded).len();
     }
     if jobs_failed > 0 {
         print!(", failed: {}", style(jobs_failed).red());
+        printed += format!(", failed: {}", jobs_failed).len();
     }
     if jobs_canceled > 0 {
         print!(", canceled: {}", style(jobs_canceled).yellow());
+        printed += format!(", canceled: {}", jobs_canceled).len();
     }
-    println!(""); // end line
+
+    let remaining_jobs_eta = format!(
+        "remaining jobs ETA: {}",
+        format_time(remaining_jobs_eta_seconds)
+    );
+
+    if footer_width > printed + remaining_jobs_eta.len() {
+        let spaces = footer_width - printed - remaining_jobs_eta.len();
+        println!("{: <spaces$}{}", "", remaining_jobs_eta);
+    } else {
+        println!(" {}", remaining_jobs_eta);
+    }
 }
 
 pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Option<String>) {

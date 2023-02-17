@@ -73,13 +73,15 @@ pub enum ServerToClientMessage {
     AuthAccepted(bool),
     AcceptJob(JobInfo),
     JobList {
+        job_infos: Vec<JobInfo>,
         jobs_pending: usize,
         jobs_offered: usize,
         jobs_running: usize,
         jobs_succeeded: usize,
         jobs_failed: usize,
         jobs_canceled: usize,
-        job_infos: Vec<JobInfo>,
+        job_avg_run_time_seconds: i64,
+        remaining_jobs_eta_seconds: i64,
     },
     JobInfo {
         job_info: JobInfo,

@@ -117,22 +117,26 @@ async fn main() -> Result<()> {
             // Await results.
             match stream.receive::<ServerToClientMessage>().await? {
                 ServerToClientMessage::JobList {
+                    job_infos,
                     jobs_pending,
                     jobs_offered,
                     jobs_running,
                     jobs_succeeded,
                     jobs_failed,
                     jobs_canceled,
-                    job_infos,
+                    job_avg_run_time_seconds,
+                    remaining_jobs_eta_seconds,
                 } => {
                     print::job_list(
+                        job_infos,
                         jobs_pending,
                         jobs_offered,
                         jobs_running,
                         jobs_succeeded,
                         jobs_failed,
                         jobs_canceled,
-                        job_infos,
+                        job_avg_run_time_seconds,
+                        remaining_jobs_eta_seconds,
                     );
                 }
                 other => {
