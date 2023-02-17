@@ -1,6 +1,6 @@
 [package]
 name = "kueue"
-version = "0.13.0"
+version = "0.13.1"
 authors = ["Florian Klemme <mail@florianklemme.de>"]
 edition = "2021"
 description = "A robust, user-level, work-stealing, and distributed task scheduler."

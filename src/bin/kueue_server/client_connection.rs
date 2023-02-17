@@ -127,10 +127,7 @@ impl ClientConnection {
                 canceled,
             } => {
                 // Get job and worker lists.
-                let (mut job_infos, worker_infos) = {
-                    let manager = self.manager.lock().unwrap();
-                    (manager.get_all_job_infos(), manager.get_all_worker_infos())
-                };
+                let mut job_infos = self.manager.lock().unwrap().get_all_job_infos();
 
                 // Count total number of pending/offered/running/etc jobs.
                 let jobs_pending = job_infos
@@ -181,24 +178,33 @@ impl ClientConnection {
 
                 // Calculate average job runtime.
                 let job_avg_run_time_seconds = if finished_jobs_run_times.len() > 0 {
-                    finished_jobs_run_times.iter().sum::<i64>()
-                        / finished_jobs_run_times.len() as i64
+                    let finished_jobs_avg = finished_jobs_run_times.iter().sum::<i64>()
+                        / finished_jobs_run_times.len() as i64;
+                    let all_jobs_avg = running_jobs_run_times
+                        .iter()
+                        .chain(finished_jobs_run_times.iter())
+                        .sum::<i64>()
+                        / (running_jobs_run_times.len() + finished_jobs_run_times.len()) as i64;
+                    max(finished_jobs_avg, all_jobs_avg)
                 } else if running_jobs_run_times.len() > 0 {
                     running_jobs_run_times.iter().max().unwrap().clone()
                 } else {
                     0
                 };
 
-                // Calculate remaining jobs ETA. (TODO: Make more accurate.)
+                // Calculate remaining jobs ETA. This includes a fair bit of simplifications.
                 let running_job_eta_seconds = if jobs_running > 0 {
-                    let least_job_progress = running_jobs_run_times.iter().min().unwrap().clone();
-                    max(0, job_avg_run_time_seconds - least_job_progress)
+                    let most_recent_job_run_time =
+                        running_jobs_run_times.iter().min().unwrap().clone();
+                    // We assume that the most recent job needs the avg job runtime to finish.
+                    max(0, job_avg_run_time_seconds - most_recent_job_run_time)
                 } else {
                     0
                 };
-                // As simplification, we assume that one worker handles one job at a time.
-                let pending_jobs_eta_seconds = if jobs_pending > worker_infos.len() {
-                    jobs_pending as i64 * job_avg_run_time_seconds / worker_infos.len() as i64
+                // As simplification, we assume that all future jobs will run with
+                // the same degree of parallelization as the currently running jobs.
+                let pending_jobs_eta_seconds = if jobs_pending > jobs_running {
+                    jobs_pending as i64 * job_avg_run_time_seconds / jobs_running as i64
                 } else if jobs_pending > 0 {
                     job_avg_run_time_seconds
                 } else {
