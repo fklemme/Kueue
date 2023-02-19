@@ -21,7 +21,7 @@ pub struct Server {
 impl Server {
     pub fn new(config: Config) -> Self {
         // Initialize job manager.
-        let manager = Arc::new(Mutex::new(Manager::new()));
+        let manager = Arc::new(Mutex::new(Manager::new(config.clone())));
 
         // Maintain job manager, re-issuing jobs of dead workers, etc.
         let manager_handle = Arc::clone(&manager);

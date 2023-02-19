@@ -30,6 +30,9 @@ pub struct CommonSettings {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ServerSettings {
     pub bind_addresses: String,
+    pub worker_timeout_seconds: i64,
+    pub job_offer_timeout_seconds: i64,
+    pub job_cleanup_after_minutes: i64,
 }
 
 /// Worker settings.
@@ -80,7 +83,7 @@ impl Config {
 
         // TODO: Raise default levels when more mature.
         let default_log_level = if cfg!(debug_assertions) {
-            "trace"
+            "debug"
         } else {
             "info"
         };
@@ -103,6 +106,9 @@ impl Config {
 
         // Default server settings.
         let s = s.set_default("server_settings.bind_addresses", "0.0.0.0 [::]")?;
+        let s = s.set_default("server_settings.worker_timeout_seconds", 5 * 60)?;
+        let s = s.set_default("server_settings.job_offer_timeout_seconds", 60)?;
+        let s = s.set_default("server_settings.job_cleanup_after_minutes", 48 * 60)?;
 
         // Default worker settings.
         let s = s.set_default("worker_settings.dynamic_check_free_resources", true)?;

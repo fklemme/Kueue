@@ -100,16 +100,8 @@ fn format_status(job_info: &JobInfo) -> String {
             "pending since {}",
             issued.format("%Y-%m-%d %H:%M:%S").to_string()
         ),
-        JobStatus::Offered {
-            issued: _,
-            offered: _,
-            to,
-        } => format!("offered to {}", to),
-        JobStatus::Running {
-            issued: _,
-            started,
-            on,
-        } => {
+        JobStatus::Offered { to, .. } => format!("offered to {}", to),
+        JobStatus::Running { started, on, .. } => {
             let run_time_seconds = (Utc::now() - *started).num_seconds();
             let h = run_time_seconds / 3600;
             let m = (run_time_seconds % 3600) / 60;
@@ -117,11 +109,10 @@ fn format_status(job_info: &JobInfo) -> String {
             format!("running for {}h:{:02}m:{:02}s on {}", h, m, s, on)
         }
         JobStatus::Finished {
-            finished: _,
             return_code,
             on,
             run_time_seconds,
-            comment: _,
+            ..
         } => {
             if *return_code == 0 {
                 let h = run_time_seconds / 3600;
@@ -132,7 +123,7 @@ fn format_status(job_info: &JobInfo) -> String {
                 format!("failed with code {} on {}", return_code, on)
             }
         }
-        JobStatus::Canceled { canceled } => format!(
+        JobStatus::Canceled { canceled, .. } => format!(
             "canceled on {}",
             canceled.format("%Y-%m-%d %H:%M:%S").to_string()
         ),
@@ -361,6 +352,8 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
             println!("   running on: {}", on);
         }
         JobStatus::Finished {
+            issued,
+            started,
             finished,
             return_code,
             on,
@@ -376,18 +369,21 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
             } else {
                 println!("{}: {}", style("job status").bold(), style("failed").red());
             }
+            println!("   issued on: {}", issued);
+            println!("   started on: {}", started);
             println!("   finished on: {}", finished);
             println!("   return code: {}", return_code);
             println!("   executed on: {}", on);
             println!("   runtime: {} seconds", run_time_seconds);
             println!("   comment: {}", comment);
         }
-        JobStatus::Canceled { canceled } => {
+        JobStatus::Canceled { issued, canceled } => {
             println!(
                 "{}: {}",
                 style("job status").bold(),
                 style("canceled").yellow()
             );
+            println!("   issued on: {}", issued);
             println!("   canceled on: {}", canceled);
         }
     }

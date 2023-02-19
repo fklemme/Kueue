@@ -1,4 +1,3 @@
-use crate::constants::WORKER_TIMEOUT_MINUTES;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -96,6 +95,8 @@ pub enum JobStatus {
         on: String,
     },
     Finished {
+        issued: DateTime<Utc>,
+        started: DateTime<Utc>,
         finished: DateTime<Utc>,
         return_code: i32,
         on: String,
@@ -103,6 +104,7 @@ pub enum JobStatus {
         comment: String,
     },
     Canceled {
+        issued: DateTime<Utc>,
         canceled: DateTime<Utc>,
     },
 }
@@ -172,8 +174,9 @@ impl WorkerInfo {
         self.jobs_offered.len() + self.jobs_running.len()
     }
 
-    pub fn timed_out(&self) -> bool {
-        (Utc::now() - self.last_updated).num_minutes() > WORKER_TIMEOUT_MINUTES
+    /// Returns true if the worker timed out, given timeout_seconds as constraint.
+    pub fn timed_out(&self, timeout_seconds: i64) -> bool {
+        (Utc::now() - self.last_updated).num_seconds() > timeout_seconds
     }
 
     /// Returns the percentage of resources occupied on the worker. For multiple
@@ -203,7 +206,7 @@ pub struct HwInfo {
     pub cpu_cores: usize,
     pub cpu_frequency: usize,
     pub total_ram_mb: usize,
-    pub load_info: LoadInfo
+    pub load_info: LoadInfo,
 }
 
 impl HwInfo {
@@ -214,7 +217,7 @@ impl HwInfo {
             cpu_cores: 0,
             cpu_frequency: 0,
             total_ram_mb: 0,
-            load_info: LoadInfo::default()
+            load_info: LoadInfo::default(),
         }
     }
 }

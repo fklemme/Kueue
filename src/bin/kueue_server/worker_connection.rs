@@ -27,7 +27,7 @@ pub struct WorkerConnection {
     worker: Arc<Mutex<Worker>>,
     free_resources: Resources,
     rejected_jobs: BTreeSet<usize>,
-    defered_jobs: BTreeSet<usize>,
+    deferred_jobs: BTreeSet<usize>,
     kill_job_rx: mpsc::Receiver<usize>,
     connection_closed: bool,
     authenticated: bool,
@@ -64,7 +64,7 @@ impl WorkerConnection {
             worker,
             free_resources: Resources::new(0, 0),
             rejected_jobs: BTreeSet::new(),
-            defered_jobs: BTreeSet::new(),
+            deferred_jobs: BTreeSet::new(),
             kill_job_rx,
             connection_closed: false,
             authenticated: false,
@@ -105,7 +105,7 @@ impl WorkerConnection {
                 // Or, get active when notified.
                 _ = new_jobs.notified() => {
                     // First, check if this worker is still alive.
-                    if self.worker.lock().unwrap().info.timed_out() {
+                    if self.worker.lock().unwrap().info.timed_out(self.config.server_settings.worker_timeout_seconds) {
                         self.connection_closed = true; // end worker session
                     } else {
                         // Offer new job, if no job is currently offered.
@@ -164,7 +164,7 @@ impl WorkerConnection {
                 self.free_resources = resources.clone();
 
                 // Forget all defered jobs.
-                self.defered_jobs.clear();
+                self.deferred_jobs.clear();
 
                 let no_job_offered = {
                     let mut worker_lock = self.worker.lock().unwrap();
@@ -370,7 +370,7 @@ impl WorkerConnection {
                         // TODO: The job should also be made available again!
 
                         // Remember defer and avoid fetching the same job again soon.
-                        self.defered_jobs.insert(job_lock.info.id);
+                        self.deferred_jobs.insert(job_lock.info.id);
                     }
                     _ => bail!(
                         "Defered job was not offered to worker {}: {:?}",
@@ -450,7 +450,7 @@ impl WorkerConnection {
         let excluded_jobs: BTreeSet<usize> = self
             .rejected_jobs
             .iter()
-            .chain(self.defered_jobs.iter())
+            .chain(self.deferred_jobs.iter())
             .cloned()
             .collect();
 

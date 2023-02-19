@@ -400,16 +400,12 @@ impl Worker {
                     // Update info
                     let result_lock = job.result.lock().unwrap();
                     match job.info.status {
-                        JobStatus::Canceled { .. } => {} // leave status as it is (canceled)
-                        _ => {
-                            if !job.info.status.is_running() {
-                                log::error!(
-                                    "Expected job status to be running or canceled. Found: {:?}",
-                                    job.info.status
-                                );
-                            }
-                            // In any case, set finished and report.
+                        JobStatus::Running {
+                            issued, started, ..
+                        } => {
                             job.info.status = JobStatus::Finished {
+                                issued,
+                                started,
                                 finished: Utc::now(),
                                 return_code: result_lock.exit_code,
                                 on: self.name.clone(),
@@ -417,6 +413,11 @@ impl Worker {
                                 comment: result_lock.comment.clone(),
                             };
                         }
+                        JobStatus::Canceled { .. } => {} // leave status as it is (canceled)
+                        _ => log::error!(
+                            "Expected job status to be running or canceled. Found: {:?}",
+                            job.info.status
+                        ),
                     }
                     if !result_lock.stdout_text.is_empty() {
                         stdout_text = Some(result_lock.stdout_text.clone());

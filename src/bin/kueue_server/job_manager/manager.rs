@@ -1,8 +1,8 @@
 use crate::job_manager::{Job, Worker};
-use anyhow::{anyhow, Result, bail};
+use anyhow::{anyhow, bail, Result};
 use chrono::Utc;
 use kueue_lib::{
-    constants::{CLEANUP_JOB_AFTER_HOURS, OFFER_TIMEOUT_MINUTES},
+    config::Config,
     structs::{JobInfo, JobStatus, Resources, WorkerInfo},
 };
 use std::{
@@ -12,6 +12,7 @@ use std::{
 use tokio::sync::{mpsc, Notify};
 
 pub struct Manager {
+    config: Config,
     jobs: BTreeMap<usize, Arc<Mutex<Job>>>,
     jobs_waiting_for_assignment: BTreeSet<usize>,
     workers: BTreeMap<usize, Weak<Mutex<Worker>>>,
@@ -19,8 +20,9 @@ pub struct Manager {
 }
 
 impl Manager {
-    pub fn new() -> Self {
+    pub fn new(config: Config) -> Self {
         Manager {
+            config,
             jobs: BTreeMap::new(),
             jobs_waiting_for_assignment: BTreeSet::new(),
             workers: BTreeMap::new(),
@@ -136,22 +138,24 @@ impl Manager {
             Some(job) => {
                 let job_info = job.lock().unwrap().info.clone();
                 match job_info.status {
-                    JobStatus::Pending { .. } => {
+                    JobStatus::Pending { issued } => {
                         // Do not attempt to offer the job to workers.
                         self.jobs_waiting_for_assignment.remove(&id);
                         job.lock().unwrap().info.status = JobStatus::Canceled {
+                            issued,
                             canceled: Utc::now(),
                         };
                         Ok(None)
                     }
-                    JobStatus::Offered { .. } => {
+                    JobStatus::Offered { issued, .. } => {
                         // Offer will be withdrawn by the server on worker's response.
                         job.lock().unwrap().info.status = JobStatus::Canceled {
+                            issued,
                             canceled: Utc::now(),
                         };
                         Ok(None)
                     }
-                    JobStatus::Running { .. } => {
+                    JobStatus::Running { issued, .. } => {
                         if !kill {
                             // Makes no sense to set the job to canceled if the
                             // worker proceeds anyway.
@@ -159,6 +163,7 @@ impl Manager {
                         }
                         // Update job status
                         job.lock().unwrap().info.status = JobStatus::Canceled {
+                            issued,
                             canceled: Utc::now(),
                         };
                         // If worker is assigned and alive, get the kill job sender.
@@ -172,7 +177,7 @@ impl Manager {
                             }
                         }
                         Err(anyhow!(
-                            "Job with ID={} was running but worker could not be aquired!",
+                            "Job with ID={} was running but worker could not be acquired!",
                             id
                         ))
                     }
@@ -209,15 +214,17 @@ impl Manager {
                     to: _,
                 } => {
                     // A job should only be briefly in this state.
-                    let offer_timed_out =
-                        (Utc::now() - offered.clone()).num_minutes() > OFFER_TIMEOUT_MINUTES;
+                    let offer_timed_out = (Utc::now() - offered.clone()).num_seconds()
+                        > self.config.server_settings.job_offer_timeout_seconds;
                     let worker_id = job.lock().unwrap().worker_id;
                     let worker_alive = match worker_id {
                         Some(id) => match self.workers.get(&id) {
                             Some(weak_worker) => match weak_worker.upgrade() {
                                 Some(worker) => {
                                     // Worker is still with us.
-                                    !worker.lock().unwrap().info.timed_out()
+                                    !worker.lock().unwrap().info.timed_out(
+                                        self.config.server_settings.worker_timeout_seconds,
+                                    )
                                 }
                                 None => false,
                             },
@@ -250,7 +257,9 @@ impl Manager {
                             Some(weak_worker) => match weak_worker.upgrade() {
                                 Some(worker) => {
                                     // Worker is still with us.
-                                    !worker.lock().unwrap().info.timed_out()
+                                    !worker.lock().unwrap().info.timed_out(
+                                        self.config.server_settings.worker_timeout_seconds,
+                                    )
                                 }
                                 None => false,
                             },
@@ -277,17 +286,17 @@ impl Manager {
                 }
                 JobStatus::Finished { finished, .. } => {
                     // Finished jobs should be cleaned up after some time.
-                    let cleanup_job =
-                        (Utc::now() - finished.clone()).num_hours() > CLEANUP_JOB_AFTER_HOURS;
+                    let cleanup_job = (Utc::now() - finished.clone()).num_minutes()
+                        > self.config.server_settings.job_cleanup_after_minutes;
                     if cleanup_job {
                         log::debug!("Clean up old finished job: {:?}", info);
                         jobs_to_be_removed.push(info.id);
                     }
                 }
-                JobStatus::Canceled { canceled } => {
+                JobStatus::Canceled { canceled, .. } => {
                     // Canceled jobs should be cleaned up after some time.
-                    let cleanup_job =
-                        (Utc::now() - canceled.clone()).num_hours() > CLEANUP_JOB_AFTER_HOURS;
+                    let cleanup_job = (Utc::now() - canceled.clone()).num_hours()
+                        > self.config.server_settings.job_cleanup_after_minutes;
                     if cleanup_job {
                         log::debug!("Clean up old canceled job: {:?}", info);
                         jobs_to_be_removed.push(info.id);
@@ -308,7 +317,11 @@ impl Manager {
             let worker_alive = match weak_worker.upgrade() {
                 Some(worker) => {
                     // Worker is still with us.
-                    !worker.lock().unwrap().info.timed_out()
+                    !worker
+                        .lock()
+                        .unwrap()
+                        .info
+                        .timed_out(self.config.server_settings.worker_timeout_seconds)
                 }
                 None => false,
             };
@@ -338,7 +351,8 @@ mod tests {
 
     #[test]
     fn add_new_job() {
-        let mut manager = Manager::new();
+        let config = Config::new(Some("no-config".into())).unwrap();
+        let mut manager = Manager::new(config);
         let cmd = vec!["ls".to_string(), "-la".to_string()];
         let cwd: PathBuf = "/tmp".into();
         let resources = Resources::new(8, 8 * 1024);
@@ -349,7 +363,8 @@ mod tests {
 
     #[test]
     fn get_job_waiting_for_assignment() {
-        let mut manager = Manager::new();
+        let config = Config::new(Some("no-config".into())).unwrap();
+        let mut manager = Manager::new(config);
         let cmd = vec!["ls".to_string(), "-la".to_string()];
         let cwd: PathBuf = "/tmp".into();
         let resources = Resources::new(8, 8 * 1024);
