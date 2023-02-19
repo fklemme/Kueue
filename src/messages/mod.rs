@@ -1,4 +1,4 @@
-//! Contains a collection of structs that are transfered as messages between
+//! Contains a collection of structs that are transferred as messages between
 //! client and server, and worker and server.
 
 pub mod stream;
@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// Communication to the server is initialized with HelloFromClient or
 /// HelloFromWorker. The variants help the server to distinguish between client
-/// and worker connections. The server will repond with the corresponding
+/// and worker connections. The server will respond with the corresponding
 /// "welcome" message.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum HelloMessage {
@@ -27,17 +27,17 @@ pub enum HelloMessage {
 /// Contains all messages sent by the client to the server.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ClientToServerMessage {
-    /// Request authentification challenge. This is required to issue or remove
+    /// Request authentication challenge. This is required to issue or remove
     /// jobs. The server will reply with a AuthChallenge that must answered
     /// with a corresponding AuthResponse message.
     AuthRequest,
-    /// Send reponse in the form of "Sha256(secret + salt)" back to the server.
+    /// Send response in the form of "Sha256(secret + salt)" back to the server.
     /// The server responds with a AuthAccepted(bool) to indicate if the
     /// authentication was successful.
     AuthResponse(String),
     /// Issue a new job. The job's ID and status will be changed by the server.
     /// The server responds with a AcceptJob message and provide updated
-    /// details. This command requires authentification.
+    /// details. This command requires authentication.
     IssueJob(JobInfo),
     ListJobs {
         num_jobs: usize,

@@ -11,10 +11,10 @@ pub const INIT_READ_BUFFER_LEN: usize = 32 * 1024;
 pub struct MessageStream {
     /// Underlying TCP stream.
     stream: TcpStream,
-    /// Bufferes bytes read from stream. Has a fixed size.
+    /// Buffers bytes read from stream. Has a fixed size.
     read_buffer: Vec<u8>,
     /// Holds received message chunks from previous read operations.
-    /// Grows continuesly to fit the message.
+    /// Grows continuously to fit a complete message.
     msg_buffer: Vec<u8>,
 }
 
@@ -31,6 +31,7 @@ impl MessageStream {
     pub async fn send<T: Serialize + Debug>(&mut self, message: &T) -> Result<(), MessageError> {
         log::trace!("Sending message: {:?}", message);
         let buffer = serde_json::to_vec(message).unwrap();
+        //log::trace!("JSON message: {:?}", String::from_utf8(buffer.clone()));
 
         match self.stream.write_all(&buffer).await {
             Ok(()) => Ok(()),
@@ -97,7 +98,7 @@ impl MessageStream {
                     Err(ParseError::EofWhileParsing)
                 }
                 Err(e) => {
-                    // Bad things happend! We need to give up.
+                    // Bad things happened! We need to give up.
                     log::error!("Parse error: {}", e);
                     Err(ParseError::ParsingFailed)
                 }
