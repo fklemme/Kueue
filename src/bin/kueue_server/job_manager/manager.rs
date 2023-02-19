@@ -1,5 +1,5 @@
 use crate::job_manager::{Job, Worker};
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Result, bail};
 use chrono::Utc;
 use kueue::{
     constants::{CLEANUP_JOB_AFTER_HOURS, OFFER_TIMEOUT_MINUTES},
@@ -155,7 +155,7 @@ impl Manager {
                         if !kill {
                             // Makes no sense to set the job to canceled if the
                             // worker proceeds anyway.
-                            return Err(anyhow!("Job ID={} has already started!", id));
+                            bail!("Job ID={} has already started!", id);
                         }
                         // Update job status
                         job.lock().unwrap().info.status = JobStatus::Canceled {

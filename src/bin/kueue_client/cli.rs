@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-#[derive(Parser, Debug)]
+#[derive(Clone, Parser, Debug)]
 #[command(version, author, about)]
 pub struct Cli {
     /// Path to config file.
@@ -11,7 +11,7 @@ pub struct Cli {
     pub command: Command,
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Clone, Subcommand, Debug)]
 pub enum Command {
     /// Issue command to be off-loaded to remote workers.
     Cmd {
@@ -78,7 +78,7 @@ pub enum Command {
     },
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Clone, Subcommand, Debug)]
 pub enum CmdArgs {
     #[command(external_subcommand)]
     Args(Vec<String>), // never shows up in help

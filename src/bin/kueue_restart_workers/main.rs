@@ -68,9 +68,9 @@ fn process_worker(worker: &str, ssh_user: &str) -> Result<()> {
     channel.wait_close()?;
 
     if screen_ls.contains("kueue_worker") {
-        log::info!("Worker {} appears to be running.", worker);
+        log::info!("Worker process {} appears to be running.", worker);
     } else {
-        log::warn!("Worker {} appears to be down! Restart...", worker);
+        log::warn!("Worker process {} appears to be down! Restart...", worker);
 
         // Restart worker in detached screen
         let cmd = "screen -dmS kueue_worker bash -c kueue_worker";
@@ -80,7 +80,7 @@ fn process_worker(worker: &str, ssh_user: &str) -> Result<()> {
         channel.read_to_string(&mut output)?;
         channel.wait_close()?;
 
-        log::debug!("Output after restarting: {}", output)
+        log::debug!("Output after restarting: {}", output);
     }
 
     Ok(()) // done

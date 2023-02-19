@@ -294,41 +294,37 @@ impl Worker {
 
     /// Returns available, unused resources of the worker.
     fn get_available_resources(&self) -> Resources {
-        let allocated_cpus: usize = self
+        let allocated_cpus: i64 = self
             .offered_jobs
             .iter()
             .chain(self.running_jobs.iter())
-            .map(|job| job.info.resources.cpus)
+            .map(|job| job.info.resources.cpus as i64)
             .sum();
 
-        let allocated_ram_mb: usize = self
+        let allocated_ram_mb: i64 = self
             .offered_jobs
             .iter()
             .chain(self.running_jobs.iter())
-            .map(|job| job.info.resources.ram_mb)
+            .map(|job| job.info.resources.ram_mb as i64)
             .sum();
 
-        let total_cpus = self.system_info.cpus().len();
+        let total_cpus = self.system_info.cpus().len() as i64;
         let available_cpus = if self.config.worker_settings.dynamic_check_free_resources {
-            let busy_cpus = self.system_info.load_average().one.ceil() as usize;
-            if busy_cpus > total_cpus {
-                0 // even more than 100% busy
-            } else {
-                total_cpus - max(allocated_cpus, busy_cpus)
-            }
+            let busy_cpus = self.system_info.load_average().one.ceil() as i64;
+            max(0, total_cpus - max(allocated_cpus, busy_cpus))
         } else {
-            total_cpus - allocated_cpus
+            max(0, total_cpus - allocated_cpus)
         };
 
-        let total_ram_mb = (self.system_info.total_memory() / 1024 / 1024) as usize;
+        let total_ram_mb = (self.system_info.total_memory() / 1024 / 1024) as i64;
         let available_ram_mb = if self.config.worker_settings.dynamic_check_free_resources {
-            let available_ram_mb = (self.system_info.available_memory() / 1024 / 1024) as usize;
-            min(total_ram_mb - allocated_ram_mb, available_ram_mb)
+            let available_ram_mb = (self.system_info.available_memory() / 1024 / 1024) as i64;
+            max(0, min(total_ram_mb - allocated_ram_mb, available_ram_mb))
         } else {
-            total_ram_mb - allocated_ram_mb
+            max(0, total_ram_mb - allocated_ram_mb)
         };
 
-        Resources::new(available_cpus, available_ram_mb)
+        Resources::new(available_cpus as usize, available_ram_mb as usize)
     }
 
     /// Returns "true" if there are enough resources free to

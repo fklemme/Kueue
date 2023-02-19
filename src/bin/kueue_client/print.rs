@@ -16,7 +16,7 @@ pub fn term_size() -> (usize, usize) {
     }
 }
 
-/// Calculate column widths based on content.
+/// Calculate column widths for table-style CLI output based on the column's content.
 fn get_col_widths(min_col_widths: Vec<usize>, max_col_widths: Vec<usize>) -> Vec<usize> {
     assert!(!min_col_widths.is_empty() && !max_col_widths.is_empty());
     assert!(min_col_widths.len() == max_col_widths.len());
@@ -44,11 +44,11 @@ fn get_col_widths(min_col_widths: Vec<usize>, max_col_widths: Vec<usize>) -> Vec
     // Final column widths to be returned later. Start with minimum column widths.
     let mut col_widths = min_col_widths.clone();
 
-    // Grow column widths as long as there is free space.
+    // Grow column widths as long as there is remaining space available.
     let mut remaining_col_width_available =
         total_col_width_available - col_widths.iter().sum::<usize>();
     'outer: while remaining_col_width_available > 0 {
-        // Sort columns by size.
+        // Sort columns by width.
         let mut indices: Vec<usize> = (0..col_widths.len()).collect();
         indices.sort_by(|i1, i2| col_widths[*i1].cmp(&col_widths[*i2]));
 
@@ -86,7 +86,7 @@ fn dots_back(text: String, len: usize) -> String {
     }
 }
 
-fn format_cores(cpu_cores: usize) -> String {
+fn format_cpu_cores(cpu_cores: usize) -> String {
     format!("{} x", cpu_cores)
 }
 
@@ -152,8 +152,9 @@ pub fn job_list(
     remaining_jobs_eta_seconds: i64,
 ) {
     let mut footer_width = term_size().0;
+
     if !job_infos.is_empty() {
-        // Calculate spacing for columns.
+        // Get maximum column widths for space calculation.
         let max_id_col_width = format!("{}", job_infos.last().unwrap().id).len();
         let max_cwd_col_width = job_infos
             .iter()
@@ -167,7 +168,7 @@ pub fn job_list(
             .unwrap();
         let max_cores_col_width = job_infos
             .iter()
-            .map(|job_info| format_cores(job_info.resources.cpus).len())
+            .map(|job_info| format_cpu_cores(job_info.resources.cpus).len())
             .max()
             .unwrap();
         let max_memory_col_width = job_infos
@@ -230,7 +231,7 @@ pub fn job_list(
             let command = job_info.cmd.join(" ");
             let command = dots_back(command, cmd_col);
 
-            let cpu_cores = format_cores(job_info.resources.cpus);
+            let cpu_cores = format_cpu_cores(job_info.resources.cpus);
             let memory_mb = format_memory_mb(job_info.resources.ram_mb);
 
             // status
@@ -448,7 +449,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
     if worker_list.is_empty() {
         println!("No workers registered on server!");
     } else {
-        // Calculate spacing for columns.
+        // Get maximum column widths for space calculation.
         let max_id_col_width = format!("{}", worker_list.last().unwrap().id).len();
         let max_worker_col_width = worker_list
             .iter()
@@ -462,7 +463,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             .unwrap();
         let max_cores_col_width = worker_list
             .iter()
-            .map(|info| format_cores(info.hw.cpu_cores).len())
+            .map(|info| format_cpu_cores(info.hw.cpu_cores).len())
             .max()
             .unwrap();
         let max_freq_col_width = worker_list
@@ -596,7 +597,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
         for info in worker_list {
             let worker_name = dots_back(info.name.clone(), worker_col);
             let operation_system = dots_back(info.hw.distribution.clone(), os_col);
-            let cpu_cores = format_cores(info.hw.cpu_cores);
+            let cpu_cores = format_cpu_cores(info.hw.cpu_cores);
             let cpu_frequency = format_frequency(info.hw.cpu_frequency);
             let memory_mb = format_memory_mb(info.hw.total_ram_mb);
 

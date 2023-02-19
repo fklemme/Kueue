@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{bail, Result};
 use chrono::{Duration, Utc};
 use futures::future::try_join3;
 use kueue::structs::JobInfo;
@@ -51,7 +51,7 @@ impl Job {
 
     pub async fn run(&mut self) -> Result<()> {
         if self.info.cmd.is_empty() {
-            return Err(anyhow!("Empty command!"));
+            bail!("Empty command!");
         }
 
         // Set up command as subprocess.
@@ -80,13 +80,11 @@ impl Job {
 
                     let file = match File::create(&full_path).await {
                         Ok(file) => file,
-                        Err(e) => {
-                            return Err(anyhow!(
-                                "Failed to create file {}: {}",
-                                full_path.to_string_lossy(),
-                                e
-                            ))
-                        }
+                        Err(e) => bail!(
+                            "Failed to create file {}: {}",
+                            full_path.to_string_lossy(),
+                            e
+                        ),
                     };
 
                     Ok((Stdio::piped(), Some(full_path), Some(file)))

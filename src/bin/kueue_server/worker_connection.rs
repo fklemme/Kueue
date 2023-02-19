@@ -1,5 +1,5 @@
 use crate::job_manager::{Manager, Worker};
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use base64::{engine::general_purpose, Engine as _};
 use chrono::Utc;
 use kueue::{
@@ -324,13 +324,11 @@ impl WorkerConnection {
                         log::debug!("Offered job has been canceled in the meantime!")
                         // TODO: Withdraw!
                     }
-                    _ => {
-                        return Err(anyhow!(
-                            "Accepted job was not offered to worker {}: {:?}",
-                            self.name,
-                            job_lock.info.status
-                        ));
-                    }
+                    _ => bail!(
+                        "Accepted job was not offered to worker {}: {:?}",
+                        self.name,
+                        job_lock.info.status
+                    ),
                 }
                 job_lock.info.clone()
             };
@@ -345,7 +343,7 @@ impl WorkerConnection {
             worker_lock.info.jobs_offered.remove(&job_id);
             worker_lock.info.jobs_running.insert(job_id);
         } else {
-            return Err(anyhow!("Accepted job not found: {:?}", job_info));
+            bail!("Accepted job not found: {:?}", job_info);
         }
         Ok(())
     }
@@ -374,13 +372,11 @@ impl WorkerConnection {
                         // Remember defer and avoid fetching the same job again soon.
                         self.defered_jobs.insert(job_lock.info.id);
                     }
-                    _ => {
-                        return Err(anyhow!(
-                            "Defered job was not offered to worker {}: {:?}",
-                            self.name,
-                            job_lock.info.status
-                        ));
-                    }
+                    _ => bail!(
+                        "Defered job was not offered to worker {}: {:?}",
+                        self.name,
+                        job_lock.info.status
+                    ),
                 }
             };
 
@@ -396,7 +392,7 @@ impl WorkerConnection {
                 self.offer_pending_job().await?;
             }
         } else {
-            return Err(anyhow!("Defered job not found: {:?}", job_info));
+            bail!("Defered job not found: {:?}", job_info);
         }
         Ok(())
     }
@@ -425,13 +421,11 @@ impl WorkerConnection {
                         // Remember reject and avoid fetching the same job again.
                         self.rejected_jobs.insert(job_lock.info.id);
                     }
-                    _ => {
-                        return Err(anyhow!(
-                            "Rejected job was not offered to worker {}: {:?}",
-                            self.name,
-                            job_lock.info.status
-                        ));
-                    }
+                    _ => bail!(
+                        "Rejected job was not offered to worker {}: {:?}",
+                        self.name,
+                        job_lock.info.status
+                    ),
                 }
             };
 
@@ -447,7 +441,7 @@ impl WorkerConnection {
                 self.offer_pending_job().await?;
             }
         } else {
-            return Err(anyhow!("Rejected job not found: {:?}", job_info));
+            bail!("Rejected job not found: {:?}", job_info);
         }
         Ok(())
     }
