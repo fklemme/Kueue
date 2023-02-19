@@ -4,7 +4,7 @@ use crate::{
 };
 use anyhow::{anyhow, Result, bail};
 use base64::{engine::general_purpose, Engine as _};
-use kueue::{
+use kueue_lib::{
     config::Config,
     messages::stream::MessageStream,
     messages::{ClientToServerMessage, HelloMessage, ServerToClientMessage},

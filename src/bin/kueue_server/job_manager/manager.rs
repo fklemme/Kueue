@@ -1,7 +1,7 @@
 use crate::job_manager::{Job, Worker};
 use anyhow::{anyhow, Result, bail};
 use chrono::Utc;
-use kueue::{
+use kueue_lib::{
     constants::{CLEANUP_JOB_AFTER_HOURS, OFFER_TIMEOUT_MINUTES},
     structs::{JobInfo, JobStatus, Resources, WorkerInfo},
 };
@@ -331,7 +331,7 @@ impl Manager {
 
 #[cfg(test)]
 mod tests {
-    use kueue::structs::Resources;
+    use kueue_lib::structs::Resources;
 
     use super::*;
     use std::path::PathBuf;

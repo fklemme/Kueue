@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use console::{style, StyledObject};
-use kueue::structs::{JobInfo, JobStatus, WorkerInfo};
+use kueue_lib::structs::{JobInfo, JobStatus, WorkerInfo};
 use std::{cmp::max, collections::BTreeSet};
 use terminal_size::terminal_size;
 

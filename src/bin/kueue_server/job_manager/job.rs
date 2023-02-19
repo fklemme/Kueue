@@ -1,4 +1,4 @@
-use kueue::structs::JobInfo;
+use kueue_lib::structs::JobInfo;
 
 pub struct Job {
     pub info: JobInfo,

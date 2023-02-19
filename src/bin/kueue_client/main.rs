@@ -1,3 +1,7 @@
+//! # Kueue (client)
+//! 
+//! This binary create implements the Kueue command line client.
+
 mod cli;
 mod client;
 mod print;
@@ -6,7 +10,7 @@ use anyhow::{anyhow, bail, Result};
 use clap::Parser;
 use cli::Cli;
 use client::Client;
-use kueue::config::Config;
+use kueue_lib::config::Config;
 use simple_logger::SimpleLogger;
 
 #[tokio::main]

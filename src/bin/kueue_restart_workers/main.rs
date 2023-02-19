@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use clap::Parser;
-use kueue::config::Config;
+use kueue_lib::config::Config;
 use simple_logger::SimpleLogger;
 use ssh2::Session;
 use std::{io::Read, net::TcpStream, path::PathBuf, thread::sleep, time::Duration};

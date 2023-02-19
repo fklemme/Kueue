@@ -1,4 +1,4 @@
-use kueue::structs::WorkerInfo;
+use kueue_lib::structs::WorkerInfo;
 use tokio::sync::mpsc;
 
 pub struct Worker {

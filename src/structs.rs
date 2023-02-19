@@ -13,7 +13,7 @@ pub struct JobInfo {
     /// Unique job ID, assigned by the server.
     pub id: usize,
     /// Command to be executed. First element is the name of the
-    /// program. Futher elements are arguments to the program.
+    /// program. Further elements are arguments to the program.
     pub cmd: Vec<String>,
     /// Working directory for the job to be executed in.
     pub cwd: PathBuf,

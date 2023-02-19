@@ -1,3 +1,5 @@
+//! Command line interface for the client application.
+
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -31,9 +33,9 @@ pub enum Command {
         #[command(subcommand)]
         args: CmdArgs,
     },
-    /// Query information about scheduled and running jobs.
+    /// Query information about scheduled, running, and finished jobs.
     ListJobs {
-        /// Number of latest jobs to query.
+        /// Number of most recent jobs to query.
         #[arg(short, long)]
         num_jobs: Option<usize>,
         /// Show pending jobs.
@@ -55,12 +57,12 @@ pub enum Command {
         #[arg(short, long)]
         canceled: bool,
     },
-    /// Show information about a specific job.
+    /// Query information about a specific job.
     ShowJob {
         /// ID of the job to be queried.
         id: usize,
     },
-    /// Remove job from the queue.
+    /// Remove a job from the queue.
     RemoveJob {
         /// ID of the job to be removed.
         id: usize,
@@ -71,7 +73,7 @@ pub enum Command {
     },
     /// Query information about available workers.
     ListWorkers,
-    /// Show information about a specific worker.
+    /// Query information about a specific worker.
     ShowWorker {
         /// ID of the worker to be queried.
         id: usize,

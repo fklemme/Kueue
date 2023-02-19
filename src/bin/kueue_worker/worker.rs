@@ -2,7 +2,7 @@ use crate::job::Job;
 use anyhow::{anyhow, Result};
 use base64::{engine::general_purpose, Engine as _};
 use chrono::Utc;
-use kueue::{
+use kueue_lib::{
     config::Config,
     messages::stream::{MessageError, MessageStream},
     messages::{HelloMessage, ServerToWorkerMessage, WorkerToServerMessage},

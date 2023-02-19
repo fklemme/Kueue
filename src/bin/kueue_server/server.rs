@@ -3,7 +3,7 @@ use crate::{
 };
 use anyhow::{bail, Result};
 use futures::future::join_all;
-use kueue::{
+use kueue_lib::{
     config::Config,
     messages::{stream::MessageStream, HelloMessage, ServerToClientMessage, ServerToWorkerMessage},
 };

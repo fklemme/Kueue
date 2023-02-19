@@ -7,9 +7,16 @@ description = "A robust, user-level, work-stealing, and distributed task schedul
 repository = "https://gitlab.kruecke.net/fklemme/kueue"
 license = "MIT"
 
+# The client crate is specifically renamed to "kueue"
+# so that the executable is named "kueue" by default.
 [[bin]]
 name = "kueue"
 path = "src/bin/kueue_client/main.rs"
+
+# The library crate is renamed to "kueue_lib" to
+# distinguish it from the "kueue" (client) binary crate.
+[lib]
+name = "kueue_lib"
 
 [dependencies]
 anyhow = "1.0"

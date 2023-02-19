@@ -3,7 +3,7 @@ mod worker;
 
 use anyhow::{anyhow, bail, Result};
 use clap::Parser;
-use kueue::config::Config;
+use kueue_lib::config::Config;
 use simple_logger::SimpleLogger;
 use std::path::PathBuf;
 use worker::Worker;

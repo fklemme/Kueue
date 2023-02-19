@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use chrono::{Duration, Utc};
 use futures::future::try_join3;
-use kueue::structs::JobInfo;
+use kueue_lib::structs::JobInfo;
 use std::{
     path::{Path, PathBuf},
     process::Stdio,
