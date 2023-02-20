@@ -1,6 +1,6 @@
 //! # Kueue
 //!
-//! A robust, user-level, work-stealing distributed task scheduler.
+//! A robust, user-level, work-stealing, distributed task scheduler.
 //!
 //! The Kueue package consists of multiple binary crates (client, server, worker)
 //! to realize the distributed task scheduler. This library crate contains

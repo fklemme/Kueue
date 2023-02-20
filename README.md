@@ -1,6 +1,6 @@
 # Kueue
 
-A robust, user-level, work-stealing, and distributed task scheduler.
+A robust, user-level, work-stealing, distributed task scheduler.
 
 This tool is still in early development. More details and documentation will follow.
 
