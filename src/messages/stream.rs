@@ -5,12 +5,6 @@ use std::fmt::Debug;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-/// Initial size of the read buffer. Whenever its size was insufficient to read
-/// all data available on the network, its capacity is doubled. This avoids too
-/// many parsing attempts on (yet) incomplete messages at the cost of higher
-/// memory consumption.
-pub const INIT_READ_BUFFER_LEN: usize = 32 * 1024;
-
 /// MessageStream builds a high-level abstraction of sending messages over the
 /// network on top of a TcpStream. It takes ownership of a given TcpStream and
 /// instantiates buffers to account for caching (yet) incomplete messages.
@@ -25,6 +19,12 @@ pub struct MessageStream {
     /// The buffer grows dynamically until it fits a complete message.
     msg_buffer: Vec<u8>,
 }
+
+/// Initial size of the read buffer. Whenever its size was insufficient to read
+/// all data available on the network, its capacity is doubled. This avoids too
+/// many parsing attempts on (yet) incomplete messages at the cost of higher
+/// memory consumption.
+const INIT_READ_BUFFER_LEN: usize = 32 * 1024;
 
 impl MessageStream {
     /// Create a high-level message stream abstraction on top of a TcpStream.
@@ -132,28 +132,28 @@ pub enum MessageError {
     ConnectionClosed,
 }
 
+impl std::error::Error for MessageError {}
+
 impl std::fmt::Display for MessageError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
 }
 
-impl std::error::Error for MessageError {}
-
 /// ParseError is used internally to distinguish between
 /// incomplete and (syntactically) failed parsing attempts.
 #[derive(Debug)]
-pub enum ParseError {
+enum ParseError {
     /// The end of input was reached before parsing could be completed.
     EofWhileParsing,
-    /// Parsing of the message failed unrecoverable.
+    /// Parsing of the message failed.
     ParsingFailed,
 }
+
+impl std::error::Error for ParseError {}
 
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
 }
-
-impl std::error::Error for ParseError {}
