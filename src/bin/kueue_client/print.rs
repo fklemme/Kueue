@@ -129,6 +129,7 @@ fn format_status(job_info: &JobInfo) -> String {
 }
 
 /// Print jobs to screen.
+#[allow(clippy::too_many_arguments)]
 pub fn job_list(
     job_infos: Vec<JobInfo>,
     jobs_pending: usize,

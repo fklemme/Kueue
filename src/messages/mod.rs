@@ -69,7 +69,7 @@ pub enum ServerToClientMessage {
     WelcomeClient,
     // AuthChallenge sends a random salt to the client.
     AuthChallenge(String),
-    // Let client know if authentification succeeded.
+    // Let client know if authentication succeeded.
     AuthAccepted(bool),
     AcceptJob(JobInfo),
     JobList {
