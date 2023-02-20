@@ -135,7 +135,7 @@ impl Config {
         s.try_deserialize()
     }
 
-    pub fn create_template(&self, config_path: Option<PathBuf>) -> Result<()> {
+    pub fn save_as_template(&self, config_path: Option<PathBuf>) -> Result<()> {
         let config_path = config_path.unwrap_or(default_path());
         let toml = toml::to_string(&self)?;
 

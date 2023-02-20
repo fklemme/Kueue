@@ -8,6 +8,8 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+/// All information resembling a job. Only the outputs
+/// of stdout and stderr are stored separately.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct JobInfo {
     /// Unique job ID, assigned by the server.
@@ -27,7 +29,9 @@ pub struct JobInfo {
     pub stderr_path: Option<String>,
 }
 
+/// Generate a unique job ID.
 fn next_job_id() -> usize {
+    /// Keeps track of generated job IDs.
     static JOB_COUNTER: AtomicUsize = AtomicUsize::new(0);
     JOB_COUNTER.fetch_add(1, Ordering::Relaxed)
 }
@@ -66,6 +70,7 @@ impl JobInfo {
     }
 }
 
+/// Resources available on worker or required by a job.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Resources {
     /// Required/reserved CPU cores to run the command.
@@ -75,66 +80,97 @@ pub struct Resources {
 }
 
 impl Resources {
+    /// Creates a new resources instance.
     pub fn new(cpus: usize, ram_mb: usize) -> Self {
         Resources { cpus, ram_mb }
     }
 }
 
+/// Represents the state of a job.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum JobStatus {
+    /// The job is waiting to be assigned to a worker.
     Pending {
+        /// Point in time when the job has been posted to the server.
         issued: DateTime<Utc>,
     },
+    /// The job has been offered to a worker but not yet accepted.
     Offered {
+        /// Point in time when the job has been posted to the server.
         issued: DateTime<Utc>,
+        /// Point in time when the job has been offered to the worker.
         offered: DateTime<Utc>,
+        /// Name of the worker the job has been offered to.
         to: String,
     },
+    /// The job is currently running on a worker.
     Running {
+        /// Point in time when the job has been posted to the server.
         issued: DateTime<Utc>,
+        /// Point in time when the job has been started executing on the worker.
         started: DateTime<Utc>,
+        /// Name of the worker the job is running on.
         on: String,
     },
+    /// The job has concluded, either successful or failing.
     Finished {
+        /// Point in time when the job has been posted to the server.
         issued: DateTime<Utc>,
+        /// Point in time when the job has been started executing on the worker.
         started: DateTime<Utc>,
+        /// Point in time when the job has concluded on the worker.
         finished: DateTime<Utc>,
+        /// Exit code returned by the executed command on the worker.
         return_code: i32,
+        /// Name of the worker the job has been executed on.
         on: String,
+        /// Total run time of the executed command in seconds.
         run_time_seconds: i64,
+        /// Additional information about the execution of the job. This
+        /// comment might include helpful information to debug failed jobs.
         comment: String,
     },
+    /// The job has been canceled.
     Canceled {
+        /// Point in time when the job has been posted to the server.
         issued: DateTime<Utc>,
+        /// Point in time when the job has been canceled on the server.
         canceled: DateTime<Utc>,
     },
 }
 
 impl JobStatus {
+    /// Returns true is the job is in "pending" state.
     pub fn is_pending(&self) -> bool {
         matches!(self, Self::Pending { .. })
     }
 
+    /// Returns true is the job is in "offered" state.
     pub fn is_offered(&self) -> bool {
         matches!(self, Self::Offered { .. })
     }
 
+    /// Returns true is the job is in "running" state.
     pub fn is_running(&self) -> bool {
         matches!(self, Self::Running { .. })
     }
 
+    /// Returns true is the job is in "finished" state.
     pub fn is_finished(&self) -> bool {
         matches!(self, Self::Finished { .. })
     }
 
+    /// Returns true is the job is in "finished" state with exit code 0.
     pub fn has_succeeded(&self) -> bool {
         matches!(self, Self::Finished { return_code, .. } if *return_code == 0)
     }
 
+    /// Returns true is the job is in "finished" state with exit code not 0.
     pub fn has_failed(&self) -> bool {
         matches!(self, Self::Finished { return_code, .. } if *return_code != 0)
     }
 
+    /// Returns true is the job is in "canceled" state.
     pub fn is_canceled(&self) -> bool {
         matches!(self, Self::Canceled { .. })
     }
@@ -144,7 +180,7 @@ impl JobStatus {
 pub struct WorkerInfo {
     /// Unique worker ID, assigned by the server.
     pub id: usize,
-    /// Name of the worker, usually including host name. Not used at the moment.
+    /// Name of the worker, usually including host name.
     pub name: String,
     pub connected_since: DateTime<Utc>,
     pub hw: HwInfo,
@@ -154,7 +190,9 @@ pub struct WorkerInfo {
     pub free_resources: Resources,
 }
 
+/// Generate a unique worker ID.
 fn next_worker_id() -> usize {
+    /// Keeps track of generated worker IDs.
     static JOB_COUNTER: AtomicUsize = AtomicUsize::new(0);
     JOB_COUNTER.fetch_add(1, Ordering::Relaxed)
 }

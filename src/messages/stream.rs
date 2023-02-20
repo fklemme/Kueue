@@ -1,24 +1,33 @@
-//! Reads and writes messages from and to the network.
+//! Read and write messages from and to the network.
 
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+/// Initial size of the read buffer. Whenever its size was insufficient to read
+/// all data available on the network, its capacity is doubled. This avoids too
+/// many parsing attempts on (yet) incomplete messages at the cost of higher
+/// memory consumption.
 pub const INIT_READ_BUFFER_LEN: usize = 32 * 1024;
 
-/// Reads and writes messages from and to the network.
+/// MessageStream builds a high-level abstraction of sending messages over the
+/// network on top of a TcpStream. It takes ownership of a given TcpStream and
+/// instantiates buffers to account for caching (yet) incomplete messages.
 pub struct MessageStream {
-    /// Underlying TCP stream.
+    /// The underlying TcpStream.
     stream: TcpStream,
-    /// Buffers bytes read from stream. Has a fixed size.
+    /// Buffers bytes read from the TcpStream. The buffer starts with a
+    /// fixed size of INIT_READ_BUFFER_LEN and doubles in size whenever
+    /// its capacitance is reached while receiving data from the network.
     read_buffer: Vec<u8>,
     /// Holds received message chunks from previous read operations.
-    /// Grows continuously to fit a complete message.
+    /// The buffer grows dynamically until it fits a complete message.
     msg_buffer: Vec<u8>,
 }
 
 impl MessageStream {
+    /// Create a high-level message stream abstraction on top of a TcpStream.
     pub fn new(stream: TcpStream) -> Self {
         MessageStream {
             stream,
@@ -42,7 +51,7 @@ impl MessageStream {
         }
     }
 
-    /// Read a message from the network.
+    /// Receive a message from the network.
     pub async fn receive<T: for<'a> Deserialize<'a> + Debug>(&mut self) -> Result<T, MessageError> {
         loop {
             // Parse message from message buffer
@@ -80,7 +89,7 @@ impl MessageStream {
         }
     }
 
-    /// Deserializes messages.
+    /// Deserialize the next message.
     fn parse_message<T: for<'a> Deserialize<'a>>(&mut self) -> Result<T, ParseError> {
         // Try to parse T from msg_buffer
         let de = serde_json::Deserializer::from_slice(&self.msg_buffer);
@@ -112,24 +121,14 @@ impl MessageStream {
     }
 }
 
-#[derive(Debug)]
-pub enum ParseError {
-    EofWhileParsing,
-    ParsingFailed,
-}
-
-impl std::fmt::Display for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl std::error::Error for ParseError {}
-
+/// Errors related to the MessageStream.
 #[derive(Debug)]
 pub enum MessageError {
+    /// Failed to write the message to the network.
     SendFailed,
+    /// Failed to receive a message from the network.
     ReceiveFailed,
+    /// Network connection has been closed.
     ConnectionClosed,
 }
 
@@ -140,3 +139,21 @@ impl std::fmt::Display for MessageError {
 }
 
 impl std::error::Error for MessageError {}
+
+/// ParseError is used internally to distinguish between
+/// incomplete and (syntactically) failed parsing attempts.
+#[derive(Debug)]
+pub enum ParseError {
+    /// The end of input was reached before parsing could be completed.
+    EofWhileParsing,
+    /// Parsing of the message failed unrecoverable.
+    ParsingFailed,
+}
+
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for ParseError {}

@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
     let config =
         Config::new(args.config.clone()).map_err(|e| anyhow!("Failed to load config: {}", e))?;
     // If there is no config file, create template.
-    if let Err(e) = config.create_template(args.config) {
+    if let Err(e) = config.save_as_template(args.config) {
         bail!("Could not create config file: {}", e);
     }
 

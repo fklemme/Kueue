@@ -18,8 +18,8 @@ pub enum HelloMessage {
     /// Initiate a new worker connection with the HelloFromWorker message.
     /// The server confirms the connection with the WelcomeWorker message.
     HelloFromWorker {
-        /// Name of the worker. Can be helpful for the user to identify where
-        /// their jobs are running.
+        /// Name of the worker. Can be helpful for the
+        /// user to identify where jobs are running.
         name: String,
     },
 }
