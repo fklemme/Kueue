@@ -1,3 +1,5 @@
+//! Structs that are shared among binary crates and part of messages.
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -6,7 +8,6 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-// Struct that are shared among crates and parts of messages.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct JobInfo {
     /// Unique job ID, assigned by the server.
@@ -18,11 +19,11 @@ pub struct JobInfo {
     pub cwd: PathBuf,
     /// Required/reserved resources to run the command.
     pub resources: Resources,
-    /// Current status of the job. E.g., running, finished, etc.
+    /// Current status of the job, e.g., running, finished, etc.
     pub status: JobStatus,
-    /// If Some(), redirect stdout to given file path.
+    /// If Some(path), redirect stdout to given file path.
     pub stdout_path: Option<String>,
-    /// If Some(), redirect stderr to given file path.
+    /// If Some(path), redirect stderr to given file path.
     pub stderr_path: Option<String>,
 }
 
@@ -141,7 +142,9 @@ impl JobStatus {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct WorkerInfo {
+    /// Unique worker ID, assigned by the server.
     pub id: usize,
+    /// Name of the worker, usually including host name. Not used at the moment.
     pub name: String,
     pub connected_since: DateTime<Utc>,
     pub hw: HwInfo,

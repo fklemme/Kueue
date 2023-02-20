@@ -27,15 +27,14 @@ async fn main() -> Result<()> {
     let config =
         Config::new(args.config.clone()).map_err(|e| anyhow!("Failed to load config: {}", e))?;
     // If there is no config file, create template.
-    if let Err(e) = config.create_default_config(args.config) {
-        bail!("Could not create default config: {}", e);
+    if let Err(e) = config.create_template(args.config) {
+        bail!("Could not create config file: {}", e);
     }
 
     // Initialize logger.
     SimpleLogger::new()
         .with_level(config.get_log_level().to_level_filter())
-        .init()
-        .unwrap();
+        .init()?;
 
     // Run server.
     let server = Server::new(config);

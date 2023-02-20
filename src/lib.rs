@@ -16,6 +16,7 @@
 //! [worker](../kueue_worker/index.html) crates are documented separately.
 
 //#![warn(missing_docs)]
+//#![warn(clippy::missing_docs_in_private_items)]
 
 pub mod config;
 pub mod messages;
@@ -27,6 +28,7 @@ mod tests {
 
     #[test]
     fn general_test_setup() {
+        // TODO: Is it possible to have some kind of integration test here?
         let _config = Config::new(None);
         // TODO...
     }

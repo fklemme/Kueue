@@ -1,9 +1,9 @@
 //! Shared config file "config.toml".
 //!
 //! All binary crates share a common config file, which is separated into
-//! groups. The "common" group contains settings related to multiple crates
-//! while "server", "worker", "client", and "restart_workers" contain settings
-//! for their respective crates.
+//! groups. The "common_settings" group contains settings related to multiple
+//! crates while "server_settings", "worker_settings", "client_settings", and
+//! "restart_workers" contain settings associated with their respective crates.
 
 use anyhow::{anyhow, Result};
 use directories::ProjectDirs;
@@ -17,34 +17,42 @@ use std::{
 };
 use tokio::net::lookup_host;
 
-/// Common settings shared among all binary crates.
+/// Common settings shared among all crates.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct CommonSettings {
+    /// Shared secret used to authenticate client and worker against the server.
     pub shared_secret: String,
+    /// Host name (or IP address) of the server, used by client and worker.
     pub server_name: String,
+    /// Network port used by the server.
     pub server_port: u16,
+    /// Verbosity level of log messages.
+    /// Options: "trace", "debug", "info", "warn", and "error".
     pub log_level: String,
 }
 
-/// Server settings.
+/// Settings related to the server crate.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ServerSettings {
+    /// Space-separated list of IP addresses to listen on.
+    /// Defaults to: 0.0.0.0 (IPv4) and [::] (IPv6)
     pub bind_addresses: String,
+    /// Time in seconds before a worker connection is considered timed-out.
     pub worker_timeout_seconds: i64,
     pub job_offer_timeout_seconds: i64,
     pub job_cleanup_after_minutes: i64,
 }
 
-/// Worker settings.
+/// Settings related to the worker crate.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct WorkerSettings {
     /// If set "true", the worker's maximum available resources will dynamically
     /// grow and shrink with free resources on the host system. This setting is
-    /// useful for shared machines, not exclusively used with Kueue.
+    /// useful for shared machines, which are not exclusively used with Kueue.
     pub dynamic_check_free_resources: bool,
 }
 
-/// Setting for the optional "restart_workers" crate.
+/// Setting related to the optional "restart_workers" crate.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct RestartWorkers {
     pub ssh_user: String,
@@ -56,9 +64,13 @@ pub struct RestartWorkers {
 /// and holds the settings for all individual crates.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Config {
+    /// Common settings shared among all crates.
     pub common_settings: CommonSettings,
+    /// Settings related to the server crate.
     pub server_settings: ServerSettings,
+    /// Settings related to the worker crate.
     pub worker_settings: WorkerSettings,
+    /// Setting related to the optional "restart_workers" crate.
     pub restart_workers: Option<RestartWorkers>,
 }
 
@@ -123,7 +135,7 @@ impl Config {
         s.try_deserialize()
     }
 
-    pub fn create_default_config(&self, config_path: Option<PathBuf>) -> Result<()> {
+    pub fn create_template(&self, config_path: Option<PathBuf>) -> Result<()> {
         let config_path = config_path.unwrap_or(default_path());
         let toml = toml::to_string(&self)?;
 

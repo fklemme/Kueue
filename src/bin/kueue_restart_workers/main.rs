@@ -34,8 +34,7 @@ fn main() -> Result<()> {
     // Initialize logger.
     SimpleLogger::new()
         .with_level(config.get_log_level().to_level_filter())
-        .init()
-        .unwrap();
+        .init()?;
 
     loop {
         for worker in &workers {

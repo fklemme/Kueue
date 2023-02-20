@@ -116,7 +116,7 @@ impl Job {
             // This is based on the implementation of wait_with_output from
             // https://docs.rs/tokio/1.22.0/src/tokio/process/mod.rs.html#1213-1241
             // The problem with calling that function directly is that it
-            // _moves_ the child into the fuction, making it impossible to
+            // _moves_ the child into the function, making it impossible to
             // borrow it later for killing, if needed.
             async fn read_or_copy<A: AsyncRead + Unpin, B: AsyncWrite + Unpin>(
                 io: &mut Option<A>,
