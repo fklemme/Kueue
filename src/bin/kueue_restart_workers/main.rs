@@ -5,6 +5,8 @@ use simple_logger::SimpleLogger;
 use ssh2::Session;
 use std::{io::Read, net::TcpStream, path::PathBuf, thread::sleep, time::Duration};
 
+//#![warn(clippy::missing_docs_in_private_items)]
+
 #[derive(Parser, Debug)]
 #[command(version, author, about)]
 pub struct Cli {
@@ -19,8 +21,7 @@ fn main() -> Result<()> {
     log::debug!("{:?}", args);
 
     // Read configuration from file.
-    let config =
-        Config::new(args.config.clone()).map_err(|e| anyhow!("Failed to load config: {}", e))?;
+    let config = Config::new(args.config).map_err(|e| anyhow!("Failed to load config: {}", e))?;
     let restart_workers = config
         .restart_workers
         .clone()

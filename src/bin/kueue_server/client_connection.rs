@@ -104,7 +104,7 @@ impl ClientConnection {
 
                 // Add new job. We create a new JobInfo instance to make sure to
                 // not adopt remote (non-unique) job ids or inconsistent states.
-                let job = self.manager.lock().unwrap().add_new_job(job_info);
+                let job = self.manager.lock().unwrap().add_new_job(*job_info);
                 let job_info = job.lock().unwrap().info.clone();
 
                 // Send response to client.
@@ -177,7 +177,7 @@ impl ClientConnection {
                     .collect();
 
                 // Calculate average job runtime.
-                let job_avg_run_time_seconds = if finished_jobs_run_times.len() > 0 {
+                let job_avg_run_time_seconds = if !finished_jobs_run_times.is_empty() {
                     let finished_jobs_avg = finished_jobs_run_times.iter().sum::<i64>()
                         / finished_jobs_run_times.len() as i64;
                     let all_jobs_avg = running_jobs_run_times
@@ -186,16 +186,15 @@ impl ClientConnection {
                         .sum::<i64>()
                         / (running_jobs_run_times.len() + finished_jobs_run_times.len()) as i64;
                     max(finished_jobs_avg, all_jobs_avg)
-                } else if running_jobs_run_times.len() > 0 {
-                    running_jobs_run_times.iter().max().unwrap().clone()
+                } else if !running_jobs_run_times.is_empty() {
+                    *running_jobs_run_times.iter().max().unwrap()
                 } else {
                     0
                 };
 
                 // Calculate remaining jobs ETA. This includes a fair bit of simplifications.
                 let running_job_eta_seconds = if jobs_running > 0 {
-                    let most_recent_job_run_time =
-                        running_jobs_run_times.iter().min().unwrap().clone();
+                    let most_recent_job_run_time = *running_jobs_run_times.iter().min().unwrap();
                     // We assume that the most recent job needs the avg job runtime to finish.
                     max(0, job_avg_run_time_seconds - most_recent_job_run_time)
                 } else {
@@ -214,18 +213,15 @@ impl ClientConnection {
 
                 // Filter job list based on status.
                 if pending || offered || running || succeeded || failed || canceled {
-                    job_infos = job_infos
-                        .into_iter()
-                        .filter(|job_info| match job_info.status {
-                            JobStatus::Pending { .. } => pending,
-                            JobStatus::Offered { .. } => offered,
-                            JobStatus::Running { .. } => running,
-                            JobStatus::Finished { return_code, .. } => {
-                                (return_code == 0 && succeeded) || (return_code != 0 && failed)
-                            }
-                            JobStatus::Canceled { .. } => canceled,
-                        })
-                        .collect();
+                    job_infos.retain(|job_info| match job_info.status {
+                        JobStatus::Pending { .. } => pending,
+                        JobStatus::Offered { .. } => offered,
+                        JobStatus::Running { .. } => running,
+                        JobStatus::Finished { return_code, .. } => {
+                            (return_code == 0 && succeeded) || (return_code != 0 && failed)
+                        }
+                        JobStatus::Canceled { .. } => canceled,
+                    });
                 }
 
                 // Trim potentially long job list.

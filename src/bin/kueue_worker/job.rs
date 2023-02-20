@@ -62,7 +62,7 @@ impl Job {
         // Pipe output or redirect to files.
         async fn get_path_and_file(
             path: &Option<String>,
-            cwd: &PathBuf,
+            cwd: &Path,
         ) -> Result<(Stdio, Option<PathBuf>, Option<File>)> {
             match path {
                 Some(path) if path.to_lowercase().trim() == "null" => {
@@ -190,7 +190,7 @@ impl Job {
                     let mut result_lock = job_result.lock().unwrap();
                     result_lock.finished = true;
                     result_lock.exit_code = -46;
-                    result_lock.comment = format!("Job killed!");
+                    result_lock.comment = "Job killed!".to_string();
                     result_lock.run_time = finish_time - start_time;
                 }
             }

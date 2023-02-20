@@ -1,3 +1,5 @@
+//#![warn(clippy::missing_docs_in_private_items)]
+
 mod client_connection;
 mod job_manager;
 mod server;

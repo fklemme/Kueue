@@ -2,7 +2,7 @@ use crate::{
     cli::{Cli, CmdArgs, Command},
     print::{self, term_size},
 };
-use anyhow::{anyhow, Result, bail};
+use anyhow::{anyhow, bail, Result};
 use base64::{engine::general_purpose, Engine as _};
 use kueue_lib::{
     config::Config,
@@ -71,7 +71,7 @@ impl Client {
                 let cwd = canonicalize(cwd)?;
                 let resources = Resources::new(cpus, ram_mb);
                 let job_info = JobInfo::new(cmd, cwd, resources, stdout, stderr);
-                let message = ClientToServerMessage::IssueJob(job_info);
+                let message = ClientToServerMessage::IssueJob(Box::new(job_info));
                 self.stream.send(&message).await?;
 
                 // Await acceptance.

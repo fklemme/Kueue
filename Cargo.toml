@@ -6,6 +6,7 @@ edition = "2021"
 description = "A robust, user-level, work-stealing, and distributed task scheduler."
 repository = "https://gitlab.kruecke.net/fklemme/kueue"
 license = "MIT"
+default-run = "kueue"
 
 # The client crate is specifically renamed to "kueue"
 # so that the executable is named "kueue" by default.

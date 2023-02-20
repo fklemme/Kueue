@@ -1,6 +1,8 @@
 //! # Kueue (client)
-//! 
+//!
 //! This binary create implements the Kueue command line client.
+
+//#![warn(clippy::missing_docs_in_private_items)]
 
 mod cli;
 mod client;

@@ -315,7 +315,7 @@ impl WorkerConnection {
                         to,
                     } if to == &self.name => {
                         job_lock.info.status = JobStatus::Running {
-                            issued: issued.clone(),
+                            issued: *issued,
                             started: Utc::now(),
                             on: self.name.clone(),
                         };
@@ -363,9 +363,7 @@ impl WorkerConnection {
                         offered: _,
                         to,
                     } if to == &self.name => {
-                        job_lock.info.status = JobStatus::Pending {
-                            issued: issued.clone(),
-                        };
+                        job_lock.info.status = JobStatus::Pending { issued: *issued };
                         job_lock.worker_id = None;
                         // TODO: The job should also be made available again!
 
@@ -412,9 +410,7 @@ impl WorkerConnection {
                         offered: _,
                         to,
                     } if to == &self.name => {
-                        job_lock.info.status = JobStatus::Pending {
-                            issued: issued.clone(),
-                        };
+                        job_lock.info.status = JobStatus::Pending { issued: *issued };
                         job_lock.worker_id = None;
                         // TODO: The job should also be made available again!
 

@@ -62,16 +62,13 @@ impl Manager {
 
     /// Get job by ID.
     pub fn get_job(&self, id: usize) -> Option<Arc<Mutex<Job>>> {
-        match self.jobs.get(&id) {
-            Some(job) => Some(Arc::clone(job)),
-            None => None,
-        }
+        self.jobs.get(&id).map(Arc::clone)
     }
 
-    /// Collect job informations about all jobs.
+    /// Collect job information about all jobs.
     pub fn get_all_job_infos(&self) -> Vec<JobInfo> {
         let mut job_infos = Vec::new();
-        for (_id, job) in &self.jobs {
+        for job in self.jobs.values() {
             job_infos.push(job.lock().unwrap().info.clone());
         }
         job_infos
@@ -79,16 +76,13 @@ impl Manager {
 
     /// Get worker by ID.
     pub fn get_worker(&self, id: usize) -> Option<Weak<Mutex<Worker>>> {
-        match self.workers.get(&id) {
-            Some(worker) => Some(Weak::clone(worker)),
-            None => None,
-        }
+        self.workers.get(&id).map(Weak::clone)
     }
 
     /// Collect worker information about all workers.
     pub fn get_all_worker_infos(&self) -> Vec<WorkerInfo> {
         let mut worker_infos = Vec::new();
-        for (_id, worker) in &self.workers {
+        for worker in self.workers.values() {
             if let Some(worker) = worker.upgrade() {
                 worker_infos.push(worker.lock().unwrap().info.clone());
             }
@@ -203,7 +197,7 @@ impl Manager {
             match &info.status {
                 JobStatus::Pending { .. } => {
                     // Pending jobs should be available for workers.
-                    let newly_inserted = self.jobs_waiting_for_assignment.insert(job_id.clone());
+                    let newly_inserted = self.jobs_waiting_for_assignment.insert(*job_id);
                     if newly_inserted {
                         log::warn!("Job {} was pending but not available for workers!", job_id);
                     }
@@ -214,7 +208,7 @@ impl Manager {
                     to: _,
                 } => {
                     // A job should only be briefly in this state.
-                    let offer_timed_out = (Utc::now() - offered.clone()).num_seconds()
+                    let offer_timed_out = (Utc::now() - *offered).num_seconds()
                         > self.config.server_settings.job_offer_timeout_seconds;
                     let worker_id = job.lock().unwrap().worker_id;
                     let worker_alive = match worker_id {
@@ -237,11 +231,9 @@ impl Manager {
                     if offer_timed_out || !worker_alive {
                         log::warn!("Job {:?} got stuck in offered state. Recover...", info);
                         let mut job_lock = job.lock().unwrap();
-                        job_lock.info.status = JobStatus::Pending {
-                            issued: issued.clone(),
-                        };
+                        job_lock.info.status = JobStatus::Pending { issued: *issued };
                         job_lock.worker_id = None;
-                        self.jobs_waiting_for_assignment.insert(job_id.clone());
+                        self.jobs_waiting_for_assignment.insert(*job_id);
                         new_jobs_pending = true; // notify at the end
                     }
                 }
@@ -276,17 +268,15 @@ impl Manager {
                             info
                         );
                         let mut job_lock = job.lock().unwrap();
-                        job_lock.info.status = JobStatus::Pending {
-                            issued: issued.clone(),
-                        };
+                        job_lock.info.status = JobStatus::Pending { issued: *issued };
                         job_lock.worker_id = None;
-                        self.jobs_waiting_for_assignment.insert(job_id.clone());
+                        self.jobs_waiting_for_assignment.insert(*job_id);
                         new_jobs_pending = true; // notify at the end
                     }
                 }
                 JobStatus::Finished { finished, .. } => {
                     // Finished jobs should be cleaned up after some time.
-                    let cleanup_job = (Utc::now() - finished.clone()).num_minutes()
+                    let cleanup_job = (Utc::now() - *finished).num_minutes()
                         > self.config.server_settings.job_cleanup_after_minutes;
                     if cleanup_job {
                         log::debug!("Clean up old finished job: {:?}", info);
@@ -295,7 +285,7 @@ impl Manager {
                 }
                 JobStatus::Canceled { canceled, .. } => {
                     // Canceled jobs should be cleaned up after some time.
-                    let cleanup_job = (Utc::now() - canceled.clone()).num_hours()
+                    let cleanup_job = (Utc::now() - *canceled).num_hours()
                         > self.config.server_settings.job_cleanup_after_minutes;
                     if cleanup_job {
                         log::debug!("Clean up old canceled job: {:?}", info);
@@ -326,7 +316,7 @@ impl Manager {
                 None => false,
             };
             if !worker_alive {
-                workers_to_be_removed.push(worker_id.clone());
+                workers_to_be_removed.push(*worker_id);
             }
         }
 

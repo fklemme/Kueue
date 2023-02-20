@@ -42,7 +42,7 @@ fn get_col_widths(min_col_widths: Vec<usize>, max_col_widths: Vec<usize>) -> Vec
     }
 
     // Final column widths to be returned later. Start with minimum column widths.
-    let mut col_widths = min_col_widths.clone();
+    let mut col_widths = min_col_widths;
 
     // Grow column widths as long as there is remaining space available.
     let mut remaining_col_width_available =
@@ -63,7 +63,7 @@ fn get_col_widths(min_col_widths: Vec<usize>, max_col_widths: Vec<usize>) -> Vec
 
         // This point should never be reached, because if there were enough
         // space for all columns, we would have returned even before the loop.
-        assert!(false);
+        unreachable!();
     }
 
     // No more space for increments available.
@@ -96,10 +96,9 @@ fn format_memory_mb(memory_mb: usize) -> String {
 
 fn format_status(job_info: &JobInfo) -> String {
     match &job_info.status {
-        JobStatus::Pending { issued } => format!(
-            "pending since {}",
-            issued.format("%Y-%m-%d %H:%M:%S").to_string()
-        ),
+        JobStatus::Pending { issued } => {
+            format!("pending since {}", issued.format("%Y-%m-%d %H:%M:%S"))
+        }
         JobStatus::Offered { to, .. } => format!("offered to {}", to),
         JobStatus::Running { started, on, .. } => {
             let run_time_seconds = (Utc::now() - *started).num_seconds();
@@ -123,10 +122,9 @@ fn format_status(job_info: &JobInfo) -> String {
                 format!("failed with code {} on {}", return_code, on)
             }
         }
-        JobStatus::Canceled { canceled, .. } => format!(
-            "canceled on {}",
-            canceled.format("%Y-%m-%d %H:%M:%S").to_string()
-        ),
+        JobStatus::Canceled { canceled, .. } => {
+            format!("canceled on {}", canceled.format("%Y-%m-%d %H:%M:%S"))
+        }
     }
 }
 

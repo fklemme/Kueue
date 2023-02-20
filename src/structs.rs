@@ -212,8 +212,8 @@ pub struct HwInfo {
     pub load_info: LoadInfo,
 }
 
-impl HwInfo {
-    pub fn default() -> Self {
+impl Default for HwInfo {
+    fn default() -> Self {
         HwInfo {
             kernel: "unknown".into(),
             distribution: "unknown".into(),
@@ -225,19 +225,9 @@ impl HwInfo {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Default, Clone, Serialize, Deserialize, Debug)]
 pub struct LoadInfo {
     pub one: f64,
     pub five: f64,
     pub fifteen: f64,
-}
-
-impl LoadInfo {
-    pub fn default() -> Self {
-        LoadInfo {
-            one: 0.0,
-            five: 0.0,
-            fifteen: 0.0,
-        }
-    }
 }

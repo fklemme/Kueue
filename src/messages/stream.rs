@@ -91,7 +91,7 @@ impl MessageStream {
                     // Successfully read message. Remove consumed bytes from buffer.
                     let bytes_consumed = message_iterator.byte_offset();
                     self.msg_buffer.drain(..bytes_consumed);
-                    return Ok(message);
+                    Ok(message)
                 }
                 Err(e) if e.is_eof() => {
                     // Incomplete message. We need to read more data from the stream.
