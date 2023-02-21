@@ -161,6 +161,8 @@ impl Worker {
             ServerToWorkerMessage::OfferJob(job_info) => {
                 // Reject job when the worker cannot see the working directory.
                 if !job_info.cwd.is_dir() {
+                    log::debug!("Rejected job {}!", job_info.id);
+
                     // Reject job offer.
                     return self
                         .stream
@@ -170,6 +172,8 @@ impl Worker {
 
                 // Accept job if required resources can be acquired.
                 if self.resources_available(&job_info.resources) {
+                    log::debug!("Accepted job {}!", job_info.id);
+
                     // Remember accepted job for later confirmation.
                     self.offered_jobs.push(Job::new(
                         job_info.clone(),
@@ -180,6 +184,8 @@ impl Worker {
                         .send(&WorkerToServerMessage::AcceptJobOffer(job_info))
                         .await
                 } else {
+                    log::debug!("Deferred job {}!", job_info.id);
+
                     // Defer job offer (until resources become available).
                     self.stream
                         .send(&WorkerToServerMessage::DeferJobOffer(job_info))
@@ -204,6 +210,8 @@ impl Worker {
                         // Run job as child process
                         match self.running_jobs.last_mut().unwrap().run().await {
                             Ok(()) => {
+                                log::debug!("Started job {}!", job_info.id);
+
                                 // Inform server about available resources.
                                 // This information triggers the server to
                                 // send new job offers to this worker.
@@ -223,21 +231,21 @@ impl Worker {
                                     job_result.comment = format!("Failed to start job: {}", e);
                                 }
 
-                                // Update server. This will also send an undate on
+                                // Update server. This will also send an update on
                                 // available resources and thus trigger new job offers.
                                 self.update_job_status().await
                             }
                         }
 
                         // TODO: There is some checking we could do here. We do
-                        // not want jobs to remain in offered_jobs indefinitly!
+                        // not want jobs to remain in offered_jobs indefinitely!
                     }
                     None => {
                         log::error!(
                             "Confirmed job with ID={} that has not been offered previously!",
                             job_info.id
                         );
-                        Ok(()) // Error occured, but we can continue running.
+                        Ok(()) // Error occurred, but we can continue running.
                     }
                 }
             }
@@ -259,7 +267,7 @@ impl Worker {
                             "Withdrawn job with ID={} that has not been offered previously!",
                             job_info.id
                         );
-                        Ok(()) // Error occured, but we can continue running.
+                        Ok(()) // Error occurred, but we can continue running.
                     }
                 }
             }
@@ -285,7 +293,7 @@ impl Worker {
                             "Job to be killed with ID={} is not running on this worker!",
                             job_info.id
                         );
-                        Ok(()) // Error occured, but we can continue running.
+                        Ok(()) // Error occurred, but we can continue running.
                     }
                 }
             }

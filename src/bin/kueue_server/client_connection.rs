@@ -107,6 +107,8 @@ impl ClientConnection {
                 let job = self.manager.lock().unwrap().add_new_job(*job_info);
                 let job_info = job.lock().unwrap().info.clone();
 
+                log::debug!("New job {} received from client!", job_info.id);
+
                 // Send response to client.
                 self.stream
                     .send(&ServerToClientMessage::AcceptJob(job_info))

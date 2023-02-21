@@ -239,6 +239,7 @@ impl WorkerConnection {
                 Some(id) if id == self.id => {
                     // Update job and worker if the job has finished.
                     if job_info.status.is_finished() || job_info.status.is_canceled() {
+                        log::debug!("Job {} finished on {}!", job_info.id, self.name);
                         job.lock().unwrap().info.status = job_info.status.clone();
                         self.worker
                             .lock()
@@ -333,6 +334,8 @@ impl WorkerConnection {
                 job_lock.info.clone()
             };
 
+            log::debug!("Job {} accepted by {}!", job_info.id, self.name);
+
             // Confirm job -> Worker will start execution
             let job_id = job_info.id; // copy before move
             let message = ServerToWorkerMessage::ConfirmJobOffer(job_info);
@@ -378,6 +381,8 @@ impl WorkerConnection {
                 }
             };
 
+            log::debug!("Job {} deferred by {}!", job_info.id, self.name);
+
             // Update worker.
             let no_jobs_offered = {
                 let mut worker_lock = self.worker.lock().unwrap();
@@ -390,7 +395,7 @@ impl WorkerConnection {
                 self.offer_pending_job().await?;
             }
         } else {
-            bail!("Defered job not found: {:?}", job_info);
+            bail!("Deferred job not found: {:?}", job_info);
         }
         Ok(())
     }
@@ -424,6 +429,8 @@ impl WorkerConnection {
                     ),
                 }
             };
+
+            log::debug!("Job {} rejected by {}!", job_info.id, self.name);
 
             // Update worker.
             let no_jobs_offered = {
