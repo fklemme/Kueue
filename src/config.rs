@@ -27,7 +27,7 @@ pub struct CommonSettings {
     /// Network port used by the server.
     pub server_port: u16,
     /// Verbosity level of log messages.
-    /// Options: "trace", "debug", "info", "warn", and "error".
+    /// Options: `trace`, `debug`, `info`, `warn`, and `error`.
     pub log_level: String,
 }
 
@@ -35,7 +35,7 @@ pub struct CommonSettings {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ServerSettings {
     /// Space-separated list of IP addresses to listen on.
-    /// Defaults to: 0.0.0.0 (IPv4) and [::] (IPv6)
+    /// Defaults to: `0.0.0.0` (IPv4) and `[::]` (IPv6)
     pub bind_addresses: String,
     /// Time in seconds before a worker connection is considered timed-out.
     pub worker_timeout_seconds: i64,
