@@ -13,7 +13,7 @@ use std::{
     cmp::{max, min},
     sync::Arc,
 };
-use sysinfo::{CpuExt, CpuRefreshKind, System, SystemExt};
+use sysinfo::{CpuExt, System, SystemExt};
 use tokio::{
     net::TcpStream,
     sync::Notify,
@@ -122,9 +122,9 @@ impl Worker {
         }
     }
 
-    /// Perform challenge-response authentification.
+    /// Perform challenge-response authentication.
     async fn authenticate(&mut self) -> Result<()> {
-        // Authentification challenge is sent automatically after welcome.
+        // Authentication challenge is sent automatically after welcome.
         match self.stream.receive::<ServerToWorkerMessage>().await? {
             ServerToWorkerMessage::AuthChallenge(salt) => {
                 // Calculate response.
@@ -155,7 +155,7 @@ impl Worker {
             }
             ServerToWorkerMessage::AuthChallenge(_challenge) => {
                 // This is already handled before the main loop begins.
-                log::warn!("Received duplicate authentification challenge!");
+                log::warn!("Received duplicate authentication challenge!");
                 Ok(())
             }
             ServerToWorkerMessage::OfferJob(job_info) => {
@@ -293,13 +293,51 @@ impl Worker {
     }
 
     /// Returns available, unused resources of the worker.
-    fn get_available_resources(&self) -> Resources {
+    fn get_available_resources(&mut self) -> Resources {
+        // Refresh relevant system information.
+        self.system_info.refresh_cpu();
+        self.system_info.refresh_memory();
+
+        // Calculate available job slots.
+        assert!(
+            self.config.worker_settings.max_parallel_jobs
+                >= self.offered_jobs.len() + self.running_jobs.len()
+        );
+        let available_job_slots = self.config.worker_settings.max_parallel_jobs
+            - (self.offered_jobs.len() + self.running_jobs.len());
+
+        // Calculate available cpus.
+        let total_cpus = self.system_info.cpus().len() as i64;
+
         let allocated_cpus: i64 = self
             .offered_jobs
             .iter()
             .chain(self.running_jobs.iter())
             .map(|job| job.info.resources.cpus as i64)
             .sum();
+
+        let available_cpus = if self.config.worker_settings.dynamic_check_free_resources {
+            let busy_cpus = self.system_info.load_average().one.ceil() as i64;
+
+            // TODO: Is this calculation better? Maybe working on Windows as well?
+            // let busy_cpus = self
+            //     .system_info
+            //     .cpus()
+            //     .iter()
+            //     .map(|cpu| cpu.cpu_usage())
+            //     .sum::<f32>();
+            // let busy_cpus = (busy_cpus / 100.0 / total_cpus as f32).ceil() as i64;
+
+            let busy_cpus = (busy_cpus as f64
+                * self.config.worker_settings.dynamic_cpu_load_scale_factor)
+                .ceil() as i64;
+            max(0, total_cpus - max(allocated_cpus, busy_cpus))
+        } else {
+            max(0, total_cpus - allocated_cpus)
+        };
+
+        // Calculate available memory.
+        let total_ram_mb = (self.system_info.total_memory() / 1024 / 1024) as i64;
 
         let allocated_ram_mb: i64 = self
             .offered_jobs
@@ -308,15 +346,6 @@ impl Worker {
             .map(|job| job.info.resources.ram_mb as i64)
             .sum();
 
-        let total_cpus = self.system_info.cpus().len() as i64;
-        let available_cpus = if self.config.worker_settings.dynamic_check_free_resources {
-            let busy_cpus = self.system_info.load_average().one.ceil() as i64;
-            max(0, total_cpus - max(allocated_cpus, busy_cpus))
-        } else {
-            max(0, total_cpus - allocated_cpus)
-        };
-
-        let total_ram_mb = (self.system_info.total_memory() / 1024 / 1024) as i64;
         let available_ram_mb = if self.config.worker_settings.dynamic_check_free_resources {
             let available_ram_mb = (self.system_info.available_memory() / 1024 / 1024) as i64;
             max(0, min(total_ram_mb - allocated_ram_mb, available_ram_mb))
@@ -324,22 +353,25 @@ impl Worker {
             max(0, total_ram_mb - allocated_ram_mb)
         };
 
-        Resources::new(available_cpus as usize, available_ram_mb as usize)
+        Resources::new(
+            available_job_slots,
+            available_cpus as usize,
+            available_ram_mb as usize,
+        )
     }
 
     /// Returns "true" if there are enough resources free to
     /// fit the demand of the given "required" resources.
-    fn resources_available(&self, required: &Resources) -> bool {
+    fn resources_available(&mut self, required: &Resources) -> bool {
         let available = self.get_available_resources();
-
-        (available.cpus >= required.cpus) && (available.ram_mb >= required.ram_mb)
+        required.fit_into(&available)
     }
 
     /// Update and report hardware information and system load.
     async fn update_hw_status(&mut self) -> Result<(), MessageError> {
         // Refresh relevant system information.
-        self.system_info
-            .refresh_cpu_specifics(CpuRefreshKind::new().with_frequency());
+        self.system_info.refresh_cpu();
+        self.system_info.refresh_memory();
 
         // Get CPU cores, frequency, and RAM.
         let cpu_cores = self.system_info.cpus().len();

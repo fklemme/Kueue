@@ -69,7 +69,11 @@ impl Client {
                 // Issue job.
                 let cwd = std::env::current_dir()?;
                 let cwd = canonicalize(cwd)?;
-                let resources = Resources::new(cpus, ram_mb);
+                let resources = Resources::new(
+                    1,
+                    cpus.unwrap_or(self.config.client_settings.job_default_cpus),
+                    ram_mb.unwrap_or(self.config.client_settings.job_default_ram_mb),
+                );
                 let job_info = JobInfo::new(cmd, cwd, resources, stdout, stderr);
                 let message = ClientToServerMessage::IssueJob(Box::new(job_info));
                 self.stream.send(&message).await?;
