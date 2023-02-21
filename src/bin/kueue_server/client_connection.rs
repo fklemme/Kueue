@@ -203,7 +203,11 @@ impl ClientConnection {
                 // As simplification, we assume that all future jobs will run with
                 // the same degree of parallelization as the currently running jobs.
                 let pending_jobs_eta_seconds = if jobs_pending > jobs_running {
-                    jobs_pending as i64 * job_avg_run_time_seconds / jobs_running as i64
+                    if jobs_running > 0 {
+                        jobs_pending as i64 * job_avg_run_time_seconds / jobs_running as i64
+                    } else {
+                        jobs_pending as i64 * job_avg_run_time_seconds
+                    }
                 } else if jobs_pending > 0 {
                     job_avg_run_time_seconds
                 } else {
