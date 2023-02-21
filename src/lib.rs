@@ -23,12 +23,32 @@ pub mod structs;
 
 #[cfg(test)]
 mod tests {
-    use crate::config::Config;
+    use crate::{
+        config::Config,
+        messages::{ClientToServerMessage, HelloMessage},
+    };
 
     #[test]
     fn general_test_setup() {
         // TODO: Is it possible to have some kind of integration test here?
         let _config = Config::new(None);
         // TODO...
+    }
+
+    #[test]
+    fn serde_message() {
+        // Run with `cargo test --lib -- --nocapture` to see output.
+
+        let message = HelloMessage::HelloFromClient;
+        let buffer = serde_json::to_vec(&message).unwrap();
+        println!("Hello: {}", String::from_utf8(buffer).unwrap());
+
+        let message = ClientToServerMessage::ListWorkers;
+        let buffer = serde_json::to_vec(&message).unwrap();
+        println!("ListWorkers: {}", String::from_utf8(buffer).unwrap());
+
+        let message = ClientToServerMessage::Bye;
+        let buffer = serde_json::to_vec(&message).unwrap();
+        println!("Bye: {}", String::from_utf8(buffer).unwrap());
     }
 }

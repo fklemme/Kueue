@@ -40,7 +40,6 @@ impl MessageStream {
     pub async fn send<T: Serialize + Debug>(&mut self, message: &T) -> Result<(), MessageError> {
         log::trace!("Sending message: {:?}", message);
         let buffer = serde_json::to_vec(message).unwrap();
-        //log::trace!("JSON message: {:?}", String::from_utf8(buffer.clone()));
 
         match self.stream.write_all(&buffer).await {
             Ok(()) => Ok(()),
