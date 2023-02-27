@@ -71,6 +71,8 @@ pub enum Command {
         #[arg(short, long, default_value_t = false)]
         kill: bool,
     },
+    /// Remove finished and canceled jobs from the server.
+    CleanJobs,
     /// Query information about available workers.
     ListWorkers,
     /// Query information about a specific worker.

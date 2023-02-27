@@ -299,6 +299,17 @@ impl ClientConnection {
                 self.stream.send(&message).await?;
                 Ok(())
             }
+            ClientToServerMessage::CleanJobs => {
+                self.is_authenticated().await?;
+
+                self.manager.lock().unwrap().clean_jobs();
+                let message = ServerToClientMessage::RequestResponse {
+                    success: true,
+                    text: "Removed finished and canceled jobs!".to_string(),
+                };
+                self.stream.send(&message).await?;
+                Ok(())
+            }
             ClientToServerMessage::ListWorkers => {
                 // Get worker list.
                 let worker_list = self.manager.lock().unwrap().get_all_worker_infos();

@@ -185,6 +185,15 @@ impl Manager {
         }
     }
 
+    /// Remove jobs that have been finished or canceled.
+    pub fn clean_jobs(&mut self) {
+        self.jobs.retain(|_, job| {
+            let job_lock = job.lock().unwrap();
+            let finished = job_lock.info.status.is_finished() || job_lock.info.status.is_canceled();
+            !finished // retain unfinished jobs
+        });
+    }
+
     /// Inspect every job and "repair" if needed.
     pub fn run_maintenance(&mut self) {
         let mut jobs_to_be_removed: Vec<usize> = Vec::new();

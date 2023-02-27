@@ -55,6 +55,7 @@ pub enum ClientToServerMessage {
         id: usize,
         kill: bool,
     },
+    CleanJobs,
     ListWorkers,
     ShowWorker {
         id: usize,

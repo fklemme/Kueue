@@ -162,11 +162,29 @@ impl Client {
                 }
             }
             Command::RemoveJob { id, kill } => {
-                // This command requires authentification.
+                // This command requires authentication.
                 self.authenticate().await?;
 
                 // Remove job from queue.
                 let message = ClientToServerMessage::RemoveJob { id, kill };
+                self.stream.send(&message).await?;
+
+                // Await results.
+                match self.stream.receive::<ServerToClientMessage>().await? {
+                    ServerToClientMessage::RequestResponse { success: _, text } => {
+                        println!("{}", text)
+                    }
+                    other => {
+                        bail!("Expected RequestResponse, received: {:?}", other);
+                    }
+                }
+            }
+            Command::CleanJobs => {
+                // This command requires authentication.
+                self.authenticate().await?;
+
+                // Remove all finished jobs.
+                let message = ClientToServerMessage::CleanJobs;
                 self.stream.send(&message).await?;
 
                 // Await results.
