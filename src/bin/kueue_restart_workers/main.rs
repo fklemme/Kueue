@@ -1,3 +1,9 @@
+//! # Kueue_restart_workers
+//!
+//! Small and simple tool to restart worker processes on remote machines.
+
+#![warn(clippy::missing_docs_in_private_items)]
+
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use kueue_lib::config::Config;
@@ -5,8 +11,7 @@ use simple_logger::SimpleLogger;
 use ssh2::Session;
 use std::{io::Read, net::TcpStream, path::PathBuf, thread::sleep, time::Duration};
 
-//#![warn(clippy::missing_docs_in_private_items)]
-
+/// Command line interface.
 #[derive(Parser, Debug)]
 #[command(version, author, about)]
 pub struct Cli {
@@ -47,6 +52,7 @@ fn main() -> Result<()> {
     }
 }
 
+/// Connect to remote machine and restart worker process, if it is not running.
 fn process_worker(worker: &str, ssh_user: &str) -> Result<()> {
     log::trace!("Processing worker {}...", worker);
 
