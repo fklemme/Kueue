@@ -10,6 +10,7 @@ use simple_logger::SimpleLogger;
 use std::path::PathBuf;
 use worker::Worker;
 
+/// Command line interface for the worker.
 #[derive(Parser, Debug)]
 #[command(version, author, about)]
 pub struct Cli {

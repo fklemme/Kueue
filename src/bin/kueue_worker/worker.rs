@@ -29,7 +29,7 @@ pub struct Worker {
     system_info: System,
     /// Jobs offered to the worker but not yet confirmed or started.
     offered_jobs: Vec<Job>,
-    /// Currently running jobs on the worker.
+    /// Jobs currently running on the worker.
     running_jobs: Vec<Job>,
 }
 
@@ -63,15 +63,15 @@ impl Worker {
         })
     }
 
-    /// Perform message and job handling. This function will run indefinitly.
+    /// Perform message and job handling. This function will run indefinitely.
     pub async fn run(&mut self) -> Result<()> {
         // Perform hello/welcome handshake.
         self.connect_to_server().await?;
 
-        // Perform challenge-response authentification.
+        // Perform challenge-response authentication.
         self.authenticate().await?;
 
-        // Send regular updates about hardware and load to the server.
+        // Send regular updates about system, load, and resources to the server.
         let notify_update_hw = Arc::clone(&self.notify_update_hw);
         tokio::spawn(async move {
             loop {
@@ -94,7 +94,15 @@ impl Worker {
                 }
                 // Or, get active when notified by timer.
                 _ = self.notify_update_hw.notified() => {
+                    // Update server about system and load.
+                    // Also used as "keep alive" signal.
                     self.update_hw_status().await?;
+                    // Also send an update on available resources. This is
+                    // important when "dynamic resources" are used. Otherwise,
+                    // the server might see an outdated, full-loaded worker
+                    // with no running jobs and will never offer any new jobs.
+                    let message = WorkerToServerMessage::UpdateResources(self.get_available_resources());
+                    self.stream.send(&message).await?;
                 }
                 // Or, get active when a job finishes.
                 _ = self.notify_job_status.notified() => {
