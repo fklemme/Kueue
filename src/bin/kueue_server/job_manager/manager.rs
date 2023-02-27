@@ -108,10 +108,8 @@ impl Manager {
                 .collect();
             for job_id in job_ids {
                 if let Some(job) = self.jobs.get(&job_id) {
-                    let job_res = job.lock().unwrap().info.resources.clone();
-                    if (job_res.cpus <= resource_limit.cpus)
-                        && (job_res.ram_mb <= resource_limit.ram_mb)
-                    {
+                    let job_resources = job.lock().unwrap().info.resources.clone();
+                    if job_resources.fit_into(resource_limit) {
                         // Found matching job.
                         self.jobs_waiting_for_assignment.remove(&job_id);
                         return Some(Arc::clone(job));
@@ -345,7 +343,7 @@ mod tests {
         let mut manager = Manager::new(config);
         let cmd = vec!["ls".to_string(), "-la".to_string()];
         let cwd: PathBuf = "/tmp".into();
-        let resources = Resources::new(8, 8 * 1024);
+        let resources = Resources::new(1, 8, 8 * 1024);
         let job_info = JobInfo::new(cmd, cwd, resources, None, None);
         manager.add_new_job(job_info);
         assert_eq!(manager.get_all_job_infos().len(), 1);
@@ -357,7 +355,7 @@ mod tests {
         let mut manager = Manager::new(config);
         let cmd = vec!["ls".to_string(), "-la".to_string()];
         let cwd: PathBuf = "/tmp".into();
-        let resources = Resources::new(8, 8 * 1024);
+        let resources = Resources::new(1, 8, 8 * 1024);
         let job_info = JobInfo::new(cmd, cwd, resources.clone(), None, None);
         let job = manager.add_new_job(job_info);
 

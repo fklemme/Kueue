@@ -27,6 +27,7 @@ impl Server {
         let manager_handle = Arc::clone(&manager);
         tokio::spawn(async move {
             loop {
+                // TODO: Put this into the config as well.
                 sleep(Duration::from_secs(5 * 60)).await;
                 log::trace!("Performing job maintenance...");
                 manager_handle.lock().unwrap().run_maintenance();

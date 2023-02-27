@@ -70,19 +70,32 @@ impl JobInfo {
     }
 }
 
-/// Resources available on worker or required by a job.
+/// Represents a combination of resources, either available on a worker or required by a job.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Resources {
-    /// Required/reserved CPU cores to run the command.
+    /// Available job slots on the worker. For jobs, this should be always `1`.
+    pub job_slots: usize,
+    /// CPU cores, available on worker or required to run the command.
     pub cpus: usize,
-    /// Required/reserved RAM (in megabytes) to run the command.
+    /// RAM (in megabytes), available on worker or required to run the command.
     pub ram_mb: usize,
 }
 
 impl Resources {
     /// Creates a new resources instance.
-    pub fn new(cpus: usize, ram_mb: usize) -> Self {
-        Resources { cpus, ram_mb }
+    pub fn new(job_slots: usize, cpus: usize, ram_mb: usize) -> Self {
+        Resources {
+            job_slots,
+            cpus,
+            ram_mb,
+        }
+    }
+
+    /// Returns `true` if all components of this resource are smaller or equal than the `required` resource.
+    pub fn fit_into(&self, required: &Resources) -> bool {
+        (self.job_slots <= required.job_slots)
+            && (self.cpus <= required.cpus)
+            && (self.ram_mb <= required.ram_mb)
     }
 }
 
@@ -207,7 +220,7 @@ impl WorkerInfo {
             last_updated: Utc::now(),
             jobs_offered: BTreeSet::new(),
             jobs_running: BTreeSet::new(),
-            free_resources: Resources::new(0, 0),
+            free_resources: Resources::new(0, 0, 0),
         }
     }
 
@@ -224,6 +237,11 @@ impl WorkerInfo {
     /// resources, the maximum occupation is returned. E.g., if some memory is
     /// still available but all cpus are take, 100% occupation is returned.
     pub fn resource_load(&self) -> f64 {
+        // TODO: Should job slots be considered in this calculation?
+        if self.free_resources.job_slots == 0 {
+            return 1.0; // fully busy!
+        }
+
         let cpu_busy = if self.hw.cpu_cores == 0 {
             1.0
         } else {

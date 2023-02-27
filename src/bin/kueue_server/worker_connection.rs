@@ -62,7 +62,7 @@ impl WorkerConnection {
             manager,
             config,
             worker,
-            free_resources: Resources::new(0, 0),
+            free_resources: Resources::new(0, 0, 0),
             rejected_jobs: BTreeSet::new(),
             deferred_jobs: BTreeSet::new(),
             kill_job_rx,
@@ -75,7 +75,7 @@ impl WorkerConnection {
     pub async fn run(&mut self) {
         // Hello/Welcome messages are already exchanged at this point.
 
-        // Send authentification challenge.
+        // Send authentication challenge.
         let message = ServerToWorkerMessage::AuthChallenge(self.salt.clone());
         if let Err(e) = self.stream.send(&message).await {
             log::error!("Failed to send AuthChallenge: {}", e);
@@ -109,7 +109,7 @@ impl WorkerConnection {
                         self.connection_closed = true; // end worker session
                     } else {
                         // Offer new job, if no job is currently offered.
-                        if self .worker.lock().unwrap() .info.jobs_offered.is_empty() {
+                        if self.worker.lock().unwrap().info.jobs_offered.is_empty() {
                             if let Err(e) = self.offer_pending_job().await {
                                 log::error!("Failed to offer new job: {}", e);
                                 self.connection_closed = true; // end worker session
@@ -147,7 +147,7 @@ impl WorkerConnection {
                 let mut worker_lock = self.worker.lock().unwrap();
                 // Update information in shared worker object.
                 worker_lock.info.hw = hw_info;
-                // This happens regularily, indicating that the worker is still alive.
+                // This happens regularly, indicating that the worker is still alive.
                 worker_lock.info.last_updated = Utc::now();
                 Ok(()) // No response to worker needed.
             }
@@ -163,7 +163,7 @@ impl WorkerConnection {
                 // Update resources.
                 self.free_resources = resources.clone();
 
-                // Forget all defered jobs.
+                // Forget all deferred jobs.
                 self.deferred_jobs.clear();
 
                 let no_job_offered = {
@@ -213,7 +213,7 @@ impl WorkerConnection {
             self.authenticated = true;
             Ok(())
         } else {
-            Err(anyhow!("Worker {} failed authentification!", self.name))
+            Err(anyhow!("Worker {} failed authentication!", self.name))
         }
     }
 
@@ -239,6 +239,7 @@ impl WorkerConnection {
                 Some(id) if id == self.id => {
                     // Update job and worker if the job has finished.
                     if job_info.status.is_finished() || job_info.status.is_canceled() {
+                        log::debug!("Job {} finished on {}!", job_info.id, self.name);
                         job.lock().unwrap().info.status = job_info.status.clone();
                         self.worker
                             .lock()
@@ -333,6 +334,8 @@ impl WorkerConnection {
                 job_lock.info.clone()
             };
 
+            log::debug!("Job {} accepted by {}!", job_info.id, self.name);
+
             // Confirm job -> Worker will start execution
             let job_id = job_info.id; // copy before move
             let message = ServerToWorkerMessage::ConfirmJobOffer(job_info);
@@ -371,12 +374,14 @@ impl WorkerConnection {
                         self.deferred_jobs.insert(job_lock.info.id);
                     }
                     _ => bail!(
-                        "Defered job was not offered to worker {}: {:?}",
+                        "Deferred job was not offered to worker {}: {:?}",
                         self.name,
                         job_lock.info.status
                     ),
                 }
             };
+
+            log::debug!("Job {} deferred by {}!", job_info.id, self.name);
 
             // Update worker.
             let no_jobs_offered = {
@@ -390,7 +395,7 @@ impl WorkerConnection {
                 self.offer_pending_job().await?;
             }
         } else {
-            bail!("Defered job not found: {:?}", job_info);
+            bail!("Deferred job not found: {:?}", job_info);
         }
         Ok(())
     }
@@ -424,6 +429,8 @@ impl WorkerConnection {
                     ),
                 }
             };
+
+            log::debug!("Job {} rejected by {}!", job_info.id, self.name);
 
             // Update worker.
             let no_jobs_offered = {

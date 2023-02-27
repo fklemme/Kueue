@@ -23,7 +23,6 @@ pub struct Cli {
 fn main() -> Result<()> {
     // Read command line arguments.
     let args = Cli::parse();
-    log::debug!("{:?}", args);
 
     // Read configuration from file.
     let config = Config::new(args.config).map_err(|e| anyhow!("Failed to load config: {}", e))?;

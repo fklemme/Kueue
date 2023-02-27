@@ -46,10 +46,32 @@ pub struct ServerSettings {
 /// Settings related to the worker crate.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct WorkerSettings {
-    /// If set "true", the worker's maximum available resources will dynamically
-    /// grow and shrink with free resources on the host system. This setting is
-    /// useful for shared machines, which are not exclusively used with Kueue.
+    /// Defines an absolute upper limit of parallel jobs for this worker. If
+    /// this limit is reached, no more jobs will be started on the worker,
+    /// even if enough other resources would be available.
+    pub max_parallel_jobs: usize,
+    /// When set to `true`, the current system utilization is considered when
+    /// calculating available resources for job scheduling. Available resources
+    /// will be calculated as "total system resources - max(busy resources,
+    /// resources reserved by running jobs)". This setting can be useful for
+    /// shared machines, which are not exclusively used with Kueue. If this is
+    /// set to `false`, current system utilization is ignored and available
+    /// resources are simply calculated as "total resources - resources reserved
+    /// by running jobs".
     pub dynamic_check_free_resources: bool,
+    /// When calculating the amount of available CPUs based on current system
+    /// occupation, this factor is applied to the measured CPU utilization. For
+    /// instance, with a value of `2.0`, 50% CPU utilization would raise the
+    /// calculated system occupation to 100%, leaving no room for any jobs.
+    /// This setting has no effect if `dynamic_check_free_resources` is `false`.
+    pub dynamic_cpu_load_scale_factor: f64,
+}
+
+/// Settings related to the client crate.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ClientSettings {
+    pub job_default_cpus: usize,
+    pub job_default_ram_mb: usize,
 }
 
 /// Setting related to the optional "restart_workers" crate.
@@ -70,6 +92,8 @@ pub struct Config {
     pub server_settings: ServerSettings,
     /// Settings related to the worker crate.
     pub worker_settings: WorkerSettings,
+    /// Settings related to the client crate.
+    pub client_settings: ClientSettings,
     /// Setting related to the optional "restart_workers" crate.
     pub restart_workers: Option<RestartWorkers>,
 }
@@ -123,8 +147,15 @@ impl Config {
         let s = s.set_default("server_settings.job_cleanup_after_minutes", 48 * 60)?;
 
         // Default worker settings.
+        let s = s.set_default("worker_settings.max_parallel_jobs", 100)?;
         let s = s.set_default("worker_settings.dynamic_check_free_resources", true)?;
+        let s = s.set_default("worker_settings.dynamic_cpu_load_scale_factor", 1.0)?;
 
+        // Default client settings.
+        let s = s.set_default("client_settings.job_default_cpus", 8)?;
+        let s = s.set_default("client_settings.job_default_ram_mb", 8 * 1024)?;
+
+        // Add config file as source.
         let s = s
             .add_source(
                 config::File::with_name(config_path.to_string_lossy().as_ref()).required(false),
