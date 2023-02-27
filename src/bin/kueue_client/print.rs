@@ -685,6 +685,10 @@ pub fn worker_info(worker_info: WorkerInfo) {
     println!("   jobs running: {}", jobs_running);
 
     println!(
+        "   free jobs slots: {}",
+        worker_info.free_resources.job_slots
+    );
+    println!(
         "   free cpus: {} / {}",
         worker_info.free_resources.cpus, worker_info.hw.cpu_cores
     );
