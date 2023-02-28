@@ -1,6 +1,7 @@
 //! Command line interface for the client application.
 
 use clap::{Parser, Subcommand};
+use clap_complete::Shell;
 use std::path::PathBuf;
 
 #[derive(Clone, Parser, Debug)]
@@ -9,6 +10,7 @@ pub struct Cli {
     /// Path to config file.
     #[arg(short, long)]
     pub config: Option<PathBuf>,
+    /// Subcommands for Kueue.
     #[command(subcommand)]
     pub command: Command,
 }
@@ -79,6 +81,11 @@ pub enum Command {
     ShowWorker {
         /// ID of the worker to be queried.
         id: usize,
+    },
+    /// Generate shell completion script for bash, zsh, etc.
+    Complete {
+        /// Shell to generate the completion script for.
+        shell: Shell,
     },
 }
 

@@ -231,6 +231,8 @@ impl Client {
                     }
                 }
             }
+            // Shell completion is already handled in main function.
+            Command::Complete { .. } => unreachable!(),
         }
 
         // Say bye to gracefully shut down connection.
@@ -240,12 +242,12 @@ impl Client {
     }
 
     async fn authenticate(&mut self) -> Result<()> {
-        // Request authentification.
+        // Request authentication.
         self.stream
             .send(&ClientToServerMessage::AuthRequest)
             .await?;
 
-        // Await authentification challenge.
+        // Await authentication challenge.
         match self.stream.receive::<ServerToClientMessage>().await? {
             ServerToClientMessage::AuthChallenge(salt) => {
                 // Calculate response.
@@ -265,13 +267,13 @@ impl Client {
             }
         }
 
-        // Await authentification confirmation.
+        // Await authentication confirmation.
         match self.stream.receive::<ServerToClientMessage>().await? {
             ServerToClientMessage::AuthAccepted(accepted) => {
                 if accepted {
                     Ok(())
                 } else {
-                    Err(anyhow!("Authentification failed!"))
+                    Err(anyhow!("Authentication failed!"))
                 }
             }
             other => Err(anyhow!("Expected AuthAccepted, received: {:?}", other)),

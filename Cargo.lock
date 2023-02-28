@@ -156,6 +156,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "clap_complete"
+version = "4.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "501ff0a401473ea1d4c3b125ff95506b62c5bc5768d818634195fbb7c4ad5ff4"
+dependencies = [
+ "clap 4.1.8",
+]
+
+[[package]]
 name = "clap_derive"
 version = "3.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -685,12 +694,13 @@ dependencies = [
 
 [[package]]
 name = "kueue"
-version = "0.15.1"
+version = "0.15.2"
 dependencies = [
  "anyhow",
  "base64 0.21.0",
  "chrono",
  "clap 4.1.8",
+ "clap_complete",
  "config",
  "console",
  "directories",

@@ -9,16 +9,26 @@ mod client;
 mod print;
 
 use anyhow::{anyhow, bail, Result};
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::generate;
 use cli::Cli;
 use client::Client;
 use kueue_lib::config::Config;
 use simple_logger::SimpleLogger;
+use std::io::stdout;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // Read command line arguments.
     let args = Cli::parse();
+
+    // Generate shell completion scripts.
+    if let cli::Command::Complete { shell } = args.command {
+        let mut app = Cli::command();
+        let name = app.get_name().to_string();
+        generate(shell, &mut app, name, &mut stdout());
+        return Ok(());
+    }
 
     // Read configuration from file or defaults.
     let config =

@@ -1,6 +1,6 @@
 [package]
 name = "kueue"
-version = "0.15.1"
+version = "0.15.2"
 authors = ["Florian Klemme <mail@florianklemme.de>"]
 edition = "2021"
 description = "A robust, user-level, work-stealing, distributed task scheduler."
@@ -24,6 +24,7 @@ anyhow = "1.0"
 base64 = "0.21"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.1", features = ["derive"] }
+clap_complete = "4.1"
 config = "0.13"
 console = "0.15"
 directories = "4.0"
