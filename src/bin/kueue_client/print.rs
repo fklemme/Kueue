@@ -510,7 +510,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             max("avg freq".len(), max_freq_col_width),
             max("memory".len(), max_memory_col_width),
             "jobs".len(),
-            "busy".len(),
+            max("busy".len(), max_busy_col_width),
             max_load_1_col_width,
             max_load_5_col_width,
             max_load_15_col_width,
@@ -524,7 +524,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             0, // cpu frequency
             0, // memory
             max_jobs_col_width,
-            max_busy_col_width,
+            0, // busy
             0, // load 1
             0, // load 5
             0, // load 15
@@ -576,7 +576,8 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
         println!(
             "| {: ^id_col$} | {: <worker_col$} | {: <os_col$} \
             | {: ^cores_col$} | {: ^freq_col$} | {: ^memory_col$} \
-            | {: ^jobs_col$} | {: ^busy_col$} | {: ^load_col$} | {: ^uptime_col$} |",
+            | {: ^jobs_col$} | {: ^busy_col$} | {: ^load_col$} \
+            | {: ^uptime_col$} |",
             style("id").bold().underlined(),
             style("worker name").bold().underlined(),
             style("operating system").bold().underlined(),
@@ -611,8 +612,9 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
 
             // Print line
             println!(
-                "| {: >id_col$} | {: <worker_col$} | {: <os_col$} | {: >cores_col$} \
-                | {: >freq_col$} | {: >memory_col$} | {: <jobs_col$} | {: >busy_col$} \
+                "| {: >id_col$} | {: <worker_col$} | {: <os_col$} \
+                | {: >cores_col$} | {: >freq_col$} | {: >memory_col$} \
+                | {: <jobs_col$} | {: >busy_col$} \
                 | {: >load_1_col$} {: >load_5_col$} {: >load_15_col$} \
                 | {: >uptime_col$} |",
                 info.id,
