@@ -8,7 +8,7 @@ use std::path::PathBuf;
 #[command(version, author, about)]
 pub struct Cli {
     /// Path to config file.
-    #[arg(short, long)]
+    #[arg(short, long, id = "PATH")]
     pub config: Option<PathBuf>,
     /// Subcommands for Kueue.
     #[command(subcommand)]
@@ -83,6 +83,12 @@ pub enum Command {
         id: usize,
     },
     /// Generate shell completion script for bash, zsh, etc.
+    ///
+    /// An easy long-term solution is to put `eval "$(kueue complete bash)"`
+    /// into your `~/.bashrc`, or the respective start-up script, depending on
+    /// your system. Alternatively, you can save the output of
+    /// `kueue complete bash` to a script file and source that file either from
+    /// your `~/.bashrc` or wherever needed.
     Complete {
         /// Shell to generate the completion script for.
         shell: Shell,

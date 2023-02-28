@@ -15,7 +15,7 @@ use worker::Worker;
 #[command(version, author, about)]
 pub struct Cli {
     /// Path to config file.
-    #[arg(short, long)]
+    #[arg(short, long, id = "PATH")]
     pub config: Option<PathBuf>,
 }
 
