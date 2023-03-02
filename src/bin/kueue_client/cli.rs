@@ -74,7 +74,14 @@ pub enum Command {
         kill: bool,
     },
     /// Remove finished and canceled jobs from the server.
-    CleanJobs,
+    ///
+    /// By default, only successfully finished jobs are cleaned up. Use the
+    /// `--all` flag to also remove failed jobs as well.
+    CleanJobs {
+        /// Remove all finished jobs, including failed ones.
+        #[arg(short, long, default_value_t = false)]
+        all: bool,
+    },
     /// Query information about available workers.
     ListWorkers,
     /// Query information about a specific worker.

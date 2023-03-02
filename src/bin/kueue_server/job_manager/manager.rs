@@ -186,12 +186,16 @@ impl Manager {
     }
 
     /// Remove jobs that have been finished or canceled.
-    pub fn clean_jobs(&mut self) {
-        self.jobs.retain(|_, job| {
-            let job_lock = job.lock().unwrap();
-            let finished = job_lock.info.status.is_finished() || job_lock.info.status.is_canceled();
-            !finished // retain unfinished jobs
-        });
+    /// If `all` is true, also remove failed jobs.
+    pub fn clean_jobs(&mut self, all: bool) {
+        let clean_pred = if all {
+            |status: &JobStatus| status.is_finished() || status.is_canceled()
+        } else {
+            |status: &JobStatus| status.has_succeeded() || status.is_canceled()
+        };
+
+        self.jobs
+            .retain(|_, job| !clean_pred(&job.lock().unwrap().info.status));
     }
 
     /// Inspect every job and "repair" if needed.

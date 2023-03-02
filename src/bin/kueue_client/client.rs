@@ -179,12 +179,12 @@ impl Client {
                     }
                 }
             }
-            Command::CleanJobs => {
+            Command::CleanJobs { all } => {
                 // This command requires authentication.
                 self.authenticate().await?;
 
-                // Remove all finished jobs.
-                let message = ClientToServerMessage::CleanJobs;
+                // Remove finished and canceled jobs.
+                let message = ClientToServerMessage::CleanJobs { all };
                 self.stream.send(&message).await?;
 
                 // Await results.
