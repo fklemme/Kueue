@@ -1,6 +1,6 @@
 use crate::job_manager::{Manager, Worker};
 use anyhow::{anyhow, bail, Result};
-use base64::{engine::general_purpose, Engine as _};
+use base64::{engine::general_purpose, Engine};
 use chrono::Utc;
 use kueue_lib::{
     config::Config,
@@ -19,16 +19,16 @@ use std::{
 use tokio::sync::mpsc;
 
 pub struct WorkerConnection {
-    id: usize,
+    id: u64,
     name: String,
     stream: MessageStream,
     manager: Arc<Mutex<Manager>>,
     config: Config,
     worker: Arc<Mutex<Worker>>,
     free_resources: Resources,
-    rejected_jobs: BTreeSet<usize>,
-    deferred_jobs: BTreeSet<usize>,
-    kill_job_rx: mpsc::Receiver<usize>,
+    rejected_jobs: BTreeSet<u64>,
+    deferred_jobs: BTreeSet<u64>,
+    kill_job_rx: mpsc::Receiver<u64>,
     connection_closed: bool,
     authenticated: bool,
     salt: String,
@@ -41,7 +41,7 @@ impl WorkerConnection {
         manager: Arc<Mutex<Manager>>,
         config: Config,
     ) -> Self {
-        let (kill_job_tx, kill_job_rx) = mpsc::channel::<usize>(10);
+        let (kill_job_tx, kill_job_rx) = mpsc::channel::<u64>(10);
         let worker = manager
             .lock()
             .unwrap()
@@ -268,7 +268,7 @@ impl WorkerConnection {
     /// Called upon receiving WorkerToServerMessage::UpdateJobResults.
     fn on_update_job_results(
         &self,
-        job_id: usize,
+        job_id: u64,
         stdout_text: Option<String>,
         stderr_text: Option<String>,
     ) -> Result<()> {
@@ -450,7 +450,7 @@ impl WorkerConnection {
     }
 
     async fn offer_pending_job(&mut self) -> Result<(), MessageError> {
-        let excluded_jobs: BTreeSet<usize> = self
+        let excluded_jobs: BTreeSet<u64> = self
             .rejected_jobs
             .iter()
             .chain(self.deferred_jobs.iter())

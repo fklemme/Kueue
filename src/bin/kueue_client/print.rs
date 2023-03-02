@@ -86,11 +86,11 @@ fn dots_back(text: String, len: usize) -> String {
     }
 }
 
-fn format_cpu_cores(cpu_cores: usize) -> String {
+fn format_cpu_cores(cpu_cores: u64) -> String {
     format!("{} x", cpu_cores)
 }
 
-fn format_memory_mb(memory_mb: usize) -> String {
+fn format_memory_mb(memory_mb: u64) -> String {
     format!("{} MB", memory_mb)
 }
 
@@ -132,12 +132,12 @@ fn format_status(job_info: &JobInfo) -> String {
 #[allow(clippy::too_many_arguments)]
 pub fn job_list(
     job_infos: Vec<JobInfo>,
-    jobs_pending: usize,
-    jobs_offered: usize,
-    jobs_running: usize,
-    jobs_succeeded: usize,
-    jobs_failed: usize,
-    jobs_canceled: usize,
+    jobs_pending: u64,
+    jobs_offered: u64,
+    jobs_running: u64,
+    jobs_succeeded: u64,
+    jobs_failed: u64,
+    jobs_canceled: u64,
     job_avg_run_time_seconds: i64,
     remaining_jobs_eta_seconds: i64,
 ) {
@@ -396,11 +396,11 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
     }
 }
 
-fn format_frequency(cpu_frequency: usize) -> String {
+fn format_frequency(cpu_frequency: u64) -> String {
     format!("{} MHz", cpu_frequency)
 }
 
-fn format_jobs(jobs_offered: &BTreeSet<usize>, jobs_running: &BTreeSet<usize>) -> String {
+fn format_jobs(jobs_offered: &BTreeSet<u64>, jobs_running: &BTreeSet<u64>) -> String {
     let jobs: Vec<String> = jobs_running
         .iter()
         .chain(jobs_offered.iter())
@@ -422,7 +422,7 @@ fn format_resource_load(load: f64, decimal: usize) -> StyledObject<String> {
     }
 }
 
-fn format_cpu_load(load: f64, cpu_cores: usize) -> StyledObject<String> {
+fn format_cpu_load(load: f64, cpu_cores: u64) -> StyledObject<String> {
     let load_fmt = format!("{:.1}", load);
     if load < (0.25 * cpu_cores as f64) {
         style(load_fmt).green()

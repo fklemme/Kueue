@@ -1,6 +1,6 @@
 use crate::job::Job;
 use anyhow::{anyhow, Result};
-use base64::{engine::general_purpose, Engine as _};
+use base64::{engine::general_purpose, Engine};
 use chrono::Utc;
 use kueue_lib::{
     config::Config,
@@ -317,10 +317,10 @@ impl Worker {
         // Calculate available job slots.
         assert!(
             self.config.worker_settings.max_parallel_jobs
-                >= self.offered_jobs.len() + self.running_jobs.len()
+                >= (self.offered_jobs.len() + self.running_jobs.len()) as u64
         );
         let available_job_slots = self.config.worker_settings.max_parallel_jobs
-            - (self.offered_jobs.len() + self.running_jobs.len());
+            - (self.offered_jobs.len() + self.running_jobs.len()) as u64;
 
         // Calculate available cpus.
         let total_cpus = self.system_info.cpus().len() as i64;
@@ -371,8 +371,8 @@ impl Worker {
 
         Resources::new(
             available_job_slots,
-            available_cpus as usize,
-            available_ram_mb as usize,
+            available_cpus as u64,
+            available_ram_mb as u64,
         )
     }
 
@@ -390,18 +390,18 @@ impl Worker {
         self.system_info.refresh_memory();
 
         // Get CPU cores, frequency, and RAM.
-        let cpu_cores = self.system_info.cpus().len();
+        let cpu_cores = self.system_info.cpus().len() as u64;
         let cpu_frequency = if cpu_cores > 0 {
             self.system_info
                 .cpus()
                 .iter()
-                .map(|cpu| cpu.frequency() as usize)
-                .sum::<usize>()
+                .map(|cpu| cpu.frequency())
+                .sum::<u64>()
                 / cpu_cores
         } else {
             0
         };
-        let total_ram_mb = (self.system_info.total_memory() / 1024 / 1024) as usize;
+        let total_ram_mb = self.system_info.total_memory() / 1024 / 1024;
 
         // Read system load.
         let load_avg = self.system_info.load_average();

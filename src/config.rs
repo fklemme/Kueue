@@ -37,10 +37,11 @@ pub struct ServerSettings {
     /// Space-separated list of IP addresses to listen on.
     /// Defaults to: `0.0.0.0` (IPv4) and `[::]` (IPv6)
     pub bind_addresses: String,
+    pub maintenance_interval_seconds: u64,
     /// Time in seconds before a worker connection is considered timed-out.
-    pub worker_timeout_seconds: i64,
-    pub job_offer_timeout_seconds: i64,
-    pub job_cleanup_after_minutes: i64,
+    pub worker_timeout_seconds: u64,
+    pub job_offer_timeout_seconds: u64,
+    pub job_cleanup_after_minutes: u64,
 }
 
 /// Settings related to the worker crate.
@@ -49,7 +50,7 @@ pub struct WorkerSettings {
     /// Defines an absolute upper limit of parallel jobs for this worker. If
     /// this limit is reached, no more jobs will be started on the worker,
     /// even if enough other resources would be available.
-    pub max_parallel_jobs: usize,
+    pub max_parallel_jobs: u64,
     /// When set to `true`, the current system utilization is considered when
     /// calculating available resources for job scheduling. Available resources
     /// will be calculated as "total system resources - max(busy resources,
@@ -70,8 +71,8 @@ pub struct WorkerSettings {
 /// Settings related to the client crate.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ClientSettings {
-    pub job_default_cpus: usize,
-    pub job_default_ram_mb: usize,
+    pub job_default_cpus: u64,
+    pub job_default_ram_mb: u64,
 }
 
 /// Setting related to the optional "restart_workers" crate.
@@ -142,6 +143,7 @@ impl Config {
 
         // Default server settings.
         let s = s.set_default("server_settings.bind_addresses", "0.0.0.0 [::]")?;
+        let s = s.set_default("server_settings.maintenance_interval_seconds", 60)?;
         let s = s.set_default("server_settings.worker_timeout_seconds", 5 * 60)?;
         let s = s.set_default("server_settings.job_offer_timeout_seconds", 60)?;
         let s = s.set_default("server_settings.job_cleanup_after_minutes", 48 * 60)?;

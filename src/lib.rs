@@ -37,7 +37,7 @@ mod tests {
 
     #[test]
     fn serde_message() {
-        // Run with `cargo test --lib -- --nocapture` to see output.
+        // Run tests with `cargo test --lib -- --nocapture` to see output.
 
         let message = HelloMessage::HelloFromClient;
         let buffer = serde_json::to_vec(&message).unwrap();

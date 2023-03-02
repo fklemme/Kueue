@@ -35,12 +35,12 @@ pub enum ClientToServerMessage {
     /// The server responds with a AuthAccepted(bool) to indicate if the
     /// authentication was successful.
     AuthResponse(String),
-    /// Issue a new job. The job's ID and status will be changed by the server.
+    /// Issue a new job. The job's ID and status will be ignored by the server.
     /// The server responds with a AcceptJob message and provide updated
     /// details. This command requires authentication.
     IssueJob(Box<JobInfo>),
     ListJobs {
-        num_jobs: usize,
+        num_jobs: u64,
         pending: bool,
         offered: bool,
         running: bool,
@@ -49,10 +49,10 @@ pub enum ClientToServerMessage {
         canceled: bool,
     },
     ShowJob {
-        id: usize,
+        id: u64,
     },
     RemoveJob {
-        id: usize,
+        id: u64,
         kill: bool,
     },
     CleanJobs {
@@ -60,7 +60,7 @@ pub enum ClientToServerMessage {
     },
     ListWorkers,
     ShowWorker {
-        id: usize,
+        id: u64,
     },
     Bye,
 }
@@ -77,12 +77,12 @@ pub enum ServerToClientMessage {
     AcceptJob(JobInfo),
     JobList {
         job_infos: Vec<JobInfo>,
-        jobs_pending: usize,
-        jobs_offered: usize,
-        jobs_running: usize,
-        jobs_succeeded: usize,
-        jobs_failed: usize,
-        jobs_canceled: usize,
+        jobs_pending: u64,
+        jobs_offered: u64,
+        jobs_running: u64,
+        jobs_succeeded: u64,
+        jobs_failed: u64,
+        jobs_canceled: u64,
         job_avg_run_time_seconds: i64,
         remaining_jobs_eta_seconds: i64,
     },
@@ -124,7 +124,7 @@ pub enum WorkerToServerMessage {
     UpdateHwInfo(HwInfo),
     UpdateJobStatus(JobInfo),
     UpdateJobResults {
-        job_id: usize,
+        job_id: u64,
         stdout_text: Option<String>,
         stderr_text: Option<String>,
     },

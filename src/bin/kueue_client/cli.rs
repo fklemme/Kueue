@@ -21,10 +21,10 @@ pub enum Command {
     Cmd {
         /// Required/reserved CPU cores to run the command.
         #[arg(short, long)]
-        cpus: Option<usize>,
+        cpus: Option<u64>,
         /// Required/reserved RAM (in megabytes) to run the command.
         #[arg(short, long)]
-        ram_mb: Option<usize>,
+        ram_mb: Option<u64>,
         /// Redirect stdout to the given file path. If "null" is provided, stdout is discarded.
         #[arg(short = 'o', long)]
         stdout: Option<String>,
@@ -39,7 +39,7 @@ pub enum Command {
     ListJobs {
         /// Number of most recent jobs to query.
         #[arg(short, long)]
-        num_jobs: Option<usize>,
+        num_jobs: Option<u64>,
         /// Show pending jobs.
         #[arg(short, long)]
         pending: bool,
@@ -62,12 +62,12 @@ pub enum Command {
     /// Query information about a specific job.
     ShowJob {
         /// ID of the job to be queried.
-        id: usize,
+        id: u64,
     },
     /// Remove a job from the queue.
     RemoveJob {
         /// ID of the job to be removed.
-        id: usize,
+        id: u64,
         /// If the jobs has already been started, kill the process on the
         /// worker. Otherwise, the job will continue without any effect.
         #[arg(short, long, default_value_t = false)]
@@ -87,7 +87,7 @@ pub enum Command {
     /// Query information about a specific worker.
     ShowWorker {
         /// ID of the worker to be queried.
-        id: usize,
+        id: u64,
     },
     /// Generate shell completion script for bash, zsh, etc.
     ///

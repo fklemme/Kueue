@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
     path::PathBuf,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 /// All information resembling a job. Only the outputs
@@ -13,7 +13,7 @@ use std::{
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct JobInfo {
     /// Unique job ID, assigned by the server.
-    pub id: usize,
+    pub id: u64,
     /// Command to be executed. First element is the name of the
     /// program. Further elements are arguments to the program.
     pub cmd: Vec<String>,
@@ -30,9 +30,9 @@ pub struct JobInfo {
 }
 
 /// Generate a unique job ID.
-fn next_job_id() -> usize {
+fn next_job_id() -> u64 {
     /// Keeps track of generated job IDs.
-    static JOB_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    static JOB_COUNTER: AtomicU64 = AtomicU64::new(0);
     JOB_COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
@@ -70,20 +70,21 @@ impl JobInfo {
     }
 }
 
-/// Represents a combination of resources, either available on a worker or required by a job.
+/// Represents a combination of resources, either
+/// available on a worker or required by a job.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Resources {
     /// Available job slots on the worker. For jobs, this should be always `1`.
-    pub job_slots: usize,
+    pub job_slots: u64,
     /// CPU cores, available on worker or required to run the command.
-    pub cpus: usize,
+    pub cpus: u64,
     /// RAM (in megabytes), available on worker or required to run the command.
-    pub ram_mb: usize,
+    pub ram_mb: u64,
 }
 
 impl Resources {
     /// Creates a new resources instance.
-    pub fn new(job_slots: usize, cpus: usize, ram_mb: usize) -> Self {
+    pub fn new(job_slots: u64, cpus: u64, ram_mb: u64) -> Self {
         Resources {
             job_slots,
             cpus,
@@ -91,7 +92,8 @@ impl Resources {
         }
     }
 
-    /// Returns `true` if all components of this resource are smaller or equal than the `required` resource.
+    /// Returns `true` if all components of this resource
+    /// are smaller or equal than the `required` resource.
     pub fn fit_into(&self, required: &Resources) -> bool {
         (self.job_slots <= required.job_slots)
             && (self.cpus <= required.cpus)
@@ -153,37 +155,37 @@ pub enum JobStatus {
 }
 
 impl JobStatus {
-    /// Returns true is the job is in "pending" state.
+    /// Returns `true` is the job is in "pending" state.
     pub fn is_pending(&self) -> bool {
         matches!(self, Self::Pending { .. })
     }
 
-    /// Returns true is the job is in "offered" state.
+    /// Returns `true` is the job is in "offered" state.
     pub fn is_offered(&self) -> bool {
         matches!(self, Self::Offered { .. })
     }
 
-    /// Returns true is the job is in "running" state.
+    /// Returns `true` is the job is in "running" state.
     pub fn is_running(&self) -> bool {
         matches!(self, Self::Running { .. })
     }
 
-    /// Returns true is the job is in "finished" state.
+    /// Returns `true` is the job is in "finished" state.
     pub fn is_finished(&self) -> bool {
         matches!(self, Self::Finished { .. })
     }
 
-    /// Returns true is the job is in "finished" state with exit code 0.
+    /// Returns `true` is the job is in "finished" state with exit code 0.
     pub fn has_succeeded(&self) -> bool {
         matches!(self, Self::Finished { return_code, .. } if *return_code == 0)
     }
 
-    /// Returns true is the job is in "finished" state with exit code not 0.
+    /// Returns `true` is the job is in "finished" state with exit code not 0.
     pub fn has_failed(&self) -> bool {
         matches!(self, Self::Finished { return_code, .. } if *return_code != 0)
     }
 
-    /// Returns true is the job is in "canceled" state.
+    /// Returns `true` is the job is in "canceled" state.
     pub fn is_canceled(&self) -> bool {
         matches!(self, Self::Canceled { .. })
     }
@@ -192,21 +194,21 @@ impl JobStatus {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct WorkerInfo {
     /// Unique worker ID, assigned by the server.
-    pub id: usize,
+    pub id: u64,
     /// Name of the worker, usually including host name.
     pub name: String,
     pub connected_since: DateTime<Utc>,
     pub hw: HwInfo,
     pub last_updated: DateTime<Utc>,
-    pub jobs_offered: BTreeSet<usize>,
-    pub jobs_running: BTreeSet<usize>,
+    pub jobs_offered: BTreeSet<u64>,
+    pub jobs_running: BTreeSet<u64>,
     pub free_resources: Resources,
 }
 
 /// Generate a unique worker ID.
-fn next_worker_id() -> usize {
+fn next_worker_id() -> u64 {
     /// Keeps track of generated worker IDs.
-    static JOB_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    static JOB_COUNTER: AtomicU64 = AtomicU64::new(0);
     JOB_COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
@@ -229,8 +231,8 @@ impl WorkerInfo {
     }
 
     /// Returns true if the worker timed out, given timeout_seconds as constraint.
-    pub fn timed_out(&self, timeout_seconds: i64) -> bool {
-        (Utc::now() - self.last_updated).num_seconds() > timeout_seconds
+    pub fn timed_out(&self, timeout_seconds: u64) -> bool {
+        (Utc::now() - self.last_updated).num_seconds() > timeout_seconds as i64
     }
 
     /// Returns the percentage of resources occupied on the worker. For multiple
@@ -262,9 +264,9 @@ impl WorkerInfo {
 pub struct HwInfo {
     pub kernel: String,
     pub distribution: String,
-    pub cpu_cores: usize,
-    pub cpu_frequency: usize,
-    pub total_ram_mb: usize,
+    pub cpu_cores: u64,
+    pub cpu_frequency: u64,
+    pub total_ram_mb: u64,
     pub load_info: LoadInfo,
 }
 

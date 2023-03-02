@@ -13,9 +13,9 @@ use tokio::sync::{mpsc, Notify};
 
 pub struct Manager {
     config: Config,
-    jobs: BTreeMap<usize, Arc<Mutex<Job>>>,
-    jobs_waiting_for_assignment: BTreeSet<usize>,
-    workers: BTreeMap<usize, Weak<Mutex<Worker>>>,
+    jobs: BTreeMap<u64, Arc<Mutex<Job>>>,
+    jobs_waiting_for_assignment: BTreeSet<u64>,
+    workers: BTreeMap<u64, Weak<Mutex<Worker>>>,
     new_jobs: Arc<Notify>,
 }
 
@@ -34,7 +34,7 @@ impl Manager {
     pub fn add_new_worker(
         &mut self,
         name: String,
-        kill_job_tx: mpsc::Sender<usize>,
+        kill_job_tx: mpsc::Sender<u64>,
     ) -> Arc<Mutex<Worker>> {
         let worker = Worker::new(name, kill_job_tx);
         let worker_id = worker.info.id;
@@ -61,7 +61,7 @@ impl Manager {
     }
 
     /// Get job by ID.
-    pub fn get_job(&self, id: usize) -> Option<Arc<Mutex<Job>>> {
+    pub fn get_job(&self, id: u64) -> Option<Arc<Mutex<Job>>> {
         self.jobs.get(&id).map(Arc::clone)
     }
 
@@ -75,7 +75,7 @@ impl Manager {
     }
 
     /// Get worker by ID.
-    pub fn get_worker(&self, id: usize) -> Option<Weak<Mutex<Worker>>> {
+    pub fn get_worker(&self, id: u64) -> Option<Weak<Mutex<Worker>>> {
         self.workers.get(&id).map(Weak::clone)
     }
 
@@ -93,14 +93,14 @@ impl Manager {
     /// Get a job to be assigned to a worker.
     pub fn get_job_waiting_for_assignment(
         &mut self,
-        exclude: &BTreeSet<usize>,
+        exclude: &BTreeSet<u64>,
         resource_limit: &Resources,
     ) -> Option<Arc<Mutex<Job>>> {
         if self.jobs_waiting_for_assignment.is_empty() {
             // No jobs marked waiting for assignment.
             None
         } else {
-            let job_ids: Vec<usize> = self
+            let job_ids: Vec<u64> = self
                 .jobs_waiting_for_assignment
                 .iter()
                 .filter(|job_id| !exclude.contains(job_id))
@@ -125,7 +125,7 @@ impl Manager {
     /// worker is associated with the job, a sender is returned that can be
     /// used to signal a kill instruction to the worker. The job_id sent over
     /// the returned sender indicates the job to be killed on the worker.
-    pub fn cancel_job(&mut self, id: usize, kill: bool) -> Result<Option<mpsc::Sender<usize>>> {
+    pub fn cancel_job(&mut self, id: u64, kill: bool) -> Result<Option<mpsc::Sender<u64>>> {
         match self.get_job(id) {
             Some(job) => {
                 let job_info = job.lock().unwrap().info.clone();
@@ -200,7 +200,7 @@ impl Manager {
 
     /// Inspect every job and "repair" if needed.
     pub fn run_maintenance(&mut self) {
-        let mut jobs_to_be_removed: Vec<usize> = Vec::new();
+        let mut jobs_to_be_removed: Vec<u64> = Vec::new();
         let mut new_jobs_pending = false;
 
         for (job_id, job) in &self.jobs {
@@ -220,7 +220,7 @@ impl Manager {
                 } => {
                     // A job should only be briefly in this state.
                     let offer_timed_out = (Utc::now() - *offered).num_seconds()
-                        > self.config.server_settings.job_offer_timeout_seconds;
+                        > self.config.server_settings.job_offer_timeout_seconds as i64;
                     let worker_id = job.lock().unwrap().worker_id;
                     let worker_alive = match worker_id {
                         Some(id) => match self.workers.get(&id) {
@@ -288,7 +288,7 @@ impl Manager {
                 JobStatus::Finished { finished, .. } => {
                     // Finished jobs should be cleaned up after some time.
                     let cleanup_job = (Utc::now() - *finished).num_minutes()
-                        > self.config.server_settings.job_cleanup_after_minutes;
+                        > self.config.server_settings.job_cleanup_after_minutes as i64;
                     if cleanup_job {
                         log::debug!("Clean up old finished job: {:?}", info);
                         jobs_to_be_removed.push(info.id);
@@ -297,7 +297,7 @@ impl Manager {
                 JobStatus::Canceled { canceled, .. } => {
                     // Canceled jobs should be cleaned up after some time.
                     let cleanup_job = (Utc::now() - *canceled).num_hours()
-                        > self.config.server_settings.job_cleanup_after_minutes;
+                        > self.config.server_settings.job_cleanup_after_minutes as i64;
                     if cleanup_job {
                         log::debug!("Clean up old canceled job: {:?}", info);
                         jobs_to_be_removed.push(info.id);
@@ -311,7 +311,7 @@ impl Manager {
             self.jobs.remove(&id);
         }
 
-        let mut workers_to_be_removed: Vec<usize> = Vec::new();
+        let mut workers_to_be_removed: Vec<u64> = Vec::new();
 
         // Remove workers that are no longer alive.
         for (worker_id, weak_worker) in &self.workers {

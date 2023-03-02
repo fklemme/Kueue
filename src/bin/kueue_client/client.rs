@@ -3,7 +3,7 @@ use crate::{
     print::{self, term_size},
 };
 use anyhow::{anyhow, bail, Result};
-use base64::{engine::general_purpose, Engine as _};
+use base64::{engine::general_purpose, Engine};
 use kueue_lib::{
     config::Config,
     messages::stream::MessageStream,
@@ -101,7 +101,7 @@ impl Client {
                 // Query jobs.
                 let message = ClientToServerMessage::ListJobs {
                     // Current space (height) in the terminal to show jobs.
-                    num_jobs: num_jobs.unwrap_or(term_size().1 - 4),
+                    num_jobs: num_jobs.unwrap_or(term_size().1 as u64 - 4),
                     pending,
                     offered,
                     running,

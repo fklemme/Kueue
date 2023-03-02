@@ -25,10 +25,11 @@ impl Server {
 
         // Maintain job manager, re-issuing jobs of dead workers, etc.
         let manager_handle = Arc::clone(&manager);
+        let maintenance_interval_seconds = config.server_settings.maintenance_interval_seconds;
         tokio::spawn(async move {
             loop {
                 // TODO: Put this into the config as well.
-                sleep(Duration::from_secs(5 * 60)).await;
+                sleep(Duration::from_secs(maintenance_interval_seconds)).await;
                 log::trace!("Performing job maintenance...");
                 manager_handle.lock().unwrap().run_maintenance();
                 // TODO: Put something to allow shutdown.

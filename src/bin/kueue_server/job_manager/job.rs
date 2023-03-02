@@ -2,7 +2,7 @@ use kueue_lib::structs::JobInfo;
 
 pub struct Job {
     pub info: JobInfo,
-    pub worker_id: Option<usize>,
+    pub worker_id: Option<u64>,
     pub stdout_text: Option<String>,
     pub stderr_text: Option<String>,
 }

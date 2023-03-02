@@ -1,6 +1,6 @@
 use crate::job_manager::Manager;
 use anyhow::{anyhow, Result};
-use base64::{engine::general_purpose, Engine as _};
+use base64::{engine::general_purpose, Engine};
 use chrono::Utc;
 use kueue_lib::{
     config::Config,
@@ -135,27 +135,27 @@ impl ClientConnection {
                 let jobs_pending = job_infos
                     .iter()
                     .filter(|job_info| job_info.status.is_pending())
-                    .count();
+                    .count() as u64;
                 let jobs_offered = job_infos
                     .iter()
                     .filter(|job_info| job_info.status.is_offered())
-                    .count();
+                    .count() as u64;
                 let jobs_running = job_infos
                     .iter()
                     .filter(|job_info| job_info.status.is_running())
-                    .count();
+                    .count() as u64;
                 let jobs_succeeded = job_infos
                     .iter()
                     .filter(|job_info| job_info.status.has_succeeded())
-                    .count();
+                    .count() as u64;
                 let jobs_failed = job_infos
                     .iter()
                     .filter(|job_info| job_info.status.has_failed())
-                    .count();
+                    .count() as u64;
                 let jobs_canceled = job_infos
                     .iter()
                     .filter(|job_info| job_info.status.is_canceled())
-                    .count();
+                    .count() as u64;
 
                 // Gather some information for metrics.
                 let now = Utc::now();
@@ -231,8 +231,8 @@ impl ClientConnection {
                 }
 
                 // Trim potentially long job list.
-                if job_infos.len() > num_jobs {
-                    let start = job_infos.len() - num_jobs;
+                if job_infos.len() > num_jobs as usize {
+                    let start = job_infos.len() - num_jobs as usize;
                     job_infos.drain(..start);
                 }
 
