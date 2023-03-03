@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 use clap_complete::Shell;
 use std::path::PathBuf;
 
+/// Command line interface for the client.
 #[derive(Clone, Parser, Debug)]
 #[command(version, author, about)]
 pub struct Cli {
@@ -15,14 +16,17 @@ pub struct Cli {
     pub command: Command,
 }
 
+/// Subcommands for the command line interface.
 #[derive(Clone, Subcommand, Debug)]
 pub enum Command {
     /// Issue command to be off-loaded to remote workers.
+    /// 
+    /// The command prints the ID of the newly created job to stdout.
     Cmd {
-        /// Required/reserved CPU cores to run the command.
+        /// Required CPU cores to run the command.
         #[arg(short, long)]
         cpus: Option<u64>,
-        /// Required/reserved RAM (in megabytes) to run the command.
+        /// Required RAM memory (in megabytes) to run the command.
         #[arg(short, long)]
         ram_mb: Option<u64>,
         /// Redirect stdout to the given file path. If "null" is provided, stdout is discarded.
@@ -31,7 +35,7 @@ pub enum Command {
         /// Redirect stderr to the given file path. If "null" is provided, stderr is discarded.
         #[arg(short = 'e', long)]
         stderr: Option<String>,
-        /// Positional arguments that define the passed command.
+        /// Positional arguments that define the command.
         #[command(subcommand)]
         args: CmdArgs,
     },
@@ -65,18 +69,21 @@ pub enum Command {
         id: u64,
     },
     /// Remove a job from the queue.
+    /// 
+    /// Be default, already running jobs will not be interrupted.
+    /// To cancel a running job, pass the `--kill` flag as well.
     RemoveJob {
         /// ID of the job to be removed.
         id: u64,
-        /// If the jobs has already been started, kill the process on the
+        /// If the jobs has already been started, also kill the process on the
         /// worker. Otherwise, the job will continue without any effect.
         #[arg(short, long, default_value_t = false)]
         kill: bool,
     },
     /// Remove finished and canceled jobs from the server.
     ///
-    /// By default, only successfully finished jobs are cleaned up. Use the
-    /// `--all` flag to also remove failed jobs as well.
+    /// By default, only successfully finished and canceled jobs are cleaned up.
+    /// Use the `--all` flag to remove failed jobs as well.
     CleanJobs {
         /// Remove all finished jobs, including failed ones.
         #[arg(short, long, default_value_t = false)]
@@ -102,8 +109,10 @@ pub enum Command {
     },
 }
 
+/// Arbitrary command captured from positional arguments.
 #[derive(Clone, Subcommand, Debug)]
 pub enum CmdArgs {
     #[command(external_subcommand)]
-    Args(Vec<String>), // never shows up in help
+    /// Captured arguments. This comment does not show up in help.
+    Args(Vec<String>),
 }

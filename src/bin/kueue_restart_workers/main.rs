@@ -11,7 +11,7 @@ use simple_logger::SimpleLogger;
 use ssh2::Session;
 use std::{io::Read, net::TcpStream, path::PathBuf, thread::sleep, time::Duration};
 
-/// Command line interface.
+/// Command line interface for `restart_workers`.
 #[derive(Parser, Debug)]
 #[command(version, author, about)]
 pub struct Cli {

@@ -1,90 +1,9 @@
+pub mod format;
+
 use chrono::{DateTime, Utc};
 use console::{style, StyledObject};
 use kueue_lib::structs::{JobInfo, JobStatus, WorkerInfo};
 use std::{cmp::max, collections::BTreeSet};
-use terminal_size::terminal_size;
-
-/// Returns the terminal's width and height.
-pub fn term_size() -> (usize, usize) {
-    // Try to detect terminal size
-    if let Some(term_size) = terminal_size() {
-        (term_size.0 .0 as usize, term_size.1 .0 as usize)
-    } else {
-        // Default VGA terminal size is: (80, 25)
-        // But large size is more useful as it is used by tools like "grep".
-        (1_000_000, 1_000)
-    }
-}
-
-/// Calculate column widths for table-style CLI output based on the column's content.
-fn get_col_widths(min_col_widths: Vec<usize>, max_col_widths: Vec<usize>) -> Vec<usize> {
-    assert!(!min_col_widths.is_empty() && !max_col_widths.is_empty());
-    assert!(min_col_widths.len() == max_col_widths.len());
-
-    // Make sure that max >= min col width.
-    let max_col_widths: Vec<usize> = max_col_widths
-        .iter()
-        .zip(min_col_widths.iter())
-        .map(|(a, b)| max(a, b).to_owned())
-        .collect();
-
-    // Total column space available for assignment.
-    let total_col_width_available = term_size().0 - (3 * min_col_widths.len() + 1);
-
-    // Return immediately if we have enough space for every column at max width.
-    if max_col_widths.iter().sum::<usize>() <= total_col_width_available {
-        return max_col_widths;
-    }
-
-    // Also return immediately if there is not even enough space to provide the min col widths.
-    if total_col_width_available <= min_col_widths.iter().sum::<usize>() {
-        return min_col_widths;
-    }
-
-    // Final column widths to be returned later. Start with minimum column widths.
-    let mut col_widths = min_col_widths;
-
-    // Grow column widths as long as there is remaining space available.
-    let mut remaining_col_width_available =
-        total_col_width_available - col_widths.iter().sum::<usize>();
-    'outer: while remaining_col_width_available > 0 {
-        // Sort columns by width.
-        let mut indices: Vec<usize> = (0..col_widths.len()).collect();
-        indices.sort_by(|i1, i2| col_widths[*i1].cmp(&col_widths[*i2]));
-
-        // Increment smallest column.
-        for index in indices {
-            if col_widths[index] < max_col_widths[index] {
-                col_widths[index] += 1;
-                remaining_col_width_available -= 1;
-                continue 'outer;
-            }
-        }
-
-        // This point should never be reached, because if there were enough
-        // space for all columns, we would have returned even before the loop.
-        unreachable!();
-    }
-
-    // No more space for increments available.
-    col_widths
-}
-
-fn dots_front(text: String, len: usize) -> String {
-    if text.len() <= len {
-        text
-    } else {
-        "...".to_string() + &text[(text.len() - (len - 3))..]
-    }
-}
-
-fn dots_back(text: String, len: usize) -> String {
-    if text.len() <= len {
-        text
-    } else {
-        text[..(len - 3)].to_owned() + "..."
-    }
-}
 
 fn format_cpu_cores(cpu_cores: u64) -> String {
     format!("{} x", cpu_cores)
@@ -141,7 +60,7 @@ pub fn job_list(
     job_avg_run_time_seconds: i64,
     remaining_jobs_eta_seconds: i64,
 ) {
-    let mut footer_width = term_size().0;
+    let mut footer_width = format::term_size().0;
 
     if !job_infos.is_empty() {
         // Get maximum column widths for space calculation.
@@ -189,7 +108,7 @@ pub fn job_list(
             max_status_col_width,
         ];
 
-        let col_widths = get_col_widths(min_col_widths, max_col_widths);
+        let col_widths = format::get_col_widths(min_col_widths, max_col_widths);
         let (id_col, cwd_col, cmd_col, cores_col, memory_col, status_col) = (
             col_widths[0],
             col_widths[1],
@@ -215,17 +134,17 @@ pub fn job_list(
         for job_info in job_infos {
             // working dir
             let working_dir = job_info.cwd.to_string_lossy();
-            let working_dir = dots_front(working_dir.to_string(), cwd_col);
+            let working_dir = format::dots_front(working_dir.to_string(), cwd_col);
 
             // command
             let command = job_info.cmd.join(" ");
-            let command = dots_back(command, cmd_col);
+            let command = format::dots_back(command, cmd_col);
 
             let cpu_cores = format_cpu_cores(job_info.resources.cpus);
             let memory_mb = format_memory_mb(job_info.resources.ram_mb);
 
             // status
-            let status = dots_back(format_status(&job_info), status_col);
+            let status = format::dots_back(format_status(&job_info), status_col);
             let status = match job_info.status {
                 JobStatus::Pending { .. } => style(status),
                 JobStatus::Offered { .. } => style(status).dim(),
@@ -531,7 +450,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             0, // uptime
         ];
 
-        let col_widths = get_col_widths(min_col_widths, max_col_widths);
+        let col_widths = format::get_col_widths(min_col_widths, max_col_widths);
         let (
             id_col,
             worker_col,
@@ -591,13 +510,13 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
         );
 
         for info in worker_list {
-            let worker_name = dots_back(info.name.clone(), worker_col);
-            let operation_system = dots_back(info.hw.distribution.clone(), os_col);
+            let worker_name = format::dots_back(info.name.clone(), worker_col);
+            let operation_system = format::dots_back(info.hw.distribution.clone(), os_col);
             let cpu_cores = format_cpu_cores(info.hw.cpu_cores);
             let cpu_frequency = format_frequency(info.hw.cpu_frequency);
             let memory_mb = format_memory_mb(info.hw.total_ram_mb);
 
-            let jobs = dots_back(
+            let jobs = format::dots_back(
                 format_jobs(&info.jobs_offered, &info.jobs_running),
                 jobs_col,
             );

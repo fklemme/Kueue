@@ -1,6 +1,6 @@
 use crate::{
     cli::{Cli, CmdArgs, Command},
-    print::{self, term_size},
+    print,
 };
 use anyhow::{anyhow, bail, Result};
 use base64::{engine::general_purpose, Engine};
@@ -43,7 +43,7 @@ impl Client {
         // Await welcoming response from server.
         match self.stream.receive::<ServerToClientMessage>().await? {
             ServerToClientMessage::WelcomeClient => {
-                log::trace!("Established connection to server!")
+                log::debug!("Established connection to server!")
             } // continue
             other => bail!("Expected WelcomeClient, received: {:?}", other),
         }
@@ -63,7 +63,7 @@ impl Client {
                     bail!("Empty command!");
                 }
 
-                // This command requires authentification.
+                // This command requires authentication.
                 self.authenticate().await?;
 
                 // Issue job.
@@ -82,7 +82,7 @@ impl Client {
                 match self.stream.receive::<ServerToClientMessage>().await? {
                     ServerToClientMessage::AcceptJob(job_info) => {
                         log::debug!("Job submitted successfully!");
-                        log::info!("Job ID: {}", job_info.id);
+                        println!("{}", job_info.id);
                     }
                     other => {
                         bail!("Expected AcceptJob, received: {:?}", other);
@@ -101,7 +101,7 @@ impl Client {
                 // Query jobs.
                 let message = ClientToServerMessage::ListJobs {
                     // Current space (height) in the terminal to show jobs.
-                    num_jobs: num_jobs.unwrap_or(term_size().1 as u64 - 4),
+                    num_jobs: num_jobs.unwrap_or(print::format::term_size().1 as u64 - 4),
                     pending,
                     offered,
                     running,

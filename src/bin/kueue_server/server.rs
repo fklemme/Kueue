@@ -68,7 +68,7 @@ impl Server {
 
         // Otherwise, we continue and accept connections on this socket.
         let listener = listener.unwrap();
-        log::debug!("Start listening on {}...", listener.local_addr().unwrap());
+        log::info!("Start listening on {}...", listener.local_addr().unwrap());
 
         loop {
             let (stream, addr) = listener.accept().await?;
