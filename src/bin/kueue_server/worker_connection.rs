@@ -19,8 +19,8 @@ use std::{
 use tokio::sync::mpsc;
 
 pub struct WorkerConnection {
-    id: u64,
-    name: String,
+    worker_id: u64,
+    worker_name: String,
     stream: MessageStream,
     manager: Arc<Mutex<Manager>>,
     config: Config,
@@ -36,7 +36,7 @@ pub struct WorkerConnection {
 
 impl WorkerConnection {
     pub fn new(
-        name: String,
+        worker_name: String,
         stream: MessageStream,
         manager: Arc<Mutex<Manager>>,
         config: Config,
@@ -45,10 +45,10 @@ impl WorkerConnection {
         let worker = manager
             .lock()
             .unwrap()
-            .add_new_worker(name.clone(), kill_job_tx);
-        let id = worker.lock().unwrap().info.id;
+            .add_new_worker(worker_name.clone(), kill_job_tx);
+        let worker_id = worker.lock().unwrap().info.worker_id;
 
-        // Salt is generated for each worker.
+        // Salt is generated for each worker connection.
         let salt: String = thread_rng()
             .sample_iter(&Alphanumeric)
             .take(30)
@@ -56,8 +56,8 @@ impl WorkerConnection {
             .collect();
 
         WorkerConnection {
-            id,
-            name,
+            worker_id,
+            worker_name,
             stream,
             manager,
             config,
@@ -213,7 +213,10 @@ impl WorkerConnection {
             self.authenticated = true;
             Ok(())
         } else {
-            Err(anyhow!("Worker {} failed authentication!", self.name))
+            Err(anyhow!(
+                "Worker {} failed authentication!",
+                self.worker_name
+            ))
         }
     }
 
@@ -222,7 +225,7 @@ impl WorkerConnection {
         if self.authenticated {
             Ok(())
         } else {
-            Err(anyhow!("Worker {} is not authenticated!", self.name))
+            Err(anyhow!("Worker {} is not authenticated!", self.worker_name))
         }
     }
 
@@ -231,22 +234,25 @@ impl WorkerConnection {
         self.check_authenticated()?;
 
         // Update job information from the worker.
-        let job = self.manager.lock().unwrap().get_job(job_info.id);
+        let job = self.manager.lock().unwrap().get_job(job_info.job_id);
         if let Some(job) = job {
             // See if job is associated with worker.
             let worker_id = job.lock().unwrap().worker_id;
             match worker_id {
-                Some(id) if id == self.id => {
+                Some(worker_id) if worker_id == self.worker_id => {
                     // Update job and worker if the job has finished.
                     if job_info.status.is_finished() || job_info.status.is_canceled() {
-                        log::debug!("Job {} finished on {}!", job_info.id, self.name);
+                        log::debug!("Job {} finished on {}!", job_info.job_id, self.worker_name);
                         job.lock().unwrap().info.status = job_info.status.clone();
                         self.worker
                             .lock()
                             .unwrap()
                             .info
                             .jobs_running
-                            .remove(&job_info.id);
+                            .remove(&job_info.job_id);
+
+                        // Notify observers of the job
+                        job.lock().unwrap().notify_observers();
                     } else {
                         log::error!("Expected updated job to be finished: {:?}", job_info);
                     }
@@ -254,7 +260,7 @@ impl WorkerConnection {
                 _ => {
                     log::error!(
                         "Job not associated with worker {}: {:?}",
-                        self.name,
+                        self.worker_name,
                         job_info
                     );
                 }
@@ -281,7 +287,7 @@ impl WorkerConnection {
 
             // Just a small check: See if job is associated with worker.
             match job_lock.worker_id {
-                Some(id) if id == self.id => {
+                Some(worker_id) if worker_id == self.worker_id => {
                     // Update results.
                     job_lock.stdout_text = stdout_text;
                     job_lock.stderr_text = stderr_text;
@@ -289,7 +295,7 @@ impl WorkerConnection {
                 _ => {
                     log::error!(
                         "Job not associated with worker {}: {:?}",
-                        self.name,
+                        self.worker_name,
                         job_lock.info
                     );
                 }
@@ -304,7 +310,7 @@ impl WorkerConnection {
     async fn on_accept_job_offer(&mut self, job_info: JobInfo) -> Result<()> {
         self.check_authenticated()?;
 
-        let job = self.manager.lock().unwrap().get_job(job_info.id);
+        let job = self.manager.lock().unwrap().get_job(job_info.job_id);
         if let Some(job) = job {
             let job_info = {
                 // Perform small check and update job status.
@@ -313,12 +319,12 @@ impl WorkerConnection {
                     JobStatus::Offered {
                         issued,
                         offered: _,
-                        to,
-                    } if to == &self.name => {
+                        worker,
+                    } if worker == &self.worker_name => {
                         job_lock.info.status = JobStatus::Running {
                             issued: *issued,
                             started: Utc::now(),
-                            on: self.name.clone(),
+                            worker: self.worker_name.clone(),
                         };
                     }
                     JobStatus::Canceled { .. } => {
@@ -327,17 +333,21 @@ impl WorkerConnection {
                     }
                     _ => bail!(
                         "Accepted job was not offered to worker {}: {:?}",
-                        self.name,
+                        self.worker_name,
                         job_lock.info.status
                     ),
                 }
+
+                // Notify observers of the job
+                job_lock.notify_observers();
+
                 job_lock.info.clone()
             };
 
-            log::debug!("Job {} accepted by {}!", job_info.id, self.name);
+            log::debug!("Job {} accepted by {}!", job_info.job_id, self.worker_name);
 
             // Confirm job -> Worker will start execution
-            let job_id = job_info.id; // copy before move
+            let job_id = job_info.job_id; // copy before move
             let message = ServerToWorkerMessage::ConfirmJobOffer(job_info);
             self.stream.send(&message).await?;
 
@@ -355,7 +365,7 @@ impl WorkerConnection {
     async fn on_defer_job_offer(&mut self, job_info: JobInfo) -> Result<()> {
         self.check_authenticated()?;
 
-        let job = self.manager.lock().unwrap().get_job(job_info.id);
+        let job = self.manager.lock().unwrap().get_job(job_info.job_id);
         if let Some(job) = job {
             // Perform small check and update job status.
             {
@@ -364,29 +374,32 @@ impl WorkerConnection {
                     JobStatus::Offered {
                         issued,
                         offered: _,
-                        to,
-                    } if to == &self.name => {
+                        worker,
+                    } if worker == &self.worker_name => {
                         job_lock.info.status = JobStatus::Pending { issued: *issued };
                         job_lock.worker_id = None;
                         // TODO: The job should also be made available again!
 
                         // Remember defer and avoid fetching the same job again soon.
-                        self.deferred_jobs.insert(job_lock.info.id);
+                        self.deferred_jobs.insert(job_lock.info.job_id);
                     }
                     _ => bail!(
                         "Deferred job was not offered to worker {}: {:?}",
-                        self.name,
+                        self.worker_name,
                         job_lock.info.status
                     ),
                 }
+
+                // Notify observers of the job
+                job_lock.notify_observers();
             };
 
-            log::debug!("Job {} deferred by {}!", job_info.id, self.name);
+            log::debug!("Job {} deferred by {}!", job_info.job_id, self.worker_name);
 
             // Update worker.
             let no_jobs_offered = {
                 let mut worker_lock = self.worker.lock().unwrap();
-                worker_lock.info.jobs_offered.remove(&job_info.id);
+                worker_lock.info.jobs_offered.remove(&job_info.job_id);
                 worker_lock.info.jobs_offered.is_empty()
             };
 
@@ -404,7 +417,7 @@ impl WorkerConnection {
     async fn on_reject_job_offer(&mut self, job_info: JobInfo) -> Result<()> {
         self.check_authenticated()?;
 
-        let job = self.manager.lock().unwrap().get_job(job_info.id);
+        let job = self.manager.lock().unwrap().get_job(job_info.job_id);
         if let Some(job) = job {
             // Perform small check and update job status.
             {
@@ -413,29 +426,32 @@ impl WorkerConnection {
                     JobStatus::Offered {
                         issued,
                         offered: _,
-                        to,
-                    } if to == &self.name => {
+                        worker,
+                    } if worker == &self.worker_name => {
                         job_lock.info.status = JobStatus::Pending { issued: *issued };
                         job_lock.worker_id = None;
                         // TODO: The job should also be made available again!
 
                         // Remember reject and avoid fetching the same job again.
-                        self.rejected_jobs.insert(job_lock.info.id);
+                        self.rejected_jobs.insert(job_lock.info.job_id);
                     }
                     _ => bail!(
                         "Rejected job was not offered to worker {}: {:?}",
-                        self.name,
+                        self.worker_name,
                         job_lock.info.status
                     ),
                 }
+
+                // Notify observers of the job
+                job_lock.notify_observers();
             };
 
-            log::debug!("Job {} rejected by {}!", job_info.id, self.name);
+            log::debug!("Job {} rejected by {}!", job_info.job_id, self.worker_name);
 
             // Update worker.
             let no_jobs_offered = {
                 let mut worker_lock = self.worker.lock().unwrap();
-                worker_lock.info.jobs_offered.remove(&job_info.id);
+                worker_lock.info.jobs_offered.remove(&job_info.job_id);
                 worker_lock.info.jobs_offered.is_empty()
             };
 
@@ -472,7 +488,7 @@ impl WorkerConnection {
                     JobStatus::Offered {
                         issued,
                         offered: Utc::now(),
-                        to: self.name.clone(),
+                        worker: self.worker_name.clone(),
                     }
                 } else {
                     log::warn!(
@@ -482,12 +498,15 @@ impl WorkerConnection {
                     JobStatus::Offered {
                         issued: Utc::now(),
                         offered: Utc::now(),
-                        to: self.name.clone(),
+                        worker: self.worker_name.clone(),
                     }
                 };
 
                 // Set worker reference.
-                job_lock.worker_id = Some(self.id);
+                job_lock.worker_id = Some(self.worker_id);
+
+                // Notify observers of the job
+                job_lock.notify_observers();
 
                 job_lock.info.clone()
             };
@@ -498,7 +517,7 @@ impl WorkerConnection {
                 .unwrap()
                 .info
                 .jobs_offered
-                .insert(job_info.id);
+                .insert(job_info.job_id);
 
             // Finally, send offer to worker.
             let job_offer = ServerToWorkerMessage::OfferJob(job_info);

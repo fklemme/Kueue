@@ -110,7 +110,7 @@ impl Job {
         let notify_job_status = Arc::clone(&self.notify_job_status);
         let job_result = Arc::clone(&self.result);
         let notify_kill_job = Arc::clone(&self.notify_kill_job);
-        let job_id = self.info.id;
+        let job_id = self.info.job_id;
 
         tokio::spawn(async move {
             // This is based on the implementation of wait_with_output from

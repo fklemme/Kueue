@@ -13,7 +13,7 @@ use std::{
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct JobInfo {
     /// Unique job ID, assigned by the server.
-    pub id: u64,
+    pub job_id: u64,
     /// Command to be executed. First element is the name of the
     /// program. Further elements are arguments to the program.
     pub cmd: Vec<String>,
@@ -46,7 +46,7 @@ impl JobInfo {
         stderr_path: Option<String>,
     ) -> Self {
         JobInfo {
-            id: next_job_id(),
+            job_id: next_job_id(),
             cmd,
             cwd,
             resources,
@@ -59,7 +59,7 @@ impl JobInfo {
     /// Creates a new job based on the given job information.
     pub fn from(job_info: JobInfo) -> Self {
         JobInfo {
-            id: next_job_id(),
+            job_id: next_job_id(),
             cmd: job_info.cmd,
             cwd: job_info.cwd,
             resources: job_info.resources,
@@ -116,7 +116,7 @@ pub enum JobStatus {
         /// Point in time when the job has been offered to the worker.
         offered: DateTime<Utc>,
         /// Name of the worker the job has been offered to.
-        to: String,
+        worker: String,
     },
     /// The job is currently running on a worker.
     Running {
@@ -125,7 +125,7 @@ pub enum JobStatus {
         /// Point in time when the job has been started executing on the worker.
         started: DateTime<Utc>,
         /// Name of the worker the job is running on.
-        on: String,
+        worker: String,
     },
     /// The job has concluded, either successful or failing.
     Finished {
@@ -138,7 +138,7 @@ pub enum JobStatus {
         /// Exit code returned by the executed command on the worker.
         return_code: i32,
         /// Name of the worker the job has been executed on.
-        on: String,
+        worker: String,
         /// Total run time of the executed command in seconds.
         run_time_seconds: i64,
         /// Additional information about the execution of the job. This
@@ -194,9 +194,9 @@ impl JobStatus {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct WorkerInfo {
     /// Unique worker ID, assigned by the server.
-    pub id: u64,
+    pub worker_id: u64,
     /// Name of the worker, usually including host name.
-    pub name: String,
+    pub worker_name: String,
     pub connected_since: DateTime<Utc>,
     pub hw: HwInfo,
     pub last_updated: DateTime<Utc>,
@@ -213,10 +213,10 @@ fn next_worker_id() -> u64 {
 }
 
 impl WorkerInfo {
-    pub fn new(name: String) -> Self {
+    pub fn new(worker_name: String) -> Self {
         WorkerInfo {
-            id: next_worker_id(),
-            name,
+            worker_id: next_worker_id(),
+            worker_name,
             connected_since: Utc::now(),
             hw: HwInfo::default(),
             last_updated: Utc::now(),

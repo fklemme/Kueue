@@ -8,7 +8,7 @@ use kueue_lib::{
     config::Config,
     messages::stream::MessageStream,
     messages::{ClientToServerMessage, HelloMessage, ServerToClientMessage},
-    structs::{JobInfo, Resources},
+    structs::{JobInfo, JobStatus, Resources},
 };
 use sha2::{Digest, Sha256};
 use std::fs::canonicalize;
@@ -55,6 +55,7 @@ impl Client {
                 ram_mb,
                 stdout,
                 stderr,
+                wait,
                 args,
             } => {
                 let CmdArgs::Args(cmd) = args;
@@ -79,14 +80,45 @@ impl Client {
                 self.stream.send(&message).await?;
 
                 // Await acceptance.
-                match self.stream.receive::<ServerToClientMessage>().await? {
+                let job_id = match self.stream.receive::<ServerToClientMessage>().await? {
                     ServerToClientMessage::AcceptJob(job_info) => {
                         log::debug!("Job submitted successfully!");
-                        println!("{}", job_info.id);
+                        job_info.job_id
                     }
                     other => {
-                        bail!("Expected AcceptJob, received: {:?}", other);
+                        bail!("Expected AcceptJob, received: {other:?}");
                     }
+                };
+
+                // Block until the job has been finished or canceled.
+                if wait {
+                    // Get notified when job is updated.
+                    let message = ClientToServerMessage::ObserveJob { job_id };
+                    self.stream.send(&message).await?;
+
+                    // Await results.
+                    loop {
+                        match self.stream.receive::<ServerToClientMessage>().await? {
+                            ServerToClientMessage::JobUpdated(job_info) => {
+                                log::debug!("Job updated: {:?}", job_info.status);
+                                match job_info.status {
+                                    JobStatus::Finished { return_code, .. } => {
+                                        // Print return code to stdout.
+                                        println!("{}", return_code);
+                                        break;
+                                    }
+                                    JobStatus::Canceled { .. } => break,
+                                    _ => {}
+                                }
+                            }
+                            other => {
+                                bail!("Expected NotifyJob, received: {other:?}");
+                            }
+                        }
+                    }
+                } else {
+                    // Print job ID to stdout.
+                    println!("{}", job_id);
                 }
             }
             Command::ListJobs {
@@ -137,13 +169,13 @@ impl Client {
                         );
                     }
                     other => {
-                        bail!("Expected JobList, received: {:?}", other);
+                        bail!("Expected JobList, received: {other:?}");
                     }
                 }
             }
-            Command::ShowJob { id } => {
+            Command::ShowJob { job_id } => {
                 // Query job.
-                let message = ClientToServerMessage::ShowJob { id };
+                let message = ClientToServerMessage::ShowJob { job_id };
                 self.stream.send(&message).await?;
 
                 // Await results.
@@ -161,12 +193,34 @@ impl Client {
                     }
                 }
             }
-            Command::RemoveJob { id, kill } => {
+            Command::WaitJob { job_id } => {
+                // Get notified when job is updated.
+                let message = ClientToServerMessage::ObserveJob { job_id };
+                self.stream.send(&message).await?;
+
+                // Await results.
+                loop {
+                    match self.stream.receive::<ServerToClientMessage>().await? {
+                        ServerToClientMessage::JobUpdated(job_info) => {
+                            log::debug!("Job updated: {:?}", job_info.status);
+                            match job_info.status {
+                                JobStatus::Finished { .. } => break,
+                                JobStatus::Canceled { .. } => break,
+                                _ => {}
+                            }
+                        }
+                        other => {
+                            bail!("Expected NotifyJob, received: {other:?}");
+                        }
+                    }
+                }
+            }
+            Command::RemoveJob { job_id, kill } => {
                 // This command requires authentication.
                 self.authenticate().await?;
 
                 // Remove job from queue.
-                let message = ClientToServerMessage::RemoveJob { id, kill };
+                let message = ClientToServerMessage::RemoveJob { job_id, kill };
                 self.stream.send(&message).await?;
 
                 // Await results.
@@ -213,9 +267,9 @@ impl Client {
                     }
                 }
             }
-            Command::ShowWorker { id } => {
+            Command::ShowWorker { worker_id } => {
                 // Query worker.
-                let message = ClientToServerMessage::ShowWorker { id };
+                let message = ClientToServerMessage::ShowWorker { worker_id };
                 self.stream.send(&message).await?;
 
                 // Await results.

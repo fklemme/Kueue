@@ -20,8 +20,10 @@ pub struct Cli {
 #[derive(Clone, Subcommand, Debug)]
 pub enum Command {
     /// Issue command to be off-loaded to remote workers.
-    /// 
-    /// The command prints the ID of the newly created job to stdout.
+    ///
+    /// After the command has been issued, the ID of the newly created job is
+    /// printed to stdout. If `--wait` has been given as additional argument,
+    /// the return code of the remotely executed job is printed to stdout instead.
     Cmd {
         /// Required CPU cores to run the command.
         #[arg(short, long)]
@@ -35,6 +37,9 @@ pub enum Command {
         /// Redirect stderr to the given file path. If "null" is provided, stderr is discarded.
         #[arg(short = 'e', long)]
         stderr: Option<String>,
+        /// Block until the job has been finished or canceled.
+        #[arg(short, long)]
+        wait: bool,
         /// Positional arguments that define the command.
         #[command(subcommand)]
         args: CmdArgs,
@@ -66,15 +71,20 @@ pub enum Command {
     /// Query information about a specific job.
     ShowJob {
         /// ID of the job to be queried.
-        id: u64,
+        job_id: u64,
+    },
+    /// Block until a certain job has finished.
+    WaitJob {
+        /// ID of the job to be waited for.
+        job_id: u64,
     },
     /// Remove a job from the queue.
-    /// 
+    ///
     /// Be default, already running jobs will not be interrupted.
     /// To cancel a running job, pass the `--kill` flag as well.
     RemoveJob {
         /// ID of the job to be removed.
-        id: u64,
+        job_id: u64,
         /// If the jobs has already been started, also kill the process on the
         /// worker. Otherwise, the job will continue without any effect.
         #[arg(short, long, default_value_t = false)]
@@ -94,7 +104,7 @@ pub enum Command {
     /// Query information about a specific worker.
     ShowWorker {
         /// ID of the worker to be queried.
-        id: u64,
+        worker_id: u64,
     },
     /// Generate shell completion script for bash, zsh, etc.
     ///

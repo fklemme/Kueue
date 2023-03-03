@@ -20,7 +20,7 @@ pub enum HelloMessage {
     HelloFromWorker {
         /// Name of the worker. Can be helpful for the
         /// user to identify where jobs are running.
-        name: String,
+        worker_name: String,
     },
 }
 
@@ -49,10 +49,13 @@ pub enum ClientToServerMessage {
         canceled: bool,
     },
     ShowJob {
-        id: u64,
+        job_id: u64,
+    },
+    ObserveJob {
+        job_id: u64,
     },
     RemoveJob {
-        id: u64,
+        job_id: u64,
         kill: bool,
     },
     CleanJobs {
@@ -60,7 +63,7 @@ pub enum ClientToServerMessage {
     },
     ListWorkers,
     ShowWorker {
-        id: u64,
+        worker_id: u64,
     },
     Bye,
 }
@@ -91,6 +94,7 @@ pub enum ServerToClientMessage {
         stdout_text: Option<String>,
         stderr_text: Option<String>,
     },
+    JobUpdated(JobInfo),
     WorkerList(Vec<WorkerInfo>),
     WorkerInfo(WorkerInfo),
     /// Generic response, signaling the client if the requested action has

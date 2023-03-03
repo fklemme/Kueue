@@ -37,7 +37,7 @@ impl Manager {
         kill_job_tx: mpsc::Sender<u64>,
     ) -> Arc<Mutex<Worker>> {
         let worker = Worker::new(name, kill_job_tx);
-        let worker_id = worker.info.id;
+        let worker_id = worker.info.worker_id;
         let worker = Arc::new(Mutex::new(worker));
         self.workers.insert(worker_id, Arc::downgrade(&worker));
         worker
@@ -48,7 +48,7 @@ impl Manager {
         // Add new job. We create a new JobInfo instance to make sure to
         // not adopt remote (non-unique) job ids or inconsistent states.
         let job = Job::from(job_info);
-        let job_id = job.info.id;
+        let job_id = job.info.job_id;
         let job = Arc::new(Mutex::new(job));
         self.jobs.insert(job_id, Arc::clone(&job));
         self.jobs_waiting_for_assignment.insert(job_id);
@@ -61,8 +61,8 @@ impl Manager {
     }
 
     /// Get job by ID.
-    pub fn get_job(&self, id: u64) -> Option<Arc<Mutex<Job>>> {
-        self.jobs.get(&id).map(Arc::clone)
+    pub fn get_job(&self, job_id: u64) -> Option<Arc<Mutex<Job>>> {
+        self.jobs.get(&job_id).map(Arc::clone)
     }
 
     /// Collect job information about all jobs.
@@ -75,8 +75,8 @@ impl Manager {
     }
 
     /// Get worker by ID.
-    pub fn get_worker(&self, id: u64) -> Option<Weak<Mutex<Worker>>> {
-        self.workers.get(&id).map(Weak::clone)
+    pub fn get_worker(&self, worker_id: u64) -> Option<Weak<Mutex<Worker>>> {
+        self.workers.get(&worker_id).map(Weak::clone)
     }
 
     /// Collect worker information about all workers.
@@ -125,14 +125,14 @@ impl Manager {
     /// worker is associated with the job, a sender is returned that can be
     /// used to signal a kill instruction to the worker. The job_id sent over
     /// the returned sender indicates the job to be killed on the worker.
-    pub fn cancel_job(&mut self, id: u64, kill: bool) -> Result<Option<mpsc::Sender<u64>>> {
-        match self.get_job(id) {
+    pub fn cancel_job(&mut self, job_id: u64, kill: bool) -> Result<Option<mpsc::Sender<u64>>> {
+        match self.get_job(job_id) {
             Some(job) => {
                 let job_info = job.lock().unwrap().info.clone();
                 match job_info.status {
                     JobStatus::Pending { issued } => {
                         // Do not attempt to offer the job to workers.
-                        self.jobs_waiting_for_assignment.remove(&id);
+                        self.jobs_waiting_for_assignment.remove(&job_id);
                         job.lock().unwrap().info.status = JobStatus::Canceled {
                             issued,
                             canceled: Utc::now(),
@@ -151,7 +151,7 @@ impl Manager {
                         if !kill {
                             // Makes no sense to set the job to canceled if the
                             // worker proceeds anyway.
-                            bail!("Job ID={} has already started!", id);
+                            bail!("Job ID={} has already started!", job_id);
                         }
                         // Update job status
                         job.lock().unwrap().info.status = JobStatus::Canceled {
@@ -170,18 +170,18 @@ impl Manager {
                         }
                         Err(anyhow!(
                             "Job with ID={} was running but worker could not be acquired!",
-                            id
+                            job_id
                         ))
                     }
                     JobStatus::Finished { .. } => {
-                        Err(anyhow!("Job ID={} has already finished!", id))
+                        Err(anyhow!("Job ID={} has already finished!", job_id))
                     }
                     JobStatus::Canceled { .. } => {
-                        Err(anyhow!("Job ID={} is already canceled!", id))
+                        Err(anyhow!("Job ID={} is already canceled!", job_id))
                     }
                 }
             }
-            None => Err(anyhow!("Job with ID={} not found!", id)),
+            None => Err(anyhow!("Job with ID={} not found!", job_id)),
         }
     }
 
@@ -216,7 +216,7 @@ impl Manager {
                 JobStatus::Offered {
                     issued,
                     offered,
-                    to: _,
+                    worker: _,
                 } => {
                     // A job should only be briefly in this state.
                     let offer_timed_out = (Utc::now() - *offered).num_seconds()
@@ -251,7 +251,7 @@ impl Manager {
                 JobStatus::Running {
                     issued,
                     started: _,
-                    on,
+                    worker,
                 } => {
                     // If the job is running, the worker should still be alive.
                     let worker_id = job.lock().unwrap().worker_id;
@@ -275,7 +275,7 @@ impl Manager {
                     if !worker_alive {
                         log::warn!(
                             "Worker {} died while job {:?} was still running. Recover...",
-                            on,
+                            worker,
                             info
                         );
                         let mut job_lock = job.lock().unwrap();
@@ -291,7 +291,7 @@ impl Manager {
                         > self.config.server_settings.job_cleanup_after_minutes as i64;
                     if cleanup_job {
                         log::debug!("Clean up old finished job: {:?}", info);
-                        jobs_to_be_removed.push(info.id);
+                        jobs_to_be_removed.push(info.job_id);
                     }
                 }
                 JobStatus::Canceled { canceled, .. } => {
@@ -300,15 +300,15 @@ impl Manager {
                         > self.config.server_settings.job_cleanup_after_minutes as i64;
                     if cleanup_job {
                         log::debug!("Clean up old canceled job: {:?}", info);
-                        jobs_to_be_removed.push(info.id);
+                        jobs_to_be_removed.push(info.job_id);
                     }
                 }
             }
         }
 
         // Clean up jobs.
-        for id in jobs_to_be_removed {
-            self.jobs.remove(&id);
+        for job_id in jobs_to_be_removed {
+            self.jobs.remove(&job_id);
         }
 
         let mut workers_to_be_removed: Vec<u64> = Vec::new();
@@ -374,7 +374,7 @@ mod tests {
 
         // Put job on exclude list.
         let mut exclude = BTreeSet::new();
-        exclude.insert(job.lock().unwrap().info.id);
+        exclude.insert(job.lock().unwrap().info.job_id);
 
         // Now, we should not get it.
         let job = manager.get_job_waiting_for_assignment(&exclude, &resources);

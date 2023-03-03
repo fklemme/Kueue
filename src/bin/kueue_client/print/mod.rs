@@ -18,17 +18,19 @@ fn format_status(job_info: &JobInfo) -> String {
         JobStatus::Pending { issued } => {
             format!("pending since {}", issued.format("%Y-%m-%d %H:%M:%S"))
         }
-        JobStatus::Offered { to, .. } => format!("offered to {}", to),
-        JobStatus::Running { started, on, .. } => {
+        JobStatus::Offered { worker, .. } => format!("offered to {}", worker),
+        JobStatus::Running {
+            started, worker, ..
+        } => {
             let run_time_seconds = (Utc::now() - *started).num_seconds();
             let h = run_time_seconds / 3600;
             let m = (run_time_seconds % 3600) / 60;
             let s = run_time_seconds % 60;
-            format!("running for {}h:{:02}m:{:02}s on {}", h, m, s, on)
+            format!("running for {}h:{:02}m:{:02}s on {}", h, m, s, worker)
         }
         JobStatus::Finished {
             return_code,
-            on,
+            worker,
             run_time_seconds,
             ..
         } => {
@@ -36,9 +38,9 @@ fn format_status(job_info: &JobInfo) -> String {
                 let h = run_time_seconds / 3600;
                 let m = (run_time_seconds % 3600) / 60;
                 let s = run_time_seconds % 60;
-                format!("finished after {}h:{:02}m:{:02}s on {}", h, m, s, on)
+                format!("finished after {}h:{:02}m:{:02}s on {}", h, m, s, worker)
             } else {
-                format!("failed with code {} on {}", return_code, on)
+                format!("failed with code {} on {}", return_code, worker)
             }
         }
         JobStatus::Canceled { canceled, .. } => {
@@ -64,7 +66,7 @@ pub fn job_list(
 
     if !job_infos.is_empty() {
         // Get maximum column widths for space calculation.
-        let max_id_col_width = format!("{}", job_infos.last().unwrap().id).len();
+        let max_id_col_width = format!("{}", job_infos.last().unwrap().job_id).len();
         let max_cwd_col_width = job_infos
             .iter()
             .map(|job_info| job_info.cwd.to_string_lossy().len())
@@ -100,7 +102,7 @@ pub fn job_list(
             "status".len(),
         ];
         let max_col_widths = vec![
-            0, // id
+            0, // job id
             max_cwd_col_width,
             max_cmd_col_width,
             0, // cpu cores
@@ -162,7 +164,7 @@ pub fn job_list(
             // Print line.
             println!(
                 "| {: >id_col$} | {: <cwd_col$} | {: <cmd_col$} | {: >cores_col$} | {: >memory_col$} | {: <status_col$} |",
-                job_info.id, working_dir, command, cpu_cores, memory_mb, status
+                job_info.job_id, working_dir, command, cpu_cores, memory_mb, status
             );
         }
     }
@@ -233,7 +235,7 @@ pub fn job_list(
 
 pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Option<String>) {
     println!("=== {} ===", style("job information").bold().underlined());
-    println!("job id: {}", job_info.id);
+    println!("job id: {}", job_info.job_id);
     println!("command: {}", job_info.cmd.join(" "));
     println!("working directory: {}", job_info.cwd.to_string_lossy());
     println!("required CPU cores: {}", job_info.resources.cpus);
@@ -248,17 +250,17 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
         JobStatus::Offered {
             issued,
             offered,
-            to,
+            worker,
         } => {
             println!("{}: {}", style("job status").bold(), style("pending").dim());
             println!("   issued on: {}", issued);
             println!("   offered on: {}", offered);
-            println!("   offered to: {}", to);
+            println!("   offered to: {}", worker);
         }
         JobStatus::Running {
             issued,
             started,
-            on,
+            worker,
         } => {
             println!(
                 "{}: {}",
@@ -267,14 +269,14 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
             );
             println!("   issued on: {}", issued);
             println!("   started on: {}", started);
-            println!("   running on: {}", on);
+            println!("   running on: {}", worker);
         }
         JobStatus::Finished {
             issued,
             started,
             finished,
             return_code,
-            on,
+            worker,
             run_time_seconds,
             comment,
         } => {
@@ -291,7 +293,7 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
             println!("   started on: {}", started);
             println!("   finished on: {}", finished);
             println!("   return code: {}", return_code);
-            println!("   executed on: {}", on);
+            println!("   executed on: {}", worker);
             println!("   runtime: {} seconds", run_time_seconds);
             println!("   comment: {}", comment);
         }
@@ -323,7 +325,7 @@ fn format_jobs(jobs_offered: &BTreeSet<u64>, jobs_running: &BTreeSet<u64>) -> St
     let jobs: Vec<String> = jobs_running
         .iter()
         .chain(jobs_offered.iter())
-        .map(|id| format!("{}", id))
+        .map(|job_id| format!("{job_id}"))
         .collect();
     if jobs.is_empty() {
         String::from("---")
@@ -364,10 +366,10 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
         println!("No workers registered on server!");
     } else {
         // Get maximum column widths for space calculation.
-        let max_id_col_width = format!("{}", worker_list.last().unwrap().id).len();
+        let max_id_col_width = format!("{}", worker_list.last().unwrap().worker_id).len();
         let max_worker_col_width = worker_list
             .iter()
-            .map(|info| info.name.len())
+            .map(|info| info.worker_name.len())
             .max()
             .unwrap();
         let max_os_col_width = worker_list
@@ -510,7 +512,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
         );
 
         for info in worker_list {
-            let worker_name = format::dots_back(info.name.clone(), worker_col);
+            let worker_name = format::dots_back(info.worker_name.clone(), worker_col);
             let operation_system = format::dots_back(info.hw.distribution.clone(), os_col);
             let cpu_cores = format_cpu_cores(info.hw.cpu_cores);
             let cpu_frequency = format_frequency(info.hw.cpu_frequency);
@@ -536,7 +538,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
                 | {: <jobs_col$} | {: >busy_col$} \
                 | {: >load_1_col$} {: >load_5_col$} {: >load_15_col$} \
                 | {: >uptime_col$} |",
-                info.id,
+                info.worker_id,
                 worker_name,
                 operation_system,
                 cpu_cores,
@@ -558,8 +560,8 @@ pub fn worker_info(worker_info: WorkerInfo) {
         "=== {} ===",
         style("worker information").bold().underlined()
     );
-    println!("worker id: {}", worker_info.id);
-    println!("name: {}", worker_info.name);
+    println!("worker id: {}", worker_info.worker_id);
+    println!("name: {}", worker_info.worker_name);
     println!("connected since: {}", worker_info.connected_since);
     println!(); // line break
 
@@ -584,7 +586,7 @@ pub fn worker_info(worker_info: WorkerInfo) {
     let jobs_offered: Vec<String> = worker_info
         .jobs_offered
         .iter()
-        .map(|id| format!("{}", id))
+        .map(|job_id| format!("{}", job_id))
         .collect();
     let jobs_offered = if jobs_offered.is_empty() {
         String::from("---")
@@ -596,7 +598,7 @@ pub fn worker_info(worker_info: WorkerInfo) {
     let jobs_running: Vec<String> = worker_info
         .jobs_running
         .iter()
-        .map(|id| format!("{}", id))
+        .map(|job_id| format!("{}", job_id))
         .collect();
     let jobs_running = if jobs_running.is_empty() {
         String::from("---")

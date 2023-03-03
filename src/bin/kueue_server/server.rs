@@ -61,14 +61,19 @@ impl Server {
         let port = self.config.common_settings.server_port;
         let listener = TcpListener::bind(format!("{}:{}", address, port)).await;
 
-        if let Err(e) = listener {
-            log::error!("Failed to start listening on {}:{}: {}", address, port, e);
-            bail!(e); // function stops here!
-        }
-
-        // Otherwise, we continue and accept connections on this socket.
-        let listener = listener.unwrap();
-        log::info!("Start listening on {}...", listener.local_addr().unwrap());
+        let listener = match listener {
+            Ok(listener) => {
+                log::info!(
+                    "Successfully started listening on {}...",
+                    listener.local_addr().unwrap()
+                );
+                listener
+            }
+            Err(e) => {
+                log::error!("Failed to start listening on {}:{}: {}", address, port, e);
+                bail!(e); // function stops here!
+            }
+        };
 
         loop {
             let (stream, addr) = listener.accept().await?;
@@ -102,17 +107,18 @@ async fn handle_connection(stream: TcpStream, manager: Arc<Mutex<Manager>>, conf
                 Err(e) => log::error!("Failed to send WelcomeClient: {}", e),
             }
         }
-        Ok(HelloMessage::HelloFromWorker { name }) => {
+        Ok(HelloMessage::HelloFromWorker { worker_name }) => {
             // Handle worker connection
             match stream.send(&ServerToWorkerMessage::WelcomeWorker).await {
                 Ok(()) => {
-                    log::trace!("Established connection to worker '{}'!", name);
-                    let mut worker = WorkerConnection::new(name.clone(), stream, manager, config);
+                    log::trace!("Established connection to worker '{}'!", worker_name);
+                    let mut worker =
+                        WorkerConnection::new(worker_name.clone(), stream, manager, config);
                     worker.run().await;
                 }
                 Err(e) => log::error!("Failed to send WelcomeWorker: {}", e),
             }
-            log::warn!("Connection to worker {} closed!", name);
+            log::warn!("Connection to worker {} closed!", worker_name);
         }
         // Warn, because this should not be common.
         Err(e) => log::error!("Failed to read HelloMessage: {}", e),

@@ -13,11 +13,14 @@ use std::{
     cmp::max,
     sync::{Arc, Mutex},
 };
+use tokio::sync::mpsc;
 
 pub struct ClientConnection {
     stream: MessageStream,
     manager: Arc<Mutex<Manager>>,
     config: Config,
+    job_updated_tx: mpsc::Sender<u64>,
+    job_updated_rx: mpsc::Receiver<u64>,
     connection_closed: bool,
     authenticated: bool,
     salt: String,
@@ -25,6 +28,8 @@ pub struct ClientConnection {
 
 impl ClientConnection {
     pub fn new(stream: MessageStream, manager: Arc<Mutex<Manager>>, config: Config) -> Self {
+        let (job_updated_tx, job_updated_rx) = mpsc::channel::<u64>(100);
+
         // Salt is generated for each client connection.
         let salt: String = thread_rng()
             .sample_iter(&Alphanumeric)
@@ -36,6 +41,8 @@ impl ClientConnection {
             stream,
             manager,
             config,
+            job_updated_tx,
+            job_updated_rx,
             connection_closed: false,
             authenticated: false,
             salt,
@@ -46,16 +53,38 @@ impl ClientConnection {
         // Hello/Welcome messages are already exchanged at this point.
 
         while !self.connection_closed {
-            match self.stream.receive::<ClientToServerMessage>().await {
-                Ok(message) => {
-                    if let Err(e) = self.handle_message(message).await {
-                        log::error!("Failed to handle message: {}", e);
-                        self.connection_closed = true; // end client session
+            tokio::select! {
+                // Read and handle incoming messages.
+                message = self.stream.receive::<ClientToServerMessage>() => {
+                    match message {
+                        Ok(message) => {
+                            if let Err(e) = self.handle_message(message).await {
+                                log::error!("Failed to handle message: {}", e);
+                                self.connection_closed = true; // end client session
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("{}", e);
+                            self.connection_closed = true; // end client session
+                        }
                     }
                 }
-                Err(e) => {
-                    log::error!("{}", e);
-                    self.connection_closed = true; // end client session
+                // Or, get active when observed job is updated.
+                Some(job_id) = self.job_updated_rx.recv() => {
+                    // Get job.
+                    let job = self.manager.lock().unwrap().get_job(job_id);
+
+                    if let Some(job) = job {
+                        // Send job update to client.
+                        let message = ServerToClientMessage::JobUpdated(job.lock().unwrap().info.clone());
+                        if let Err(e) = self.stream.send(&message).await {
+                            log::error!("Failed to send job notification: {}", e);
+                                self.connection_closed = true; // end client session
+                        }
+                    } else {
+                        log::error!("Notifying job not found: {}", job_id);
+                        self.connection_closed = true; // end client session
+                    };
                 }
             }
         }
@@ -107,7 +136,7 @@ impl ClientConnection {
                 let job = self.manager.lock().unwrap().add_new_job(*job_info);
                 let job_info = job.lock().unwrap().info.clone();
 
-                log::debug!("New job {} received from client!", job_info.id);
+                log::debug!("New job {} received from client!", job_info.job_id);
 
                 // Send response to client.
                 self.stream
@@ -251,9 +280,9 @@ impl ClientConnection {
                 self.stream.send(&message).await?;
                 Ok(())
             }
-            ClientToServerMessage::ShowJob { id } => {
+            ClientToServerMessage::ShowJob { job_id } => {
                 // Get job.
-                let job = self.manager.lock().unwrap().get_job(id);
+                let job = self.manager.lock().unwrap().get_job(job_id);
 
                 let message = if let Some(job) = job {
                     let job_lock = job.lock().unwrap();
@@ -271,25 +300,45 @@ impl ClientConnection {
                 self.stream.send(&message).await?;
                 Ok(())
             }
-            ClientToServerMessage::RemoveJob { id, kill } => {
+            ClientToServerMessage::ObserveJob { job_id } => {
+                // Get job.
+                let job = self.manager.lock().unwrap().get_job(job_id);
+
+                let message = if let Some(job) = job {
+                    // Register as an observer.
+                    let mut job_lock = job.lock().unwrap();
+                    job_lock.observers.push(self.job_updated_tx.clone());
+
+                    // Send first update immediately (also as confirmation).
+                    ServerToClientMessage::JobUpdated(job_lock.info.clone())
+                } else {
+                    ServerToClientMessage::RequestResponse {
+                        success: false,
+                        text: "Job not found!".into(),
+                    }
+                };
+                self.stream.send(&message).await?;
+                Ok(())
+            }
+            ClientToServerMessage::RemoveJob { job_id, kill } => {
                 self.is_authenticated().await?;
 
                 // Cancel job and send message back to client.
-                let result = self.manager.lock().unwrap().cancel_job(id, kill);
+                let result = self.manager.lock().unwrap().cancel_job(job_id, kill);
                 let message = match result {
                     Ok(Some(tx)) => {
                         // Signal kill to the worker.
                         if kill {
-                            tx.send(id).await?;
+                            tx.send(job_id).await?;
                         }
                         ServerToClientMessage::RequestResponse {
                             success: true,
-                            text: format!("Canceled job ID={}!", id),
+                            text: format!("Canceled job ID={}!", job_id),
                         }
                     }
                     Ok(None) => ServerToClientMessage::RequestResponse {
                         success: true,
-                        text: format!("Canceled job ID={}!", id),
+                        text: format!("Canceled job ID={}!", job_id),
                     },
                     Err(e) => ServerToClientMessage::RequestResponse {
                         success: false,
@@ -320,9 +369,9 @@ impl ClientConnection {
                     .await?;
                 Ok(())
             }
-            ClientToServerMessage::ShowWorker { id } => {
+            ClientToServerMessage::ShowWorker { worker_id } => {
                 // Get worker.
-                let worker = self.manager.lock().unwrap().get_worker(id);
+                let worker = self.manager.lock().unwrap().get_worker(worker_id);
 
                 let message = if let Some(worker) = worker {
                     if let Some(worker) = worker.upgrade() {

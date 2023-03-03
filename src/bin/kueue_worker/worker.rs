@@ -22,7 +22,7 @@ use tokio::{
 
 pub struct Worker {
     config: Config,
-    name: String,
+    worker_name: String,
     stream: MessageStream,
     notify_update_hw: Arc<Notify>,
     notify_job_status: Arc<Notify>,
@@ -41,8 +41,8 @@ impl Worker {
         let hostname = fqdn.split(|c| c == '.').next().unwrap().to_string();
         let mut generator = names::Generator::default();
         let name_suffix = generator.next().unwrap_or("default".into());
-        let name = format!("{}-{}", hostname, name_suffix);
-        log::info!("Worker name: {}", name);
+        let worker_name = format!("{}-{}", hostname, name_suffix);
+        log::info!("Worker name: {}", worker_name);
 
         // Connect to the server.
         let server_addr = config.get_server_address().await?;
@@ -53,7 +53,7 @@ impl Worker {
 
         Ok(Worker {
             config,
-            name,
+            worker_name,
             stream: MessageStream::new(stream),
             notify_update_hw: Arc::new(Notify::new()),
             notify_job_status: Arc::new(Notify::new()),
@@ -116,7 +116,7 @@ impl Worker {
     async fn connect_to_server(&mut self) -> Result<()> {
         // Send hello from worker.
         let hello = HelloMessage::HelloFromWorker {
-            name: self.name.clone(),
+            worker_name: self.worker_name.clone(),
         };
         self.stream.send(&hello).await?;
 
@@ -169,7 +169,7 @@ impl Worker {
             ServerToWorkerMessage::OfferJob(job_info) => {
                 // Reject job when the worker cannot see the working directory.
                 if !job_info.cwd.is_dir() {
-                    log::debug!("Rejected job {}!", job_info.id);
+                    log::debug!("Rejected job {}!", job_info.job_id);
 
                     // Reject job offer.
                     return self
@@ -180,7 +180,7 @@ impl Worker {
 
                 // Accept job if required resources can be acquired.
                 if self.resources_available(&job_info.resources) {
-                    log::debug!("Accepted job {}!", job_info.id);
+                    log::debug!("Accepted job {}!", job_info.job_id);
 
                     // Remember accepted job for later confirmation.
                     self.offered_jobs.push(Job::new(
@@ -192,7 +192,7 @@ impl Worker {
                         .send(&WorkerToServerMessage::AcceptJobOffer(job_info))
                         .await
                 } else {
-                    log::debug!("Deferred job {}!", job_info.id);
+                    log::debug!("Deferred job {}!", job_info.job_id);
 
                     // Defer job offer (until resources become available).
                     self.stream
@@ -204,7 +204,7 @@ impl Worker {
                 let offered_job_index = self
                     .offered_jobs
                     .iter()
-                    .position(|job| job.info.id == job_info.id);
+                    .position(|job| job.info.job_id == job_info.job_id);
                 match offered_job_index {
                     Some(index) => {
                         // Move job to running processes.
@@ -218,7 +218,7 @@ impl Worker {
                         // Run job as child process
                         match self.running_jobs.last_mut().unwrap().run().await {
                             Ok(()) => {
-                                log::debug!("Started job {}!", job_info.id);
+                                log::debug!("Started job {}!", job_info.job_id);
 
                                 // Inform server about available resources.
                                 // This information triggers the server to
@@ -251,7 +251,7 @@ impl Worker {
                     None => {
                         log::error!(
                             "Confirmed job with ID={} that has not been offered previously!",
-                            job_info.id
+                            job_info.job_id
                         );
                         Ok(()) // Error occurred, but we can continue running.
                     }
@@ -262,7 +262,7 @@ impl Worker {
                 let offered_job_index = self
                     .offered_jobs
                     .iter()
-                    .position(|job| job.info.id == job_info.id);
+                    .position(|job| job.info.job_id == job_info.job_id);
                 match offered_job_index {
                     Some(index) => {
                         // Remove job from list
@@ -273,7 +273,7 @@ impl Worker {
                     None => {
                         log::error!(
                             "Withdrawn job with ID={} that has not been offered previously!",
-                            job_info.id
+                            job_info.job_id
                         );
                         Ok(()) // Error occurred, but we can continue running.
                     }
@@ -283,7 +283,7 @@ impl Worker {
                 let running_job_index = self
                     .running_jobs
                     .iter()
-                    .position(|job| job.info.id == job_info.id);
+                    .position(|job| job.info.job_id == job_info.job_id);
                 match running_job_index {
                     Some(index) => {
                         // Signal kill.
@@ -299,7 +299,7 @@ impl Worker {
                     None => {
                         log::error!(
                             "Job to be killed with ID={} is not running on this worker!",
-                            job_info.id
+                            job_info.job_id
                         );
                         Ok(()) // Error occurred, but we can continue running.
                     }
@@ -456,7 +456,7 @@ impl Worker {
                                 started,
                                 finished: Utc::now(),
                                 return_code: result_lock.exit_code,
-                                on: self.name.clone(),
+                                worker: self.worker_name.clone(),
                                 run_time_seconds: result_lock.run_time.num_seconds(),
                                 comment: result_lock.comment.clone(),
                             };
@@ -481,7 +481,7 @@ impl Worker {
 
                 // Send stdout/stderr to server
                 let job_results = WorkerToServerMessage::UpdateJobResults {
-                    job_id: job.info.id,
+                    job_id: job.info.job_id,
                     stdout_text,
                     stderr_text,
                 };
