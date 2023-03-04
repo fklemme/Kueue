@@ -15,21 +15,34 @@ JSON format should make it possible to also implement clients in other
 languages, e.g., in Python using the `socket` and `json` packages.
 
 Authentication is currently very simple and no encryption is considered. To
-ensure that no secrets are leaked, authentification is implemented in a simple
-[challege-response](https://en.wikipedia.org/wiki/Challenge%E2%80%93response_authentication)
+ensure that no secrets are leaked, authentication is implemented in a simple
+[challenge-response](https://en.wikipedia.org/wiki/Challenge%E2%80%93response_authentication)
 protocol with a shared secret that all trusted parties know. If authentication
-is required for a specific task, the required challege-response protocol needs
+is required for a specific task, the required challenge-response protocol needs
 to be conducted beforehand. For client connections, the client initiates the
-authetication using the `AuthRequest` message. Workers always need to be
-autheticated to process jobs, so the authetication is part of the initial
+authentication using the `AuthRequest` message. Workers always need to be
+authenticated to process jobs, so the authentication is part of the initial
 hand-shake with the server. 
 
 TODO: continue documentation...
 
 ## Welcome hand-shake with the server
 
-## Authentication challege-response protocol
+## Challenge-response authentication
+
+
 
 ## Client communication
 
+
+
 ## Worker communication
+
+### Connect and authenticate
+
+| Worker                                      |    | Server              |
+|---------------------------------------------|----|---------------------|
+| HelloFromWorker(worker_name)                | -> |                     |
+|                                             | <- | WelcomeWorker       |
+|                                             | <- | AuthChallenge(salt) |
+| AuthResponse(base64(sha256(secret + salt))) | -> |                     |

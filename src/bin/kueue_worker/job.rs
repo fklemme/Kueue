@@ -14,25 +14,39 @@ use tokio::{
     sync::Notify,
 };
 
+/// Struct, representing a job on the worker.
 #[derive(Debug)]
 pub struct Job {
+    /// All information about the job.
     pub info: JobInfo,
+    /// The job-execution thread will notify when the job has concluded.
     pub notify_job_status: Arc<Notify>,
+    /// Status and output of the job after concluding.
     pub result: Arc<Mutex<JobResult>>,
+    /// Will be notified by the worker thread when job should be killed.
     pub notify_kill_job: Arc<Notify>,
 }
 
+/// Status and outputs of the job after execution is concluded.
 #[derive(Clone, Debug)]
 pub struct JobResult {
+    /// Set to `true` if the job's execution has concluded.
     pub finished: bool,
+    /// Return code from the underlying process.
     pub exit_code: i32,
+    /// Runtime of the underlying process.
     pub run_time: Duration,
+    /// Additional information about the status of the job.
+    /// This will be send back to the user and can help with debugging.
     pub comment: String,
+    /// All text that has been sent to stdout by the underlying process.
     pub stdout_text: String,
+    /// All text that has been sent to stderr by the underlying process.
     pub stderr_text: String,
 }
 
 impl Job {
+    /// Setup a new job for execution.
     pub fn new(info: JobInfo, notify_job_status: Arc<Notify>) -> Self {
         Job {
             info,
@@ -49,6 +63,7 @@ impl Job {
         }
     }
 
+    /// Start executing the job.
     pub async fn run(&mut self) -> Result<()> {
         if self.info.cmd.is_empty() {
             bail!("Empty command!");

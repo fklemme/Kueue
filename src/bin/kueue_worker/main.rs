@@ -1,3 +1,7 @@
+//! # Kueue_worker
+//!
+//! This binary create implements the Kueue worker.
+
 //#![warn(clippy::missing_docs_in_private_items)]
 
 mod job;

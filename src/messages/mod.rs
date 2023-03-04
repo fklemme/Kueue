@@ -74,7 +74,9 @@ pub enum ServerToClientMessage {
     // Respond with WelcomeClient after HelloFromClient.
     WelcomeClient,
     // AuthChallenge sends a random salt to the client.
-    AuthChallenge(String),
+    AuthChallenge {
+        salt: String,
+    },
     // Let client know if authentication succeeded.
     AuthAccepted(bool),
     AcceptJob(JobInfo),
@@ -112,7 +114,7 @@ pub enum ServerToWorkerMessage {
     // Respond with WelcomeWorker after HelloFromWorker
     WelcomeWorker,
     // AuthChallenge sends a random salt to the client.
-    AuthChallenge(String),
+    AuthChallenge { salt: String },
     OfferJob(JobInfo),
     ConfirmJobOffer(JobInfo),
     WithdrawJobOffer(JobInfo),

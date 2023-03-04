@@ -1,5 +1,5 @@
 use crate::job::Job;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use base64::{engine::general_purpose, Engine};
 use chrono::Utc;
 use kueue_lib::{
@@ -20,12 +20,21 @@ use tokio::{
     time::{sleep, Duration},
 };
 
+/// Main struct, holding all information related to this worker instance.
 pub struct Worker {
+    /// Settings from the parsed config file.
     config: Config,
+    /// Name of the worker. Used as an identifier for the user.
     worker_name: String,
+    /// Message stream, connected to the server.
     stream: MessageStream,
+    /// Regularly notified by a timer to trigger sending a message
+    /// about updated hardware/system status to the server.
     notify_update_hw: Arc<Notify>,
+    /// Notified, whenever any job threads concludes.
+    /// The job's status has already been updated by this time.
     notify_job_status: Arc<Notify>,
+    /// Handle to query system information.
     system_info: System,
     /// Jobs offered to the worker but not yet confirmed or started.
     offered_jobs: Vec<Job>,
@@ -36,13 +45,9 @@ pub struct Worker {
 impl Worker {
     /// Set up a new Worker instance and connect to the server.
     pub async fn new(config: Config) -> Result<Self> {
-        // Generate unique name from hostname and random suffix.
+        // Use hostname as worker name.
         let fqdn: String = gethostname::gethostname().to_string_lossy().into();
         let hostname = fqdn.split(|c| c == '.').next().unwrap().to_string();
-        let mut generator = names::Generator::default();
-        let name_suffix = generator.next().unwrap_or("default".into());
-        let worker_name = format!("{}-{}", hostname, name_suffix);
-        log::info!("Worker name: {}", worker_name);
 
         // Connect to the server.
         let server_addr = config.get_server_address().await?;
@@ -53,7 +58,7 @@ impl Worker {
 
         Ok(Worker {
             config,
-            worker_name,
+            worker_name: hostname,
             stream: MessageStream::new(stream),
             notify_update_hw: Arc::new(Notify::new()),
             notify_job_status: Arc::new(Notify::new()),
@@ -126,15 +131,17 @@ impl Worker {
                 log::trace!("Established connection to server...");
                 Ok(()) // continue
             }
-            other => Err(anyhow!("Expected WelcomeWorker, received: {:?}", other)),
+            other => bail!("Expected WelcomeWorker, received: {:?}", other),
         }
     }
 
-    /// Perform challenge-response authentication.
+    /// Perform challenge-response authentication. We only need to answer the
+    /// challenge without waiting for a response. If the authentication fails,
+    /// the server closes the connection.
     async fn authenticate(&mut self) -> Result<()> {
         // Authentication challenge is sent automatically after welcome.
         match self.stream.receive::<ServerToWorkerMessage>().await? {
-            ServerToWorkerMessage::AuthChallenge(salt) => {
+            ServerToWorkerMessage::AuthChallenge { salt } => {
                 // Calculate response.
                 let salted_secret = self.config.common_settings.shared_secret.clone() + &salt;
                 let salted_secret = salted_secret.into_bytes();
@@ -161,7 +168,7 @@ impl Worker {
                 log::warn!("Received duplicate welcome message!");
                 Ok(())
             }
-            ServerToWorkerMessage::AuthChallenge(_challenge) => {
+            ServerToWorkerMessage::AuthChallenge { salt: _ } => {
                 // This is already handled before the main loop begins.
                 log::warn!("Received duplicate authentication challenge!");
                 Ok(())
@@ -433,6 +440,7 @@ impl Worker {
             .await
     }
 
+    /// Find jobs that have concluded and update the server about the new status.
     async fn update_job_status(&mut self) -> Result<(), MessageError> {
         // We check all running processes for exit codes
         let mut index = 0;

@@ -51,7 +51,7 @@ impl WorkerConnection {
         // Salt is generated for each worker connection.
         let salt: String = thread_rng()
             .sample_iter(&Alphanumeric)
-            .take(30)
+            .take(64)
             .map(char::from)
             .collect();
 
@@ -76,7 +76,9 @@ impl WorkerConnection {
         // Hello/Welcome messages are already exchanged at this point.
 
         // Send authentication challenge.
-        let message = ServerToWorkerMessage::AuthChallenge(self.salt.clone());
+        let message = ServerToWorkerMessage::AuthChallenge {
+            salt: self.salt.clone(),
+        };
         if let Err(e) = self.stream.send(&message).await {
             log::error!("Failed to send AuthChallenge: {}", e);
             return;
@@ -225,7 +227,7 @@ impl WorkerConnection {
         if self.authenticated {
             Ok(())
         } else {
-            Err(anyhow!("Worker {} is not authenticated!", self.worker_name))
+            bail!("Worker {} is not authenticated!", self.worker_name)
         }
     }
 

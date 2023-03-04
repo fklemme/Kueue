@@ -33,7 +33,7 @@ impl ClientConnection {
         // Salt is generated for each client connection.
         let salt: String = thread_rng()
             .sample_iter(&Alphanumeric)
-            .take(30)
+            .take(64)
             .map(char::from)
             .collect();
 
@@ -107,7 +107,9 @@ impl ClientConnection {
         match message {
             ClientToServerMessage::AuthRequest => {
                 // Send salt to client.
-                let message = ServerToClientMessage::AuthChallenge(self.salt.clone());
+                let message = ServerToClientMessage::AuthChallenge {
+                    salt: self.salt.clone(),
+                };
                 self.stream.send(&message).await?;
                 Ok(())
             }

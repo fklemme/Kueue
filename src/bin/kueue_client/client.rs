@@ -303,7 +303,7 @@ impl Client {
 
         // Await authentication challenge.
         match self.stream.receive::<ServerToClientMessage>().await? {
-            ServerToClientMessage::AuthChallenge(salt) => {
+            ServerToClientMessage::AuthChallenge { salt } => {
                 // Calculate response.
                 let salted_secret = self.config.common_settings.shared_secret.clone() + &salt;
                 let salted_secret = salted_secret.into_bytes();
