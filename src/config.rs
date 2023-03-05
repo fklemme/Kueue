@@ -151,7 +151,7 @@ impl Config {
 
         // Default worker settings.
         let s = s.set_default("worker_settings.server_update_interval_seconds", 60)?;
-        let s = s.set_default("worker_settings.max_parallel_jobs", 100)?;
+        let s = s.set_default("worker_settings.max_parallel_jobs", 10)?;
         let s = s.set_default("worker_settings.dynamic_check_free_resources", true)?;
         let s = s.set_default("worker_settings.dynamic_cpu_load_scale_factor", 1.0)?;
 
