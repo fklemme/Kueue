@@ -46,3 +46,4 @@ TODO: continue documentation...
 |                                             | <- | WelcomeWorker       |
 |                                             | <- | AuthChallenge(salt) |
 | AuthResponse(base64(sha256(secret + salt))) | -> |                     |
+|                                             | <- | AuthAccepted(bool)  |

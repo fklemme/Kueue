@@ -374,22 +374,22 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             .unwrap();
         let max_os_col_width = worker_list
             .iter()
-            .map(|info| info.hw.distribution.len())
+            .map(|info| info.system_info.distribution.len())
             .max()
             .unwrap();
         let max_cores_col_width = worker_list
             .iter()
-            .map(|info| format_cpu_cores(info.hw.cpu_cores).len())
+            .map(|info| format_cpu_cores(info.system_info.cpu_cores).len())
             .max()
             .unwrap();
         let max_freq_col_width = worker_list
             .iter()
-            .map(|info| format_frequency(info.hw.cpu_frequency).len())
+            .map(|info| format_frequency(info.system_info.cpu_frequency).len())
             .max()
             .unwrap();
         let max_memory_col_width = worker_list
             .iter()
-            .map(|info| format_memory_mb(info.hw.total_ram_mb).len())
+            .map(|info| format_memory_mb(info.system_info.total_ram_mb).len())
             .max()
             .unwrap();
         let max_jobs_col_width = worker_list
@@ -404,17 +404,17 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             .unwrap();
         let max_load_1_col_width = worker_list
             .iter()
-            .map(|info| format!("{:.1}", info.hw.load_info.one).len())
+            .map(|info| format!("{:.1}", info.system_info.load_info.one).len())
             .max()
             .unwrap();
         let max_load_5_col_width = worker_list
             .iter()
-            .map(|info| format!("{:.1}", info.hw.load_info.five).len())
+            .map(|info| format!("{:.1}", info.system_info.load_info.five).len())
             .max()
             .unwrap();
         let max_load_15_col_width = worker_list
             .iter()
-            .map(|info| format!("{:.1}", info.hw.load_info.fifteen).len())
+            .map(|info| format!("{:.1}", info.system_info.load_info.fifteen).len())
             .max()
             .unwrap();
         let max_uptime_col_width = worker_list
@@ -513,10 +513,10 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
 
         for info in worker_list {
             let worker_name = format::dots_back(info.worker_name.clone(), worker_col);
-            let operation_system = format::dots_back(info.hw.distribution.clone(), os_col);
-            let cpu_cores = format_cpu_cores(info.hw.cpu_cores);
-            let cpu_frequency = format_frequency(info.hw.cpu_frequency);
-            let memory_mb = format_memory_mb(info.hw.total_ram_mb);
+            let operation_system = format::dots_back(info.system_info.distribution.clone(), os_col);
+            let cpu_cores = format_cpu_cores(info.system_info.cpu_cores);
+            let cpu_frequency = format_frequency(info.system_info.cpu_frequency);
+            let memory_mb = format_memory_mb(info.system_info.total_ram_mb);
 
             let jobs = format::dots_back(
                 format_jobs(&info.jobs_offered, &info.jobs_running),
@@ -525,9 +525,14 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
 
             let busy = format_resource_load(info.resource_load(), 0);
 
-            let load_one = format_cpu_load(info.hw.load_info.one, info.hw.cpu_cores);
-            let load_five = format_cpu_load(info.hw.load_info.five, info.hw.cpu_cores);
-            let load_fifteen = format_cpu_load(info.hw.load_info.fifteen, info.hw.cpu_cores);
+            let load_one =
+                format_cpu_load(info.system_info.load_info.one, info.system_info.cpu_cores);
+            let load_five =
+                format_cpu_load(info.system_info.load_info.five, info.system_info.cpu_cores);
+            let load_fifteen = format_cpu_load(
+                info.system_info.load_info.fifteen,
+                info.system_info.cpu_cores,
+            );
 
             let uptime = format_uptime(info.connected_since);
 
@@ -566,21 +571,33 @@ pub fn worker_info(worker_info: WorkerInfo) {
     println!(); // line break
 
     println!("{}", style("system information").bold().underlined());
-    println!("   kernel: {}", worker_info.hw.kernel);
-    println!("   distribution: {}", worker_info.hw.distribution);
-    println!("   cpu cores: {}", worker_info.hw.cpu_cores);
+    println!("   kernel: {}", worker_info.system_info.kernel);
+    println!("   distribution: {}", worker_info.system_info.distribution);
+    println!("   cpu cores: {}", worker_info.system_info.cpu_cores);
     println!(
         "   cpu frequency: {} megahertz",
-        worker_info.hw.cpu_frequency
+        worker_info.system_info.cpu_frequency
     );
-    println!("   total memory: {} megabytes", worker_info.hw.total_ram_mb);
+    println!(
+        "   total memory: {} megabytes",
+        worker_info.system_info.total_ram_mb
+    );
     println!("last updated: {}", worker_info.last_updated);
     println!(); // line break
 
     println!("{}", style("sytem load and resources").bold().underlined());
-    let load_one = format_cpu_load(worker_info.hw.load_info.one, worker_info.hw.cpu_cores);
-    let load_five = format_cpu_load(worker_info.hw.load_info.five, worker_info.hw.cpu_cores);
-    let load_fifteen = format_cpu_load(worker_info.hw.load_info.fifteen, worker_info.hw.cpu_cores);
+    let load_one = format_cpu_load(
+        worker_info.system_info.load_info.one,
+        worker_info.system_info.cpu_cores,
+    );
+    let load_five = format_cpu_load(
+        worker_info.system_info.load_info.five,
+        worker_info.system_info.cpu_cores,
+    );
+    let load_fifteen = format_cpu_load(
+        worker_info.system_info.load_info.fifteen,
+        worker_info.system_info.cpu_cores,
+    );
     println!("   load: {} / {} / {}", load_one, load_five, load_fifteen);
 
     let jobs_offered: Vec<String> = worker_info
@@ -613,11 +630,11 @@ pub fn worker_info(worker_info: WorkerInfo) {
     );
     println!(
         "   free cpus: {} / {}",
-        worker_info.free_resources.cpus, worker_info.hw.cpu_cores
+        worker_info.free_resources.cpus, worker_info.system_info.cpu_cores
     );
     println!(
         "   free ram: {} / {} megabytes",
-        worker_info.free_resources.ram_mb, worker_info.hw.total_ram_mb
+        worker_info.free_resources.ram_mb, worker_info.system_info.total_ram_mb
     );
 
     println!(

@@ -5,7 +5,7 @@
 //! crates while "server_settings", "worker_settings", "client_settings", and
 //! "restart_workers" contain settings associated with their respective crates.
 
-use anyhow::{anyhow, Result};
+use anyhow::{bail, Result};
 use directories::ProjectDirs;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
@@ -47,6 +47,7 @@ pub struct ServerSettings {
 /// Settings related to the worker crate.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct WorkerSettings {
+    pub server_update_interval_seconds: u64,
     /// Defines an absolute upper limit of parallel jobs for this worker. If
     /// this limit is reached, no more jobs will be started on the worker,
     /// even if enough other resources would be available.
@@ -149,6 +150,7 @@ impl Config {
         let s = s.set_default("server_settings.job_cleanup_after_minutes", 48 * 60)?;
 
         // Default worker settings.
+        let s = s.set_default("worker_settings.server_update_interval_seconds", 60)?;
         let s = s.set_default("worker_settings.max_parallel_jobs", 100)?;
         let s = s.set_default("worker_settings.dynamic_check_free_resources", true)?;
         let s = s.set_default("worker_settings.dynamic_cpu_load_scale_factor", 1.0)?;
@@ -205,10 +207,10 @@ impl Config {
         let mut addr_iter = lookup_host(host).await?;
         match addr_iter.next() {
             Some(socket_address) => Ok(socket_address),
-            None => Err(anyhow!(
+            None => bail!(
                 "Could not resolve server address: {}",
                 self.common_settings.server_name
-            )),
+            ),
         }
     }
 }

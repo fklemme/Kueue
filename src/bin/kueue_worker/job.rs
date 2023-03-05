@@ -1,3 +1,5 @@
+//! This module takes care of executing the jobs on the worker.
+
 use anyhow::{bail, Result};
 use chrono::{Duration, Utc};
 use futures::future::try_join3;
@@ -74,7 +76,7 @@ impl Job {
         cmd.current_dir(self.info.cwd.clone());
         cmd.args(&self.info.cmd[1..]);
 
-        // Pipe output or redirect to files.
+        /// Pipe output or redirect to files.
         async fn get_path_and_file(
             path: &Option<String>,
             cwd: &Path,
@@ -128,11 +130,11 @@ impl Job {
         let job_id = self.info.job_id;
 
         tokio::spawn(async move {
-            // This is based on the implementation of wait_with_output from
-            // https://docs.rs/tokio/1.22.0/src/tokio/process/mod.rs.html#1213-1241
-            // The problem with calling that function directly is that it
-            // _moves_ the child into the function, making it impossible to
-            // borrow it later for killing, if needed.
+            /// This is based on the implementation of wait_with_output from
+            /// https://docs.rs/tokio/1.22.0/src/tokio/process/mod.rs.html#1213-1241
+            /// The problem with calling that function directly is that it
+            /// _moves_ the child into the function, making it impossible to
+            /// borrow it later for killing, if needed.
             async fn read_or_copy<A: AsyncRead + Unpin, B: AsyncWrite + Unpin>(
                 io: &mut Option<A>,
                 file: &mut Option<B>,

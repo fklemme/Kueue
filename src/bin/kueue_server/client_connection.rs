@@ -1,5 +1,5 @@
 use crate::job_manager::Manager;
-use anyhow::{anyhow, Result};
+use anyhow::{bail, Result};
 use base64::{engine::general_purpose, Engine};
 use chrono::Utc;
 use kueue_lib::{
@@ -90,19 +90,6 @@ impl ClientConnection {
         }
     }
 
-    async fn is_authenticated(&mut self) -> Result<()> {
-        if self.authenticated {
-            Ok(())
-        } else {
-            let message = ServerToClientMessage::RequestResponse {
-                success: false,
-                text: "Not authenticated!".into(),
-            };
-            self.stream.send(&message).await?;
-            Err(anyhow!("Client is not authenticated!"))
-        }
-    }
-
     async fn handle_message(&mut self, message: ClientToServerMessage) -> Result<()> {
         match message {
             ClientToServerMessage::AuthRequest => {
@@ -113,23 +100,7 @@ impl ClientConnection {
                 self.stream.send(&message).await?;
                 Ok(())
             }
-            ClientToServerMessage::AuthResponse(response) => {
-                // Calculate baseline result.
-                let salted_secret = self.config.common_settings.shared_secret.clone() + &self.salt;
-                let salted_secret = salted_secret.into_bytes();
-                let mut hasher = Sha256::new();
-                hasher.update(salted_secret);
-                let baseline = hasher.finalize().to_vec();
-                let baseline = general_purpose::STANDARD_NO_PAD.encode(baseline);
-
-                // Update status and send reply.
-                if response == baseline {
-                    self.authenticated = true;
-                }
-                let message = ServerToClientMessage::AuthAccepted(self.authenticated);
-                self.stream.send(&message).await?;
-                Ok(())
-            }
+            ClientToServerMessage::AuthResponse(response) => self.on_auth_response(response).await,
             ClientToServerMessage::IssueJob(job_info) => {
                 self.is_authenticated().await?;
 
@@ -400,5 +371,48 @@ impl ClientConnection {
                 Ok(())
             }
         }
+    }
+
+    async fn is_authenticated(&mut self) -> Result<()> {
+        if self.authenticated {
+            Ok(())
+        } else {
+            // We are nice to the client and let
+            // them know why their request failed.
+            let message = ServerToClientMessage::RequestResponse {
+                success: false,
+                text: "Not authenticated!".into(),
+            };
+            self.stream.send(&message).await?;
+            // Close connection with an error message.
+            bail!("Client is not authenticated!")
+        }
+    }
+
+    /// Called upon receiving ClientToServerMessage::AuthResponse.
+    async fn on_auth_response(&mut self, response: String) -> Result<()> {
+        // Calculate baseline result.
+        let salted_secret = self.config.common_settings.shared_secret.clone() + &self.salt;
+        let salted_secret = salted_secret.into_bytes();
+        let mut hasher = Sha256::new();
+        hasher.update(salted_secret);
+        let baseline = hasher.finalize().to_vec();
+        let baseline = general_purpose::STANDARD_NO_PAD.encode(baseline);
+
+        // Update status and send reply.
+        if response == baseline {
+            self.authenticated = true;
+        } else {
+            // After failed attempt, change the salt.
+            self.salt = thread_rng()
+                .sample_iter(&Alphanumeric)
+                .take(64)
+                .map(char::from)
+                .collect();
+        }
+
+        let message = ServerToClientMessage::AuthAccepted(self.authenticated);
+        self.stream.send(&message).await?;
+        Ok(())
     }
 }

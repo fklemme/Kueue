@@ -3,7 +3,7 @@
 
 pub mod stream;
 
-use crate::structs::{HwInfo, JobInfo, Resources, WorkerInfo};
+use crate::structs::{JobInfo, Resources, SystemInfo, WorkerInfo};
 use serde::{Deserialize, Serialize};
 
 /// Communication to the server is initialized with HelloFromClient or
@@ -71,13 +71,13 @@ pub enum ClientToServerMessage {
 /// Contains all messages sent by the server to a client.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ServerToClientMessage {
-    // Respond with WelcomeClient after HelloFromClient.
+    /// Respond with WelcomeClient after HelloFromClient.
     WelcomeClient,
-    // AuthChallenge sends a random salt to the client.
+    /// AuthChallenge sends a random salt to the client.
     AuthChallenge {
         salt: String,
     },
-    // Let client know if authentication succeeded.
+    /// Let client know if authentication succeeded.
     AuthAccepted(bool),
     AcceptJob(JobInfo),
     JobList {
@@ -108,26 +108,13 @@ pub enum ServerToClientMessage {
     },
 }
 
-/// Contains all messages sent by the server to a worker.
-#[derive(Serialize, Deserialize, Debug)]
-pub enum ServerToWorkerMessage {
-    // Respond with WelcomeWorker after HelloFromWorker
-    WelcomeWorker,
-    // AuthChallenge sends a random salt to the client.
-    AuthChallenge { salt: String },
-    OfferJob(JobInfo),
-    ConfirmJobOffer(JobInfo),
-    WithdrawJobOffer(JobInfo),
-    KillJob(JobInfo),
-}
-
 /// Contains all messages sent by the worker to the server.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum WorkerToServerMessage {
-    // Send Sha256(secret + salt) back to server.
+    /// Send Sha256(secret + salt) back to server.
     AuthResponse(String),
     /// Update hardware information and system load.
-    UpdateHwInfo(HwInfo),
+    UpdateSystemInfo(SystemInfo),
     UpdateJobStatus(JobInfo),
     UpdateJobResults {
         job_id: u64,
@@ -141,4 +128,21 @@ pub enum WorkerToServerMessage {
     DeferJobOffer(JobInfo),
     RejectJobOffer(JobInfo),
     Bye,
+}
+
+/// Contains all messages sent by the server to a worker.
+#[derive(Serialize, Deserialize, Debug)]
+pub enum ServerToWorkerMessage {
+    // Respond with WelcomeWorker after HelloFromWorker
+    WelcomeWorker,
+    // AuthChallenge sends a random salt to the client.
+    AuthChallenge {
+        salt: String,
+    },
+    /// Let worker know if authentication succeeded.
+    AuthAccepted(bool),
+    OfferJob(JobInfo),
+    ConfirmJobOffer(JobInfo),
+    WithdrawJobOffer(JobInfo),
+    KillJob(JobInfo),
 }

@@ -1,5 +1,5 @@
 use crate::job_manager::{Job, Worker};
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use chrono::Utc;
 use kueue_lib::{
     config::Config,
@@ -168,20 +168,16 @@ impl Manager {
                                 }
                             }
                         }
-                        Err(anyhow!(
+                        bail!(
                             "Job with ID={} was running but worker could not be acquired!",
                             job_id
-                        ))
+                        )
                     }
-                    JobStatus::Finished { .. } => {
-                        Err(anyhow!("Job ID={} has already finished!", job_id))
-                    }
-                    JobStatus::Canceled { .. } => {
-                        Err(anyhow!("Job ID={} is already canceled!", job_id))
-                    }
+                    JobStatus::Finished { .. } => bail!("Job ID={} has already finished!", job_id),
+                    JobStatus::Canceled { .. } => bail!("Job ID={} is already canceled!", job_id),
                 }
             }
-            None => Err(anyhow!("Job with ID={} not found!", job_id)),
+            None => bail!("Job with ID={} not found!", job_id),
         }
     }
 

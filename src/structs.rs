@@ -198,7 +198,7 @@ pub struct WorkerInfo {
     /// Name of the worker, usually including host name.
     pub worker_name: String,
     pub connected_since: DateTime<Utc>,
-    pub hw: HwInfo,
+    pub system_info: SystemInfo,
     pub last_updated: DateTime<Utc>,
     pub jobs_offered: BTreeSet<u64>,
     pub jobs_running: BTreeSet<u64>,
@@ -218,7 +218,7 @@ impl WorkerInfo {
             worker_id: next_worker_id(),
             worker_name,
             connected_since: Utc::now(),
-            hw: HwInfo::default(),
+            system_info: SystemInfo::default(),
             last_updated: Utc::now(),
             jobs_offered: BTreeSet::new(),
             jobs_running: BTreeSet::new(),
@@ -244,24 +244,25 @@ impl WorkerInfo {
             return 1.0; // fully busy!
         }
 
-        let cpu_busy = if self.hw.cpu_cores == 0 {
+        let cpu_busy = if self.system_info.cpu_cores == 0 {
             1.0
         } else {
-            1.0 - (self.free_resources.cpus as f64 / self.hw.cpu_cores as f64)
+            1.0 - (self.free_resources.cpus as f64 / self.system_info.cpu_cores as f64)
         };
 
-        let ram_busy = if self.hw.total_ram_mb == 0 {
+        let ram_busy = if self.system_info.total_ram_mb == 0 {
             1.0
         } else {
-            1.0 - (self.free_resources.ram_mb as f64 / self.hw.total_ram_mb as f64)
+            1.0 - (self.free_resources.ram_mb as f64 / self.system_info.total_ram_mb as f64)
         };
 
         f64::max(cpu_busy, ram_busy)
     }
 }
 
+/// System and hardware information of a worker.
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct HwInfo {
+pub struct SystemInfo {
     pub kernel: String,
     pub distribution: String,
     pub cpu_cores: u64,
@@ -270,9 +271,9 @@ pub struct HwInfo {
     pub load_info: LoadInfo,
 }
 
-impl Default for HwInfo {
+impl Default for SystemInfo {
     fn default() -> Self {
-        HwInfo {
+        SystemInfo {
             kernel: "unknown".into(),
             distribution: "unknown".into(),
             cpu_cores: 0,
@@ -283,9 +284,13 @@ impl Default for HwInfo {
     }
 }
 
+/// CPU load of a worker machine.
 #[derive(Default, Clone, Serialize, Deserialize, Debug)]
 pub struct LoadInfo {
+    /// One-minute average load.
     pub one: f64,
+    /// Five-minute average load.
     pub five: f64,
+    /// Fifteen-minute average load.
     pub fifteen: f64,
 }

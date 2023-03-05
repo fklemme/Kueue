@@ -1,12 +1,14 @@
+//! This module handles the communication with the server.
+
 use crate::job::Job;
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use base64::{engine::general_purpose, Engine};
 use chrono::Utc;
 use kueue_lib::{
     config::Config,
     messages::stream::{MessageError, MessageStream},
     messages::{HelloMessage, ServerToWorkerMessage, WorkerToServerMessage},
-    structs::{HwInfo, JobStatus, LoadInfo, Resources},
+    structs::{JobStatus, LoadInfo, Resources, SystemInfo},
 };
 use sha2::{Digest, Sha256};
 use std::{
@@ -29,8 +31,8 @@ pub struct Worker {
     /// Message stream, connected to the server.
     stream: MessageStream,
     /// Regularly notified by a timer to trigger sending a message
-    /// about updated hardware/system status to the server.
-    notify_update_hw: Arc<Notify>,
+    /// about updated system and hardware information to the server.
+    notify_system_update: Arc<Notify>,
     /// Notified, whenever any job threads concludes.
     /// The job's status has already been updated by this time.
     notify_job_status: Arc<Notify>,
@@ -60,7 +62,7 @@ impl Worker {
             config,
             worker_name: hostname,
             stream: MessageStream::new(stream),
-            notify_update_hw: Arc::new(Notify::new()),
+            notify_system_update: Arc::new(Notify::new()),
             notify_job_status: Arc::new(Notify::new()),
             system_info,
             offered_jobs: Vec::new(),
@@ -77,18 +79,17 @@ impl Worker {
         self.authenticate().await?;
 
         // Send regular updates about system, load, and resources to the server.
-        let notify_update_hw = Arc::clone(&self.notify_update_hw);
+        let notify_system_update = Arc::clone(&self.notify_system_update);
+        let server_update_interval_seconds =
+            self.config.worker_settings.server_update_interval_seconds;
         tokio::spawn(async move {
             loop {
-                notify_update_hw.notify_one();
-                sleep(Duration::from_secs(60)).await;
+                notify_system_update.notify_one();
+                sleep(Duration::from_secs(server_update_interval_seconds)).await;
             }
         });
 
-        // Inform server about available resources. This information
-        // triggers the server to send new job offers to the worker.
-        let message = WorkerToServerMessage::UpdateResources(self.get_available_resources());
-        self.stream.send(&message).await?;
+        log::info!("Successfully connected to server!");
 
         // Main loop
         loop {
@@ -98,10 +99,10 @@ impl Worker {
                     self.handle_message(message?).await?;
                 }
                 // Or, get active when notified by timer.
-                _ = self.notify_update_hw.notified() => {
+                _ = self.notify_system_update.notified() => {
                     // Update server about system and load.
-                    // Also used as "keep alive" signal.
-                    self.update_hw_status().await?;
+                    // Also used as "keep alive" signal by the server.
+                    self.update_system_info().await?;
                     // Also send an update on available resources. This is
                     // important when "dynamic resources" are used. Otherwise,
                     // the server might see an outdated, full-loaded worker
@@ -153,10 +154,22 @@ impl Worker {
                 // Send response back to server.
                 let message = WorkerToServerMessage::AuthResponse(response);
                 self.stream.send(&message).await?;
-
-                Ok(()) // done
             }
-            other => Err(anyhow!("Expected AuthChallenge, received: {:?}", other)),
+            other => {
+                bail!("Expected AuthChallenge, received: {:?}", other);
+            }
+        }
+
+        // Await authentication confirmation.
+        match self.stream.receive::<ServerToWorkerMessage>().await? {
+            ServerToWorkerMessage::AuthAccepted(accepted) => {
+                if accepted {
+                    Ok(())
+                } else {
+                    bail!("Authentication failed!")
+                }
+            }
+            other => bail!("Expected AuthAccepted, received: {:?}", other),
         }
     }
 
@@ -171,6 +184,11 @@ impl Worker {
             ServerToWorkerMessage::AuthChallenge { salt: _ } => {
                 // This is already handled before the main loop begins.
                 log::warn!("Received duplicate authentication challenge!");
+                Ok(())
+            }
+            ServerToWorkerMessage::AuthAccepted(_accepted) => {
+                // This is already handled before the main loop begins.
+                log::warn!("Received duplicate authentication acceptance!");
                 Ok(())
             }
             ServerToWorkerMessage::OfferJob(job_info) => {
@@ -391,7 +409,7 @@ impl Worker {
     }
 
     /// Update and report hardware information and system load.
-    async fn update_hw_status(&mut self) -> Result<(), MessageError> {
+    async fn update_system_info(&mut self) -> Result<(), MessageError> {
         // Refresh relevant system information.
         self.system_info.refresh_cpu();
         self.system_info.refresh_memory();
@@ -419,7 +437,7 @@ impl Worker {
         };
 
         // Collect hardware information.
-        let hw_info = HwInfo {
+        let hw_info = SystemInfo {
             kernel: self
                 .system_info
                 .kernel_version()
@@ -436,7 +454,7 @@ impl Worker {
 
         // Send to server.
         self.stream
-            .send(&WorkerToServerMessage::UpdateHwInfo(hw_info))
+            .send(&WorkerToServerMessage::UpdateSystemInfo(hw_info))
             .await
     }
 

@@ -2,7 +2,7 @@ use crate::{
     cli::{Cli, CmdArgs, Command},
     print,
 };
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use base64::{engine::general_purpose, Engine};
 use kueue_lib::{
     config::Config,
@@ -327,10 +327,10 @@ impl Client {
                 if accepted {
                     Ok(())
                 } else {
-                    Err(anyhow!("Authentication failed!"))
+                    bail!("Authentication failed!")
                 }
             }
-            other => Err(anyhow!("Expected AuthAccepted, received: {:?}", other)),
+            other => bail!("Expected AuthAccepted, received: {:?}", other),
         }
     }
 }

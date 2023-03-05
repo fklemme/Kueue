@@ -1,5 +1,5 @@
 use crate::job_manager::{Manager, Worker};
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use base64::{engine::general_purpose, Engine};
 use chrono::Utc;
 use kueue_lib::{
@@ -84,6 +84,8 @@ impl WorkerConnection {
             return;
         }
 
+        log::info!("Worker connected: {}", self.worker_name);
+
         // Notify for newly available jobs.
         let new_jobs = self.manager.lock().unwrap().new_jobs();
 
@@ -144,11 +146,11 @@ impl WorkerConnection {
     /// Dispatch incoming message based on variant.
     async fn handle_message(&mut self, message: WorkerToServerMessage) -> Result<()> {
         match message {
-            WorkerToServerMessage::AuthResponse(response) => self.on_auth_response(response),
-            WorkerToServerMessage::UpdateHwInfo(hw_info) => {
+            WorkerToServerMessage::AuthResponse(response) => self.on_auth_response(response).await,
+            WorkerToServerMessage::UpdateSystemInfo(hw_info) => {
                 let mut worker_lock = self.worker.lock().unwrap();
                 // Update information in shared worker object.
-                worker_lock.info.hw = hw_info;
+                worker_lock.info.system_info = hw_info;
                 // This happens regularly, indicating that the worker is still alive.
                 worker_lock.info.last_updated = Utc::now();
                 Ok(()) // No response to worker needed.
@@ -200,8 +202,18 @@ impl WorkerConnection {
         }
     }
 
+    /// Returns error if worker is not authenticated.
+    fn check_authenticated(&self) -> Result<()> {
+        if self.authenticated {
+            Ok(())
+        } else {
+            // Close connection with an error message.
+            bail!("Worker {} is not authenticated!", self.worker_name)
+        }
+    }
+
     /// Called upon receiving WorkerToServerMessage::AuthResponse.
-    fn on_auth_response(&mut self, response: String) -> Result<()> {
+    async fn on_auth_response(&mut self, response: String) -> Result<()> {
         // Calculate baseline result.
         let salted_secret = self.config.common_settings.shared_secret.clone() + &self.salt;
         let salted_secret = salted_secret.into_bytes();
@@ -210,24 +222,18 @@ impl WorkerConnection {
         let baseline = hasher.finalize().to_vec();
         let baseline = general_purpose::STANDARD_NO_PAD.encode(baseline);
 
-        // Pass or die!
+        // Update status and send reply.
         if response == baseline {
             self.authenticated = true;
-            Ok(())
-        } else {
-            Err(anyhow!(
-                "Worker {} failed authentication!",
-                self.worker_name
-            ))
         }
-    }
+        let message = ServerToWorkerMessage::AuthAccepted(self.authenticated);
+        self.stream.send(&message).await?;
 
-    /// Returns error if worker is not authenticated.
-    fn check_authenticated(&self) -> Result<()> {
         if self.authenticated {
             Ok(())
         } else {
-            bail!("Worker {} is not authenticated!", self.worker_name)
+            // Close connection with an error. No second chance for workers.
+            bail!("Worker {} failed to authenticate!", self.worker_name);
         }
     }
 
