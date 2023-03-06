@@ -101,7 +101,7 @@ that the `shared_secret` in your config is the same on all systems you want to
 use. The same is probably true for `server_name` and `server_port`, which is
 used by clients and workers to connect to your server.
 
-    common_settings
+    [common_settings]
     shared_secret = "keep private!"
     server_name = "ralab29"
     server_port = 11236
