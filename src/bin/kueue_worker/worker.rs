@@ -80,12 +80,12 @@ impl Worker {
 
         // Send regular updates about system, load, and resources to the server.
         let notify_system_update = Arc::clone(&self.notify_system_update);
-        let server_update_interval_seconds =
-            self.config.worker_settings.server_update_interval_seconds;
+        let system_update_interval_seconds =
+            self.config.worker_settings.system_update_interval_seconds;
         tokio::spawn(async move {
             loop {
                 notify_system_update.notify_one();
-                sleep(Duration::from_secs(server_update_interval_seconds)).await;
+                sleep(Duration::from_secs(system_update_interval_seconds)).await;
             }
         });
 

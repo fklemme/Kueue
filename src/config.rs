@@ -6,6 +6,7 @@
 //! "restart_workers" contain settings associated with their respective crates.
 
 use anyhow::{bail, Result};
+use config::{builder::BuilderState, ConfigBuilder};
 use directories::ProjectDirs;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
@@ -16,6 +17,22 @@ use std::{
     path::PathBuf,
 };
 use tokio::net::lookup_host;
+
+/// The Config struct represents the read TOML config file
+/// and holds the settings for all individual crates.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct Config {
+    /// Common settings shared among all crates.
+    pub common_settings: CommonSettings,
+    /// Settings related to the server crate.
+    pub server_settings: ServerSettings,
+    /// Settings related to the worker crate.
+    pub worker_settings: WorkerSettings,
+    /// Settings related to the client crate.
+    pub client_settings: ClientSettings,
+    /// Setting related to the optional "restart_workers" crate.
+    pub restart_workers: Option<RestartWorkers>,
+}
 
 /// Common settings shared among all crates.
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -31,23 +48,73 @@ pub struct CommonSettings {
     pub log_level: String,
 }
 
+impl CommonSettings {
+    /// Default common settings.
+    fn default_settings<St: BuilderState>(
+        builder: ConfigBuilder<St>,
+    ) -> Result<ConfigBuilder<St>, config::ConfigError> {
+        // Generate initial random shared secret.
+        let random_secret: String = thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(64)
+            .map(char::from)
+            .collect();
+
+        // TODO: Raise default levels when more mature.
+        let default_log_level = if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "info"
+        };
+
+        builder
+            .set_default("common_settings.shared_secret", random_secret)?
+            .set_default("common_settings.server_name", "localhost")?
+            .set_default("common_settings.server_port", 11236)?
+            .set_default("common_settings.log_level", default_log_level)
+    }
+}
+
 /// Settings related to the server crate.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ServerSettings {
-    /// Space-separated list of IP addresses to listen on.
-    /// Defaults to: `0.0.0.0` (IPv4) and `[::]` (IPv6)
+    /// Space-separated list of IP addresses to listen on. As long as at least
+    /// one of the given addresses can be bound, the server will keep running.
+    /// Defaults to: `0.0.0.0` (IPv4) and `[::]` (IPv6).
     pub bind_addresses: String,
+    /// The server performs maintenance every `maintenance_interval_seconds`
+    /// to recover jobs from disconnected workers and clean up finished jobs.
     pub maintenance_interval_seconds: u64,
     /// Time in seconds before a worker connection is considered timed-out.
     pub worker_timeout_seconds: u64,
+    /// Time in seconds before a job offer to a worker is considered timed-out.
     pub job_offer_timeout_seconds: u64,
+    /// Time in minutes before a finished job is removed from the list of jobs.
     pub job_cleanup_after_minutes: u64,
+}
+
+impl ServerSettings {
+    /// Default server settings.
+    fn default_settings<St: BuilderState>(
+        builder: ConfigBuilder<St>,
+    ) -> Result<ConfigBuilder<St>, config::ConfigError> {
+        builder
+            .set_default("server_settings.bind_addresses", "0.0.0.0 [::]")?
+            .set_default("server_settings.maintenance_interval_seconds", 60)?
+            .set_default("server_settings.worker_timeout_seconds", 5 * 60)?
+            .set_default("server_settings.job_offer_timeout_seconds", 60)?
+            .set_default("server_settings.job_cleanup_after_minutes", 48 * 60)
+    }
 }
 
 /// Settings related to the worker crate.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct WorkerSettings {
-    pub server_update_interval_seconds: u64,
+    /// The worker sends system update messages regularly to the server. It
+    /// contains information about system load, available resources, etc. This
+    /// is also used as a keep-alive signal to the server and thus should be
+    /// smaller than the server's `worker_timeout_seconds` setting.
+    pub system_update_interval_seconds: u64,
     /// Defines an absolute upper limit of parallel jobs for this worker. If
     /// this limit is reached, no more jobs will be started on the worker,
     /// even if enough other resources would be available.
@@ -69,11 +136,35 @@ pub struct WorkerSettings {
     pub dynamic_cpu_load_scale_factor: f64,
 }
 
+impl WorkerSettings {
+    /// Default worker settings.
+    fn default_settings<St: BuilderState>(
+        builder: ConfigBuilder<St>,
+    ) -> Result<ConfigBuilder<St>, config::ConfigError> {
+        builder
+            .set_default("worker_settings.system_update_interval_seconds", 60)?
+            .set_default("worker_settings.max_parallel_jobs", 10)?
+            .set_default("worker_settings.dynamic_check_free_resources", true)?
+            .set_default("worker_settings.dynamic_cpu_load_scale_factor", 1.0)
+    }
+}
+
 /// Settings related to the client crate.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ClientSettings {
     pub job_default_cpus: u64,
     pub job_default_ram_mb: u64,
+}
+
+impl ClientSettings {
+    /// Default client settings.
+    fn default_settings<St: BuilderState>(
+        builder: ConfigBuilder<St>,
+    ) -> Result<ConfigBuilder<St>, config::ConfigError> {
+        builder
+            .set_default("client_settings.job_default_cpus", 8)?
+            .set_default("client_settings.job_default_ram_mb", 8 * 1024)
+    }
 }
 
 /// Setting related to the optional "restart_workers" crate.
@@ -84,82 +175,18 @@ pub struct RestartWorkers {
     pub sleep_minutes_before_recheck: Option<f64>,
 }
 
-/// The Config struct represents the read TOML config file
-/// and holds the settings for all individual crates.
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct Config {
-    /// Common settings shared among all crates.
-    pub common_settings: CommonSettings,
-    /// Settings related to the server crate.
-    pub server_settings: ServerSettings,
-    /// Settings related to the worker crate.
-    pub worker_settings: WorkerSettings,
-    /// Settings related to the client crate.
-    pub client_settings: ClientSettings,
-    /// Setting related to the optional "restart_workers" crate.
-    pub restart_workers: Option<RestartWorkers>,
-}
-
-/// Returns the system-specific default path of the config file.
-pub fn default_path() -> PathBuf {
-    let config_file_name = if cfg!(debug_assertions) {
-        "config-devel.toml"
-    } else {
-        "config.toml"
-    };
-
-    if let Some(project_dirs) = ProjectDirs::from("", "", "kueue") {
-        project_dirs.config_dir().join(config_file_name)
-    } else {
-        config_file_name.into()
-    }
-}
-
 impl Config {
     pub fn new(config_path: Option<PathBuf>) -> Result<Self, config::ConfigError> {
-        let config_path = config_path.unwrap_or(default_path());
-
-        // TODO: Raise default levels when more mature.
-        let default_log_level = if cfg!(debug_assertions) {
-            "debug"
-        } else {
-            "info"
-        };
-
-        // Generate initial random shared secret.
-        let random_secret: String = thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(30)
-            .map(char::from)
-            .collect();
-
         let s = config::Config::builder();
 
-        // Default common settings.
-        let s = s
-            .set_default("common_settings.shared_secret", random_secret)?
-            .set_default("common_settings.server_name", "localhost")?
-            .set_default("common_settings.server_port", 11236)?
-            .set_default("common_settings.log_level", default_log_level)?;
-
-        // Default server settings.
-        let s = s.set_default("server_settings.bind_addresses", "0.0.0.0 [::]")?;
-        let s = s.set_default("server_settings.maintenance_interval_seconds", 60)?;
-        let s = s.set_default("server_settings.worker_timeout_seconds", 5 * 60)?;
-        let s = s.set_default("server_settings.job_offer_timeout_seconds", 60)?;
-        let s = s.set_default("server_settings.job_cleanup_after_minutes", 48 * 60)?;
-
-        // Default worker settings.
-        let s = s.set_default("worker_settings.server_update_interval_seconds", 60)?;
-        let s = s.set_default("worker_settings.max_parallel_jobs", 10)?;
-        let s = s.set_default("worker_settings.dynamic_check_free_resources", true)?;
-        let s = s.set_default("worker_settings.dynamic_cpu_load_scale_factor", 1.0)?;
-
-        // Default client settings.
-        let s = s.set_default("client_settings.job_default_cpus", 8)?;
-        let s = s.set_default("client_settings.job_default_ram_mb", 8 * 1024)?;
+        // Set default settings.
+        let s = CommonSettings::default_settings(s)?;
+        let s = ServerSettings::default_settings(s)?;
+        let s = WorkerSettings::default_settings(s)?;
+        let s = ClientSettings::default_settings(s)?;
 
         // Add config file as source.
+        let config_path = config_path.unwrap_or(default_path());
         let s = s
             .add_source(
                 config::File::with_name(config_path.to_string_lossy().as_ref()).required(false),
@@ -212,5 +239,20 @@ impl Config {
                 self.common_settings.server_name
             ),
         }
+    }
+}
+
+/// Returns the system-specific default path of the config file.
+pub fn default_path() -> PathBuf {
+    let config_file_name = if cfg!(debug_assertions) {
+        "config-devel.toml"
+    } else {
+        "config.toml"
+    };
+
+    if let Some(project_dirs) = ProjectDirs::from("", "", "kueue") {
+        project_dirs.config_dir().join(config_file_name)
+    } else {
+        config_file_name.into()
     }
 }
