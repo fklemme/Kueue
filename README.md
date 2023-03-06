@@ -2,42 +2,69 @@
 
 A robust, user-level, work-stealing, distributed task scheduler.
 
+![Kueue command line interface](screenshot_0.16.0.png)
+
 ## Why Kueue?
 
 Kueue has been developed in a university research environment. Often, scientific
 experiments are conducted by running commercial tools or custom scripts multiple
-times, while each execution requires a certain amount of hardware resources and
+times, with each execution requiring a certain amount of hardware resources and
 run time. At the same time, the available computing infrastructure is
 heterogenous, ranging from a few dedicated servers to a bunch of lab
 workstations that might reboot from time to time. In such an environment,
 distributing your workload to different machines can be a cumbersome task:
 Which machines are currently free? How many jobs can I start/schedule on each
 machine? Have my scripts completed or did the machine reboot in the meantime?
+
 Kueue tries to alleviate these tasks while keeping the usability as simple as
-possible. Running a job with Kueue should be as easy as running it on the
-command line on your local machine. In practice, running `./my_script.py` with
-Kueue on any free machine can be achieved with a simple `kueue cmd ./my_script.py`.
+possible. Its ease of use and the simple configuration is in parts inspired by
+[Task Spooler](https://vicerveza.homeunix.net/~viric/soft/ts/), which I have
+used for a long time. Running a job with Kueue should be as easy as running it
+on the command line on your local machine. In practice, running `./my_script.py`
+with Kueue on any free machine can be achieved with a simple prefix:
+`kueue cmd ./my_script.py`.
 
 ### Kueue might be for you, when...
 
-- You only have user previledges on available computing machines.
+- You only have user privileges on available computing machines.
 - A simple command-line interface suffices your needs.
-- You are working on machines that reboot or shutdown regularily.
+- You are working on machines that reboot or shutdown regularly.
 - A simple setup is more important than a rich set of features.
 
 ### Kueue might not be for you, when...
 
-- You have root previledges and can install an established (multi-user) scheduling system instead.
+- You have root privileges and can install an established (multi-user) scheduling system instead.
 - You have no shared filesystem and thus need to attach data to your jobs inquiries.
+
+## Preparation
+
+Kueue works in a client-server model, which requires the `kueue_server` to be
+running on one machine, and `kueue_worker` on all machines that should carry out
+the execution of jobs. The `kueue_server` process needs to be reachable on a
+(freely specifiable) TCP network port. Similar to the worker, `kueue` (the
+command-line client) connects to the server using the same TCP port on the
+server. Authentication is done with a `shared_secret` that must be identical on
+all your machines. Kueue runs completely in user-level mode and all jobs are
+executed with the privileges that `kueue_worker` is started with. Therefore,
+make sure not to leak the `shared_secret` in your config, otherwise other people
+can spawn processes on your behalf!
+
+In many infrastructures, `/home` and other directories are mounted/synchronized
+over the network. If the user's home is synced, the configuration at
+`~/.config/kueue/config.toml` can be easily accessed by all processes.
+Otherwise, you might need to distribute your config manually to all machines.
+All scheduled jobs are executed with respect to their current working directory.
+A worker will only execute the job if they can see the same directory (or a
+directory with the same path on their system).
 
 ## Installation
 
 The simplest way to obtain Kueue is by downloading it directly from
 [crates.io](https://crates.io/crates/kueue). This requires you to install Rust
-first, which also needs no root previledges if the basic dependencies are
-already installed. By default, all files will be installed into your home
-directory. In an environment with synchronized home directories, this means that
-you usually only need to go through the installation process once.
+first, which also needs no root privileges if the basic dependencies are already
+installed. By default, all files will be installed into your home directory. In
+an environment with synchronized home directories, this means that you usually
+only need to go through the installation process once.
 
 ### Installing Rust
 
