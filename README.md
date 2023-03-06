@@ -33,8 +33,10 @@ with Kueue on any free machine can be achieved with a simple prefix:
 
 ### Kueue might _not_ be for you, when...
 
-- You have root privileges and can install an established (multi-user) scheduling system instead.
-- You have no shared filesystem and thus need to attach data to your jobs inquiries.
+- You have root privileges and can install an established (multi-user)
+  scheduling system instead.
+- You have no shared filesystem and thus need to attach data to your jobs
+  inquiries.
 
 ## Preparation
 
@@ -82,7 +84,8 @@ it might already be installed. On Ubuntu, the following packages will suffice:
 
 ### Installing Kueue
 
-Finally, use Cargo (which is included in the Rust installation) to install Kueue.
+Finally, use Cargo (which is included in the Rust installation) to install (or
+update) Kueue.
 
     cargo install kueue
 
