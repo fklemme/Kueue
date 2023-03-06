@@ -31,7 +31,7 @@ with Kueue on any free machine can be achieved with a simple prefix:
 - You are working on machines that reboot or shutdown regularly.
 - A simple setup is more important than a rich set of features.
 
-### Kueue might not be for you, when...
+### Kueue might _not_ be for you, when...
 
 - You have root privileges and can install an established (multi-user) scheduling system instead.
 - You have no shared filesystem and thus need to attach data to your jobs inquiries.
