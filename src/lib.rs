@@ -15,7 +15,7 @@
 //! The [client](../kueue/index.html), [server](../kueue_server/index.html), and
 //! [worker](../kueue_worker/index.html) crates are documented separately.
 
-//#![warn(clippy::missing_docs_in_private_items)]
+#![warn(clippy::missing_docs_in_private_items)]
 
 pub mod config;
 pub mod messages;

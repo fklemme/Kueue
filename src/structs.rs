@@ -37,7 +37,7 @@ fn next_job_id() -> u64 {
 }
 
 impl JobInfo {
-    /// Creates a new job.
+    /// Creates a new, pending job.
     pub fn new(
         cmd: Vec<String>,
         cwd: PathBuf,
@@ -191,17 +191,24 @@ impl JobStatus {
     }
 }
 
+/// Stores all information about a worker.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct WorkerInfo {
     /// Unique worker ID, assigned by the server.
     pub worker_id: u64,
     /// Name of the worker, usually including host name.
     pub worker_name: String,
+    /// Point in time the worker connected to the server.
     pub connected_since: DateTime<Utc>,
+    /// System/hardware information about the worker.
     pub system_info: SystemInfo,
+    /// Last point in time the worker sent an system update message.
     pub last_updated: DateTime<Utc>,
+    /// Job IDs of jobs offered to the worker.
     pub jobs_offered: BTreeSet<u64>,
+    /// Job IDs of jobs running on the worker.
     pub jobs_running: BTreeSet<u64>,
+    /// Free resources, available for job assignments.
     pub free_resources: Resources,
 }
 
@@ -213,6 +220,7 @@ fn next_worker_id() -> u64 {
 }
 
 impl WorkerInfo {
+    /// Create a new worker.
     pub fn new(worker_name: String) -> Self {
         WorkerInfo {
             worker_id: next_worker_id(),
@@ -226,6 +234,7 @@ impl WorkerInfo {
         }
     }
 
+    /// Total number of job offered or running on the worker.
     pub fn jobs_total(&self) -> usize {
         self.jobs_offered.len() + self.jobs_running.len()
     }
