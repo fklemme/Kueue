@@ -146,3 +146,18 @@ possible. Then, you can use the tool like this:
 Keep in mind that `kueue_restart_workers` is not required for Kueue to work but
 just a simple tool to make restarting workers simpler. You can also use any
 other strategy to start and restart your remote workers.
+
+# Frequently asked questions (FAQ)
+
+TODO: Explain the following questions.
+
+## How do I upgrade to a newer version?
+
+## How do I get a new version of the config file (TOML)?
+
+## I get an error when starting the server
+
+    INFO  [kueue_server::server] Successfully started listening on 0.0.0.0:11236...
+    ERROR [kueue_server::server] Failed to start listening on [::]:11236: Address already in use (os error 98)
+
+## How do I setup command line completion?
