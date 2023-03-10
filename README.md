@@ -149,8 +149,6 @@ other strategy to start and restart your remote workers.
 
 # Frequently asked questions (FAQ)
 
-TODO: Explain the following questions.
-
 ## How do I upgrade to a newer version?
 
  1. If you are using `kueue_restart_worker` to spawn worker processes, stop it.
