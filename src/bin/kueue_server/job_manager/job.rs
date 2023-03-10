@@ -23,7 +23,7 @@ impl Job {
     pub fn notify_observers(&self) {
         for observer in &self.observers {
             if let Err(err) = observer.try_send(self.info.job_id) {
-                log::error!("Failed to notify job: {err}");
+                log::error!("Failed to notify observer: {err}");
             }
         }
     }
