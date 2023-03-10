@@ -13,24 +13,32 @@ fn format_memory_mb(memory_mb: u64) -> String {
     format!("{} MB", memory_mb)
 }
 
-fn format_status(job_info: &JobInfo) -> String {
-    match &job_info.status {
+fn format_worker(job_status: &JobStatus) -> String {
+    match job_status {
+        JobStatus::Offered { worker, .. } => worker.clone(),
+        JobStatus::Running { worker, .. } => worker.clone(),
+        JobStatus::Finished { worker, .. } => worker.clone(),
+        _ => "---".to_string(),
+    }
+}
+
+fn format_status(job_status: &JobStatus) -> String {
+    match job_status {
         JobStatus::Pending { issued } => {
             format!("pending since {}", issued.format("%Y-%m-%d %H:%M:%S"))
         }
-        JobStatus::Offered { worker, .. } => format!("offered to {}", worker),
-        JobStatus::Running {
-            started, worker, ..
-        } => {
+        JobStatus::Offered { offered, .. } => {
+            format!("offered on {}", offered.format("%Y-%m-%d %H:%M:%S"))
+        }
+        JobStatus::Running { started, .. } => {
             let run_time_seconds = (Utc::now() - *started).num_seconds();
             let h = run_time_seconds / 3600;
             let m = (run_time_seconds % 3600) / 60;
             let s = run_time_seconds % 60;
-            format!("running for {}h:{:02}m:{:02}s on {}", h, m, s, worker)
+            format!("running for {}h:{:02}m:{:02}s", h, m, s)
         }
         JobStatus::Finished {
             return_code,
-            worker,
             run_time_seconds,
             ..
         } => {
@@ -38,9 +46,9 @@ fn format_status(job_info: &JobInfo) -> String {
                 let h = run_time_seconds / 3600;
                 let m = (run_time_seconds % 3600) / 60;
                 let s = run_time_seconds % 60;
-                format!("finished after {}h:{:02}m:{:02}s on {}", h, m, s, worker)
+                format!("finished after {}h:{:02}m:{:02}s", h, m, s)
             } else {
-                format!("failed with code {} on {}", return_code, worker)
+                format!("failed with code {}", return_code)
             }
         }
         JobStatus::Canceled { canceled, .. } => {
@@ -87,9 +95,14 @@ pub fn job_list(
             .map(|job_info| format_memory_mb(job_info.resources.ram_mb).len())
             .max()
             .unwrap();
+        let max_worker_col_width = job_infos
+            .iter()
+            .map(|job_info| format_worker(&job_info.status).len())
+            .max()
+            .unwrap();
         let max_status_col_width = job_infos
             .iter()
-            .map(|job_info| format_status(job_info).len())
+            .map(|job_info| format_status(&job_info.status).len())
             .max()
             .unwrap();
 
@@ -99,6 +112,7 @@ pub fn job_list(
             "command".len(),
             max("cpus".len(), max_cores_col_width),
             max("memory".len(), max_memory_col_width),
+            "worker".len(),
             "status".len(),
         ];
         let max_col_widths = vec![
@@ -107,29 +121,32 @@ pub fn job_list(
             max_cmd_col_width,
             0, // cpu cores
             0, // memory
+            max_worker_col_width,
             max_status_col_width,
         ];
 
         let col_widths = format::get_col_widths(min_col_widths, max_col_widths);
-        let (id_col, cwd_col, cmd_col, cores_col, memory_col, status_col) = (
+        let (id_col, cwd_col, cmd_col, cores_col, memory_col, worker_col, status_col) = (
             col_widths[0],
             col_widths[1],
             col_widths[2],
             col_widths[3],
             col_widths[4],
             col_widths[5],
+            col_widths[6],
         );
 
         footer_width = col_widths.iter().sum::<usize>() + 3 * col_widths.len() + 1;
 
         // Print header
         println!(
-            "| {: ^id_col$} | {: <cwd_col$} | {: <cmd_col$} | {: ^cores_col$} | {: ^memory_col$} | {: <status_col$} |",
+            "| {: ^id_col$} | {: <cwd_col$} | {: <cmd_col$} | {: ^cores_col$} | {: ^memory_col$} | {: <worker_col$} | {: <status_col$} |",
             style("id").bold().underlined(),
             style("working dir").bold().underlined(),
             style("command").bold().underlined(),
             style("cpus").bold().underlined(),
             style("memory").bold().underlined(),
+            style("worker").bold().underlined(),
             style("status").bold().underlined(),
         );
 
@@ -145,8 +162,13 @@ pub fn job_list(
             let cpu_cores = format_cpu_cores(job_info.resources.cpus);
             let memory_mb = format_memory_mb(job_info.resources.ram_mb);
 
+            // worker
+            let worker = format_worker(&job_info.status);
+            let worker = format::dots_back(worker, worker_col);
+
             // status
-            let status = format::dots_back(format_status(&job_info), status_col);
+            let status = format_status(&job_info.status);
+            let status = format::dots_back(status, status_col);
             let status = match job_info.status {
                 JobStatus::Pending { .. } => style(status),
                 JobStatus::Offered { .. } => style(status).dim(),
@@ -163,8 +185,8 @@ pub fn job_list(
 
             // Print line.
             println!(
-                "| {: >id_col$} | {: <cwd_col$} | {: <cmd_col$} | {: >cores_col$} | {: >memory_col$} | {: <status_col$} |",
-                job_info.job_id, working_dir, command, cpu_cores, memory_mb, status
+                "| {: >id_col$} | {: <cwd_col$} | {: <cmd_col$} | {: >cores_col$} | {: >memory_col$} | {: <worker_col$} | {: <status_col$} |",
+                job_info.job_id, working_dir, command, cpu_cores, memory_mb, worker, status
             );
         }
     }
