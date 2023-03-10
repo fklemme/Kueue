@@ -152,7 +152,9 @@ impl WorkerSettings {
 /// Settings related to the client crate.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ClientSettings {
+    /// Default number of cpu cores a job requires, if not specified.
     pub job_default_cpus: u64,
+    /// Default amount of RAM memory a job requires, if not specified.
     pub job_default_ram_mb: u64,
 }
 
@@ -170,12 +172,18 @@ impl ClientSettings {
 /// Setting related to the optional "restart_workers" crate.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct RestartWorkers {
+    /// Username to use to connect to worker machines using SSH.
     pub ssh_user: String,
+    /// Hostnames or IP addresses of worker machines, separated by space.
     pub hostnames: String,
+    /// Number of minutes to wait before checking the status of the worker processes again.
     pub sleep_minutes_before_recheck: Option<f64>,
 }
 
 impl Config {
+    /// Create a new config struct to hold all settings. If available, settings
+    /// are parsed from the given `config_path` or default settings are applied.
+    /// If `config_path` is None, the default path for the config file is used.
     pub fn new(config_path: Option<PathBuf>) -> Result<Self, config::ConfigError> {
         let s = config::Config::builder();
 
@@ -197,7 +205,10 @@ impl Config {
         s.try_deserialize()
     }
 
-    pub fn save_as_template(&self, config_path: Option<PathBuf>) -> Result<()> {
+    /// If `config_path` does not exist, write the current config with all
+    /// settings and values to the given `config_path`. If `config_path` is
+    /// None, the default path for the config file is used.
+    pub fn create_template(&self, config_path: Option<PathBuf>) -> Result<()> {
         let config_path = config_path.unwrap_or(default_path());
         let toml = toml::to_string(&self)?;
 
@@ -215,17 +226,20 @@ impl Config {
         Ok(())
     }
 
-    pub fn get_log_level(&self) -> log::Level {
+    /// Get `log::Level` from the config.
+    pub fn get_log_level(&self) -> Result<log::Level> {
         match self.common_settings.log_level.to_lowercase().as_str() {
-            "trace" => log::Level::Trace,
-            "debug" => log::Level::Debug,
-            "info" => log::Level::Info,
-            "warn" => log::Level::Warn,
-            "error" => log::Level::Error,
-            _ => log::Level::Info, // default
+            "trace" => Ok(log::Level::Trace),
+            "debug" => Ok(log::Level::Debug),
+            "info" => Ok(log::Level::Info),
+            "warn" => Ok(log::Level::Warn),
+            "error" => Ok(log::Level::Error),
+            _ => bail!("Log level must be one of: trace, debug, info, warn, error"),
         }
     }
 
+    /// Build server address from `server_name` and `server_port`
+    /// and return it as `SocketAddr`.
     pub async fn get_server_address(&self) -> Result<SocketAddr> {
         let host = format!(
             "{}:{}",

@@ -153,11 +153,51 @@ TODO: Explain the following questions.
 
 ## How do I upgrade to a newer version?
 
+ 1. If you are using `kueue_restart_worker` to spawn worker processes, stop it.
+ 2. Stop `kueue_server`. This will also end connected worker processes.
+ 3. Run `cargo install kueue` on all your machines (or Kueue installations). If
+    you have a shared home directory, a single `cargo install kueue` might
+    already suffice.
+ 4. Restart `kueue_server`.
+ 5. Restart your workers, e.g., through running `kueue_restart_worker`.
+
 ## How do I get a new version of the config file (TOML)?
+
+In many cases, an update of the config file is not required when updating Kueue.
+For any missing setting, a default value is assumed. The default values for all
+settings can be found in the initial template config file that is generated on
+first start.
+
+A template config file is create with each start of any kueue binary, if there
+is no existing config file in place. Therefore, a simple way to update your
+config file is to make a backup (e.g., rename the config file) and simply run
+`kueue` once. Afterwards, compare your backed-up config with the newly create
+template and adjust the settings as you like.
 
 ## I get an error when starting the server
 
     INFO  [kueue_server::server] Successfully started listening on 0.0.0.0:11236...
     ERROR [kueue_server::server] Failed to start listening on [::]:11236: Address already in use (os error 98)
 
+The `kueue_server` supports listening on multiple interfaces, defined in
+`bind_addresses` in the config file. This can be helpful, e.g., if you want to
+allow clients to connect either via IPv4 (`0.0.0.0`) or IPv6 (`[::]`). The
+server will try to bind each address individually with the port specified in
+`server_port`. While this works fine on some systems, other system might
+automatically bind both IPv4 and IPv6 addresses if either of `0.0.0.0` or `[::]`
+is present. In this case, you get the above error message because the server
+tries to bind the same address twice. You can ignore the message (the server
+will still work) or you can fix it by removing one of `0.0.0.0` or `[::]` from
+`bind_addresses`.
+
 ## How do I setup command line completion?
+
+The `kueue` client supports command line completion with
+[clap_complete](https://crates.io/crates/clap_complete). Calling
+`kueue complete` and the name of your shell as another parameter returns the
+completion script for your respective shell. You might evaluate the returned
+script directly, or save it to a file and source it. An easy way (tested with
+both bash and zsh) is to put the `eval` statement directly into your startup
+script. For instance, for bash, put `eval "$(kueue complete bash)"` into your
+`~/.bashrc` script, and for zsh, put `eval "$(kueue complete zsh)"` into your
+`~/.zshrc` script.

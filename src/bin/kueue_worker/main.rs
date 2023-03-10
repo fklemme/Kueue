@@ -32,13 +32,13 @@ async fn main() -> Result<()> {
     let config =
         Config::new(args.config.clone()).map_err(|e| anyhow!("Failed to load config: {}", e))?;
     // If there is no config file, create template.
-    if let Err(e) = config.save_as_template(args.config) {
+    if let Err(e) = config.create_template(args.config) {
         bail!("Could not create config file: {}", e);
     }
 
     // Initialize logger.
     SimpleLogger::new()
-        .with_level(config.get_log_level().to_level_filter())
+        .with_level(config.get_log_level()?.to_level_filter())
         .init()?;
 
     // Run worker.
