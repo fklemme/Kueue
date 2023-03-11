@@ -11,7 +11,7 @@
 //! cargo install kueue
 //! ```
 //!
-//! Find more information on [crates.io/crates/kueue](https://crates.io/crates/kueue).
+//! Find more information on [crates.io](https://crates.io/crates/kueue).
 //! The [client](../kueue/index.html), [server](../kueue_server/index.html), and
 //! [worker](../kueue_worker/index.html) crates are documented separately.
 
