@@ -2,7 +2,7 @@
 
 A robust, user-level, work-stealing, distributed task scheduler.
 
-![Kueue command line interface](screenshot_0.16.0.png)
+![Screenshot of the Kueue command line interface](screenshot_0.16.0.png)
 
 ## Why Kueue?
 
@@ -151,13 +151,15 @@ other strategy to start and restart your remote workers.
 
 ## How do I upgrade to a newer version?
 
- 1. If you are using `kueue_restart_worker` to spawn worker processes, stop it.
- 2. Stop `kueue_server`. This will also end connected worker processes.
+ 1. If you are using `kueue_restart_worker` to spawn your worker processes, stop
+    it first.
+ 2. Stop `kueue_server`. This will also terminate all connected worker processes.
  3. Run `cargo install kueue` on all your machines (or Kueue installations). If
-    you have a shared home directory, a single `cargo install kueue` might
-    already suffice.
- 4. Restart `kueue_server`.
- 5. Restart your workers, e.g., through running `kueue_restart_worker`.
+    you have a shared home directory, a single `cargo install kueue` might be
+    already sufficient.
+ 4. After the update has completed, restart `kueue_server`. If the server
+    complains about unrecognized setting in you config, read the FAQ below.
+ 5. Restart your workers, e.g., by starting `kueue_restart_worker` again.
 
 ## How do I get a new version of the config file (TOML)?
 
@@ -172,7 +174,7 @@ config file is to make a backup (e.g., rename the config file) and simply run
 `kueue` once. Afterwards, compare your backed-up config with the newly create
 template and adjust the settings as you like.
 
-## I get an error when starting the server
+## I get an error when starting the server!
 
     INFO  [kueue_server::server] Successfully started listening on 0.0.0.0:11236...
     ERROR [kueue_server::server] Failed to start listening on [::]:11236: Address already in use (os error 98)
@@ -188,14 +190,14 @@ tries to bind the same address twice. You can ignore the message (the server
 will still work) or you can fix it by removing one of `0.0.0.0` or `[::]` from
 `bind_addresses`.
 
-## How do I setup command line completion?
+## How do I setup shell completion?
 
-The `kueue` client supports command line completion with
+The `kueue` client supports shell completion on the command line with
 [clap_complete](https://crates.io/crates/clap_complete). Calling
 `kueue complete` and the name of your shell as another parameter returns the
 completion script for your respective shell. You might evaluate the returned
-script directly, or save it to a file and source it. An easy way (tested with
-both bash and zsh) is to put the `eval` statement directly into your startup
-script. For instance, for bash, put `eval "$(kueue complete bash)"` into your
-`~/.bashrc` script, and for zsh, put `eval "$(kueue complete zsh)"` into your
-`~/.zshrc` script.
+script directly, or save it to a file and source it afterwards. An easy way
+(tested with both _bash_ and _zsh_) is to put the `eval` statement directly into
+your startup script. For instance, for _bash_, put
+`eval "$(kueue complete bash)"` into your `~/.bashrc` script, and for _zsh_, put
+`eval "$(kueue complete zsh)"` into your `~/.zshrc` script.
