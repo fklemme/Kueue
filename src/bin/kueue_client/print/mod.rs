@@ -25,17 +25,13 @@ fn format_worker(job_status: &JobStatus) -> String {
 fn format_status(job_status: &JobStatus) -> String {
     match job_status {
         JobStatus::Pending { issued } => {
-            format!("pending since {}", issued.format("%Y-%m-%d %H:%M:%S"))
+            format!("pending since {}", format::date(issued))
         }
         JobStatus::Offered { offered, .. } => {
-            format!("offered on {}", offered.format("%Y-%m-%d %H:%M:%S"))
+            format!("offered on {}", format::date(offered))
         }
         JobStatus::Running { started, .. } => {
-            let run_time_seconds = (Utc::now() - *started).num_seconds();
-            let h = run_time_seconds / 3600;
-            let m = (run_time_seconds % 3600) / 60;
-            let s = run_time_seconds % 60;
-            format!("running for {}h:{:02}m:{:02}s", h, m, s)
+            format!("running for {}", format::elapsed_since(started))
         }
         JobStatus::Finished {
             return_code,
@@ -43,16 +39,16 @@ fn format_status(job_status: &JobStatus) -> String {
             ..
         } => {
             if *return_code == 0 {
-                let h = run_time_seconds / 3600;
-                let m = (run_time_seconds % 3600) / 60;
-                let s = run_time_seconds % 60;
-                format!("finished after {}h:{:02}m:{:02}s", h, m, s)
+                format!(
+                    "finished after {}",
+                    format::elapsed_seconds(*run_time_seconds)
+                )
             } else {
                 format!("failed with code {}", return_code)
             }
         }
         JobStatus::Canceled { canceled, .. } => {
-            format!("canceled on {}", canceled.format("%Y-%m-%d %H:%M:%S"))
+            format!("canceled on {}", format::date(canceled))
         }
     }
 }
@@ -125,7 +121,7 @@ pub fn job_list(
             max_status_col_width,
         ];
 
-        let col_widths = format::get_col_widths(min_col_widths, max_col_widths);
+        let col_widths = format::col_widths(min_col_widths, max_col_widths);
         let (id_col, cwd_col, cmd_col, cores_col, memory_col, worker_col, status_col) = (
             col_widths[0],
             col_widths[1],
@@ -192,18 +188,11 @@ pub fn job_list(
     }
 
     // Print bottom lines with overview information.
-    let format_time = |run_time_seconds: i64| {
-        let h = run_time_seconds / 3600;
-        let m = (run_time_seconds % 3600) / 60;
-        let s = run_time_seconds % 60;
-        format!("{}h:{:02}m:{:02}s", h, m, s)
-    };
-
     // First line.
     let summary_heading = "--- job status summary ---";
     let avg_run_time = format!(
         "average job runtime: {}",
-        format_time(job_avg_run_time_seconds)
+        format::elapsed_seconds(job_avg_run_time_seconds)
     );
 
     if footer_width > summary_heading.len() + avg_run_time.len() {
@@ -244,7 +233,7 @@ pub fn job_list(
 
     let remaining_jobs_eta = format!(
         "remaining jobs ETA: {}",
-        format_time(remaining_jobs_eta_seconds)
+        format::elapsed_seconds(remaining_jobs_eta_seconds)
     );
 
     if footer_width > printed + remaining_jobs_eta.len() {
@@ -264,10 +253,10 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
     println!("required RAM: {} megabytes", job_info.resources.ram_mb);
     println!(); // line break
 
-    match job_info.status {
+    match &job_info.status {
         JobStatus::Pending { issued } => {
             println!("{}: pending", style("job status").bold());
-            println!("   issued on: {}", issued);
+            println!("   issued on: {}", format::date(issued));
         }
         JobStatus::Offered {
             issued,
@@ -275,7 +264,7 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
             worker,
         } => {
             println!("{}: {}", style("job status").bold(), style("pending").dim());
-            println!("   issued on: {}", issued);
+            println!("   issued on: {}", format::date(issued));
             println!("   offered on: {}", offered);
             println!("   offered to: {}", worker);
         }
@@ -289,8 +278,8 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
                 style("job status").bold(),
                 style("running").blue()
             );
-            println!("   issued on: {}", issued);
-            println!("   started on: {}", started);
+            println!("   issued on: {}", format::date(issued));
+            println!("   started on: {}", format::date(started));
             println!("   running on: {}", worker);
         }
         JobStatus::Finished {
@@ -302,7 +291,7 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
             run_time_seconds,
             comment,
         } => {
-            if return_code == 0 {
+            if *return_code == 0 {
                 println!(
                     "{}: {}",
                     style("job status").bold(),
@@ -311,12 +300,12 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
             } else {
                 println!("{}: {}", style("job status").bold(), style("failed").red());
             }
-            println!("   issued on: {}", issued);
-            println!("   started on: {}", started);
-            println!("   finished on: {}", finished);
+            println!("   issued on: {}", format::date(issued));
+            println!("   started on: {}", format::date(started));
+            println!("   finished on: {}", format::date(finished));
             println!("   return code: {}", return_code);
             println!("   executed on: {}", worker);
-            println!("   runtime: {} seconds", run_time_seconds);
+            println!("   runtime: {}", format::elapsed_seconds(*run_time_seconds));
             println!("   comment: {}", comment);
         }
         JobStatus::Canceled { issued, canceled } => {
@@ -325,8 +314,8 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
                 style("job status").bold(),
                 style("canceled").yellow()
             );
-            println!("   issued on: {}", issued);
-            println!("   canceled on: {}", canceled);
+            println!("   issued on: {}", format::date(issued));
+            println!("   canceled on: {}", format::date(canceled));
         }
     }
 
@@ -474,7 +463,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
             0, // uptime
         ];
 
-        let col_widths = format::get_col_widths(min_col_widths, max_col_widths);
+        let col_widths = format::col_widths(min_col_widths, max_col_widths);
         let (
             id_col,
             worker_col,
@@ -589,7 +578,10 @@ pub fn worker_info(worker_info: WorkerInfo) {
     );
     println!("worker id: {}", worker_info.worker_id);
     println!("name: {}", worker_info.worker_name);
-    println!("connected since: {}", worker_info.connected_since);
+    println!(
+        "connected since: {}",
+        format::date(&worker_info.connected_since)
+    );
     println!(); // line break
 
     println!("{}", style("system information").bold().underlined());
@@ -604,10 +596,10 @@ pub fn worker_info(worker_info: WorkerInfo) {
         "   total memory: {} megabytes",
         worker_info.system_info.total_ram_mb
     );
-    println!("last updated: {}", worker_info.last_updated);
+    println!("last updated: {}", format::date(&worker_info.last_updated));
     println!(); // line break
 
-    println!("{}", style("sytem load and resources").bold().underlined());
+    println!("{}", style("system load and resources").bold().underlined());
     let load_one = format_cpu_load(
         worker_info.system_info.load_info.one,
         worker_info.system_info.cpu_cores,

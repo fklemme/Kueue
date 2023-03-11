@@ -1,3 +1,4 @@
+use chrono::{DateTime, Datelike, Local, TimeZone, Utc};
 use std::cmp::max;
 use terminal_size::terminal_size;
 
@@ -14,7 +15,7 @@ pub fn term_size() -> (usize, usize) {
 }
 
 /// Calculate column widths for table-style CLI output based on the column's content.
-pub fn get_col_widths(min_col_widths: Vec<usize>, max_col_widths: Vec<usize>) -> Vec<usize> {
+pub fn col_widths(min_col_widths: Vec<usize>, max_col_widths: Vec<usize>) -> Vec<usize> {
     assert!(!min_col_widths.is_empty() && !max_col_widths.is_empty());
     assert!(min_col_widths.len() == max_col_widths.len());
 
@@ -67,6 +68,7 @@ pub fn get_col_widths(min_col_widths: Vec<usize>, max_col_widths: Vec<usize>) ->
     col_widths
 }
 
+/// Format a text with leading dots, if `len` is exceeded.
 pub fn dots_front(text: String, len: usize) -> String {
     if text.len() <= len {
         text
@@ -75,10 +77,44 @@ pub fn dots_front(text: String, len: usize) -> String {
     }
 }
 
+/// Format a text with trailing dots, if `len` is exceeded.
 pub fn dots_back(text: String, len: usize) -> String {
     if text.len() <= len {
         text
     } else {
         text[..(len - 3)].to_owned() + "..."
     }
+}
+
+/// Format a date in local time zone.
+pub fn date<Tz: TimeZone>(date: &DateTime<Tz>) -> String
+where
+    DateTime<Tz>: std::convert::Into<DateTime<Local>>,
+{
+    let date: DateTime<Local> = date.to_owned().into();
+    let today = Local::now();
+
+    if today.year_ce() == date.year_ce() && today.month() == date.month() {
+        if today.day() == date.day() {
+            return date.format("today %H:%M:%S").to_string();
+        } else if today.day() == date.day() + 1 {
+            return date.format("yesterday %H:%M:%S").to_string();
+        }
+    }
+
+    date.format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
+/// Format a date into elapsed time from now.
+pub fn elapsed_since(started: &DateTime<Utc>) -> String {
+    let seconds = (Utc::now() - *started).num_seconds();
+    elapsed_seconds(seconds)
+}
+
+/// Format elapsed seconds into a readable string.
+pub fn elapsed_seconds(seconds: i64) -> String {
+    let h = seconds / 3600;
+    let m = (seconds % 3600) / 60;
+    let s = seconds % 60;
+    format!("{}h:{:02}m:{:02}s", h, m, s)
 }
