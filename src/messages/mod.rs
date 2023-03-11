@@ -31,8 +31,8 @@ pub enum ClientToServerMessage {
     /// jobs. The server will reply with a AuthChallenge that must answered
     /// with a corresponding AuthResponse message.
     AuthRequest,
-    /// Send response in the form of "Sha256(secret + salt)" back to the server.
-    /// The server responds with a AuthAccepted(bool) to indicate if the
+    /// Send response in the form of "Base64(Sha256(secret + salt))" back to the
+    /// server. The server responds with a AuthAccepted(bool) to indicate if the
     /// authentication was successful.
     AuthResponse(String),
     /// Issue a new job. The job's ID and status will be ignored by the server.
