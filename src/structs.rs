@@ -272,11 +272,17 @@ impl WorkerInfo {
 /// System and hardware information of a worker.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct SystemInfo {
+    /// OS kernel version.
     pub kernel: String,
+    /// Name of the OS distribution.
     pub distribution: String,
+    /// Number of CPU cores.
     pub cpu_cores: u64,
+    /// Average CPU frequency across cores.
     pub cpu_frequency: u64,
+    /// Total amount of system memory (RAM) in megabytes.
     pub total_ram_mb: u64,
+    /// System load information.
     pub load_info: LoadInfo,
 }
 
