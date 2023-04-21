@@ -16,7 +16,7 @@ pub struct Manager {
     jobs: BTreeMap<u64, Arc<Mutex<Job>>>,
     jobs_waiting_for_assignment: BTreeSet<u64>,
     workers: BTreeMap<u64, Weak<Mutex<Worker>>>,
-    new_jobs: Arc<Notify>,
+    notify_new_jobs: Arc<Notify>,
 }
 
 impl Manager {
@@ -26,7 +26,7 @@ impl Manager {
             jobs: BTreeMap::new(),
             jobs_waiting_for_assignment: BTreeSet::new(),
             workers: BTreeMap::new(),
-            new_jobs: Arc::new(Notify::new()),
+            notify_new_jobs: Arc::new(Notify::new()),
         }
     }
 
@@ -56,8 +56,8 @@ impl Manager {
     }
 
     /// Get a handle to the "new jobs" notifier.
-    pub fn new_jobs(&self) -> Arc<Notify> {
-        Arc::clone(&self.new_jobs)
+    pub fn notify_new_jobs(&self) -> Arc<Notify> {
+        Arc::clone(&self.notify_new_jobs)
     }
 
     /// Get job by ID.
@@ -90,6 +90,10 @@ impl Manager {
         worker_infos
     }
 
+    fn get_available_global_resources(&self) {
+        let job_infos = self.get_all_job_infos();
+    }
+
     /// Get a job to be assigned to a worker.
     pub fn get_job_waiting_for_assignment(
         &mut self,
@@ -108,7 +112,7 @@ impl Manager {
                 .collect();
             for job_id in job_ids {
                 if let Some(job) = self.jobs.get(&job_id) {
-                    let job_resources = job.lock().unwrap().info.resources.clone();
+                    let job_resources = job.lock().unwrap().info.local_resources.clone();
                     if job_resources.fit_into(resource_limit) {
                         // Found matching job.
                         self.jobs_waiting_for_assignment.remove(&job_id);
@@ -334,7 +338,7 @@ impl Manager {
 
         // If jobs have been marked as pending, notify workers.
         if new_jobs_pending {
-            self.new_jobs.notify_waiters();
+            self.notify_new_jobs.notify_waiters();
         }
     }
 }
@@ -353,7 +357,7 @@ mod tests {
         let cmd = vec!["ls".to_string(), "-la".to_string()];
         let cwd: PathBuf = "/tmp".into();
         let resources = Resources::new(1, 8, 8 * 1024);
-        let job_info = JobInfo::new(cmd, cwd, resources, None, None);
+        let job_info = JobInfo::new(cmd, cwd, resources, None, None, None);
         manager.add_new_job(job_info);
         assert_eq!(manager.get_all_job_infos().len(), 1);
     }
@@ -365,7 +369,7 @@ mod tests {
         let cmd = vec!["ls".to_string(), "-la".to_string()];
         let cwd: PathBuf = "/tmp".into();
         let resources = Resources::new(1, 8, 8 * 1024);
-        let job_info = JobInfo::new(cmd, cwd, resources.clone(), None, None);
+        let job_info = JobInfo::new(cmd, cwd, resources.clone(), None, None, None);
         let job = manager.add_new_job(job_info);
 
         // Put job on exclude list.

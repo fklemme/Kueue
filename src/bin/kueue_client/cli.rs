@@ -25,12 +25,18 @@ pub enum Command {
     /// printed to stdout. If `--wait` has been given as additional argument,
     /// the return code of the remotely executed job is printed to stdout instead.
     Cmd {
+        /// Job slots occupied by this command.
+        #[arg(short, long, default_value_t = 1)]
+        job_slots: u64,
         /// Required CPU cores to run the command.
         #[arg(short, long)]
         cpus: Option<u64>,
         /// Required RAM memory (in megabytes) to run the command.
         #[arg(short, long)]
         ram_mb: Option<u64>,
+        /// Additional resources, such as licenses.
+        #[arg(id = "resource", long)]
+        resources: Vec<String>,
         /// Redirect stdout to the given file path. If "null" is provided, stdout is discarded.
         #[arg(short = 'o', long)]
         stdout: Option<String>,

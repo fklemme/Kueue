@@ -80,6 +80,7 @@ pub enum ServerToClientMessage {
     /// Let client know if authentication succeeded.
     AuthAccepted(bool),
     AcceptJob(JobInfo),
+    RejectJob{job_info: JobInfo, reason: String},
     JobList {
         job_infos: Vec<JobInfo>,
         jobs_pending: u64,

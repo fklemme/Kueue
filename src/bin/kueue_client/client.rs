@@ -2,7 +2,7 @@ use crate::{
     cli::{Cli, CmdArgs, Command},
     print,
 };
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use base64::{engine::general_purpose, Engine};
 use kueue_lib::{
     config::Config,
@@ -11,7 +11,7 @@ use kueue_lib::{
     structs::{JobInfo, JobStatus, Resources},
 };
 use sha2::{Digest, Sha256};
-use std::fs::canonicalize;
+use std::{collections::BTreeMap, fs::canonicalize};
 use tokio::net::TcpStream;
 
 pub struct Client {
@@ -51,8 +51,10 @@ impl Client {
         // Process subcommands.
         match self.args.command.clone() {
             Command::Cmd {
+                job_slots,
                 cpus,
                 ram_mb,
+                resources,
                 stdout,
                 stderr,
                 wait,
@@ -67,15 +69,40 @@ impl Client {
                 // This command requires authentication.
                 self.authenticate().await?;
 
-                // Issue job.
+                // Collect job parameters.
                 let cwd = std::env::current_dir()?;
                 let cwd = canonicalize(cwd)?;
-                let resources = Resources::new(
-                    1,
+                let local_resources = Resources::new(
+                    job_slots,
                     cpus.unwrap_or(self.config.client_settings.job_default_cpus),
                     ram_mb.unwrap_or(self.config.client_settings.job_default_ram_mb),
                 );
-                let job_info = JobInfo::new(cmd, cwd, resources, stdout, stderr);
+
+                // Parse resource parameters into map.
+                let mut global_resources: BTreeMap<String, u64> = BTreeMap::new();
+                for resource in resources {
+                    let parts: Vec<_> = resource.split('=').collect();
+                    if parts.len() == 1 {
+                        global_resources.insert(resource, 1);
+                    } else if parts.len() == 2 {
+                        let res_key = parts.first().unwrap().to_string();
+                        let amount: u64 = parts.last().unwrap().parse().map_err(|err| {
+                            anyhow!("Failed to parse resource: '{}', {}", resource, err)
+                        })?;
+                        global_resources.insert(res_key, amount);
+                    } else {
+                        bail!("Failed to parse resource: {}", resource);
+                    }
+                }
+                let global_resources = if global_resources.is_empty() {
+                    None
+                } else {
+                    Some(global_resources)
+                };
+
+                // Issue new job.
+                let job_info =
+                    JobInfo::new(cmd, cwd, local_resources, global_resources, stdout, stderr);
                 let message = ClientToServerMessage::IssueJob(Box::new(job_info));
                 self.stream.send(&message).await?;
 
@@ -85,8 +112,14 @@ impl Client {
                         log::debug!("Job submitted successfully!");
                         job_info.job_id
                     }
+                    ServerToClientMessage::RejectJob {
+                        job_info: _,
+                        reason,
+                    } => {
+                        bail!("Job rejected by server: {reason}");
+                    }
                     other => {
-                        bail!("Expected AcceptJob, received: {other:?}");
+                        bail!("Expected AcceptJob or RejectJob, received: {other:?}");
                     }
                 };
 

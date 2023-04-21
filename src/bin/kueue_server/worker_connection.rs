@@ -87,7 +87,7 @@ impl WorkerConnection {
         log::info!("Worker connected: {}", self.worker_name);
 
         // Notify for newly available jobs.
-        let new_jobs = self.manager.lock().unwrap().new_jobs();
+        let notify_new_jobs = self.manager.lock().unwrap().notify_new_jobs();
 
         while !self.connection_closed {
             tokio::select! {
@@ -107,7 +107,7 @@ impl WorkerConnection {
                     }
                 }
                 // Or, get active when notified.
-                _ = new_jobs.notified() => {
+                _ = notify_new_jobs.notified() => {
                     // First, check if this worker is still alive.
                     if self.worker.lock().unwrap().info.timed_out(self.config.server_settings.worker_timeout_seconds) {
                         self.connection_closed = true; // end worker session
@@ -486,6 +486,9 @@ impl WorkerConnection {
             .lock()
             .unwrap()
             .get_job_waiting_for_assignment(&excluded_jobs, &self.free_resources);
+
+        // FIXME: Here is a split second where the job is no longer in waiting
+        // list but also not yet set to offered. Fix this somehow?
 
         if let Some(job) = available_job {
             let job_info = {
