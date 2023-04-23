@@ -296,7 +296,7 @@ impl Manager {
                 }
                 JobStatus::Canceled { canceled, .. } => {
                     // Canceled jobs should be cleaned up after some time.
-                    let cleanup_job = (Utc::now() - *canceled).num_hours()
+                    let cleanup_job = (Utc::now() - *canceled).num_minutes()
                         > self.config.server_settings.job_cleanup_after_minutes as i64;
                     if cleanup_job {
                         log::debug!("Clean up old canceled job: {:?}", info);
