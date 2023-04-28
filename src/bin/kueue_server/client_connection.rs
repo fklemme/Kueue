@@ -11,7 +11,6 @@ use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use sha2::{Digest, Sha256};
 use std::{
     cmp::max,
-    fmt::format,
     sync::{Arc, Mutex},
 };
 use tokio::sync::mpsc;

@@ -481,46 +481,15 @@ impl WorkerConnection {
             .cloned()
             .collect();
 
-        let available_job = self
-            .manager
-            .lock()
-            .unwrap()
-            .get_job_waiting_for_assignment(&excluded_jobs, &self.free_resources);
-
-        // FIXME: Here is a split second where the job is no longer in waiting
-        // list but also not yet set to offered. Fix this somehow?
+        let available_job = self.manager.lock().unwrap().get_job_waiting_for_assignment(
+            self.worker_id,
+            &self.worker_name,
+            &excluded_jobs,
+            &self.free_resources,
+        );
 
         if let Some(job) = available_job {
-            let job_info = {
-                let mut job_lock = job.lock().unwrap();
-
-                // Update job status.
-                job_lock.info.status = if let JobStatus::Pending { issued } = job_lock.info.status {
-                    JobStatus::Offered {
-                        issued,
-                        offered: Utc::now(),
-                        worker: self.worker_name.clone(),
-                    }
-                } else {
-                    log::warn!(
-                        "Job waiting for assignment was not set to pending: {:?}",
-                        job_lock.info.status
-                    );
-                    JobStatus::Offered {
-                        issued: Utc::now(),
-                        offered: Utc::now(),
-                        worker: self.worker_name.clone(),
-                    }
-                };
-
-                // Set worker reference.
-                job_lock.worker_id = Some(self.worker_id);
-
-                // Notify observers of the job
-                job_lock.notify_observers();
-
-                job_lock.info.clone()
-            };
+            let job_info = job.lock().unwrap().info.clone();
 
             // Worker has one more job reserved. Prevents over-offering.
             self.worker
