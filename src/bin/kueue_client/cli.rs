@@ -112,6 +112,8 @@ pub enum Command {
         /// ID of the worker to be queried.
         worker_id: u64,
     },
+    /// Show global resources configured on the server.
+    ListResources,
     /// Generate shell completion script for bash, zsh, etc.
     ///
     /// An easy long-term solution is to put `eval "$(kueue complete bash)"`

@@ -708,3 +708,39 @@ pub fn worker_info(worker_info: WorkerInfo) {
         format_resource_load(worker_info.resource_load(), 2)
     );
 }
+
+pub fn resource_list(
+    used_resources: Option<BTreeMap<String, u64>>,
+    total_resources: Option<BTreeMap<String, u64>>,
+) {
+    if let Some(total_res) = total_resources {
+        let max_res_len = total_res.keys().map(|key| key.len()).max().unwrap_or(0);
+        let res_col_width = max("resource".len(), max_res_len);
+
+        // Print header
+        println!(
+            "| {: <res_col_width$} | {: <4} | {: <5} |",
+            style("resource").bold().underlined(),
+            style("used").bold().underlined(),
+            style("total").bold().underlined(),
+        );
+
+        for (resource, total) in total_res {
+            let used = if let Some(used_res) = &used_resources {
+                match used_res.get(&resource) {
+                    Some(used) if *used == total => style(format!("{used}")).red(),
+                    Some(used) => style(format!("{used}")).yellow(),
+                    None => style("0".to_string()).green(),
+                }
+            } else {
+                style("0".to_string()).green()
+            };
+            println!(
+                "| {: <res_col_width$} | {: >4} | {: >5} |",
+                resource, used, total
+            );
+        }
+    } else {
+        println!("No resources configured on the server.");
+    }
+}

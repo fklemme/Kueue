@@ -418,6 +418,17 @@ impl ClientConnection {
                 self.stream.send(&message).await?;
                 Ok(())
             }
+            ClientToServerMessage::ListResources => {
+                // Get global resources.
+                let used_resources = self.manager.lock().unwrap().get_used_global_resources();
+                let total_resources = self.config.global_resources.clone();
+
+                // Send response to client.
+                self.stream
+                    .send(&ServerToClientMessage::ResourceList { used_resources, total_resources})
+                    .await?;
+                Ok(())
+            }
             ClientToServerMessage::Bye => {
                 log::trace!("Bye client!");
                 self.connection_closed = true;

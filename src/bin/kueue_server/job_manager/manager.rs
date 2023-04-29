@@ -90,43 +90,55 @@ impl Manager {
         worker_infos
     }
 
-    /// Get available global resources.
-    fn get_available_global_resources(&self) -> Option<BTreeMap<String, u64>> {
-        if let Some(global_resources) = &self.config.global_resources {
-            let mut available_resources = global_resources.clone();
+    /// Get occupied global resources.
+    pub fn get_used_global_resources(&self) -> Option<BTreeMap<String, u64>> {
+        // Get resources used by offered and running jobs.
+        let mut used_resources = BTreeMap::new();
 
-            // Get resources used by offered and running jobs.
-            // Not very efficient... TODO
-            let mut used_resources = BTreeMap::new();
-            let job_infos: Vec<JobInfo> = self
-                .get_all_job_infos()
-                .iter()
-                .filter(|job_info| job_info.status.is_offered() || job_info.status.is_running())
-                .cloned()
-                .collect();
-            for job_info in job_infos {
-                if let Some(resources) = job_info.global_resources {
-                    for (resource, amount) in resources {
-                        match used_resources.get_mut(&resource) {
-                            Some(value) => {
-                                *value += amount;
-                            }
-                            None => {
-                                used_resources.insert(resource, amount);
-                            }
+        // Not very efficient... TODO
+        let job_infos: Vec<JobInfo> = self
+            .get_all_job_infos()
+            .into_iter()
+            .filter(|job_info| job_info.status.is_offered() || job_info.status.is_running())
+            .collect();
+
+        for job_info in job_infos {
+            if let Some(resources) = job_info.global_resources {
+                for (resource, amount) in resources {
+                    match used_resources.get_mut(&resource) {
+                        Some(value) => {
+                            *value += amount;
+                        }
+                        None => {
+                            used_resources.insert(resource, amount);
                         }
                     }
                 }
             }
+        }
 
-            // Subtract used from total resources.
-            for (resource, free) in &mut available_resources {
-                if let Some(used) = used_resources.get_mut(resource) {
-                    if free >= used {
-                        *free -= *used;
-                    } else {
-                        log::warn!("Global resource '{resource}' over-assigned!");
-                        *free = 0;
+        if !used_resources.is_empty() {
+            Some(used_resources)
+        } else {
+            None
+        }
+    }
+
+    /// Get available global resources.
+    pub fn get_available_global_resources(&self) -> Option<BTreeMap<String, u64>> {
+        if let Some(global_resources) = &self.config.global_resources {
+            let mut available_resources = global_resources.clone();
+
+            if let Some(mut used_resources) = self.get_used_global_resources() {
+                // Subtract used from total resources.
+                for (resource, free) in &mut available_resources {
+                    if let Some(used) = used_resources.get_mut(resource) {
+                        if free >= used {
+                            *free -= *used;
+                        } else {
+                            log::warn!("Global resource '{resource}' over-assigned!");
+                            *free = 0;
+                        }
                     }
                 }
             }

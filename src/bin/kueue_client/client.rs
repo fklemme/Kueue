@@ -318,6 +318,22 @@ impl Client {
                     }
                 }
             }
+            Command::ListResources => {
+                // Query resources.
+                self.stream
+                    .send(&ClientToServerMessage::ListResources)
+                    .await?;
+
+                // Await results.
+                match self.stream.receive::<ServerToClientMessage>().await? {
+                    ServerToClientMessage::ResourceList { used_resources, total_resources } => {
+                        print::resource_list(used_resources, total_resources);
+                    }
+                    other => {
+                        bail!("Expected ResourceList, received: {:?}", other);
+                    }
+                }
+            }
             // Shell completion is already handled in main function.
             Command::Complete { .. } => unreachable!(),
         }
