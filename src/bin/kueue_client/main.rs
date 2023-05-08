@@ -43,6 +43,8 @@ async fn main() -> Result<()> {
         .with_level(config.get_log_level()?.to_level_filter())
         .init()?;
 
+    log::debug!("{:?}", config);
+
     // Run client.
     let mut client = Client::new(args, config).await?;
     client.run().await

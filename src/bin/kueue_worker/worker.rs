@@ -204,7 +204,7 @@ impl Worker {
                 }
 
                 // Accept job if required resources can be acquired.
-                if self.resources_available(&job_info.resources) {
+                if self.resources_available(&job_info.local_resources) {
                     log::debug!("Accepted job {}!", job_info.job_id);
 
                     // Remember accepted job for later confirmation.
@@ -340,12 +340,15 @@ impl Worker {
         self.system_info.refresh_memory();
 
         // Calculate available job slots.
-        assert!(
-            self.config.worker_settings.max_parallel_jobs
-                >= (self.offered_jobs.len() + self.running_jobs.len()) as u64
-        );
-        let available_job_slots = self.config.worker_settings.max_parallel_jobs
-            - (self.offered_jobs.len() + self.running_jobs.len()) as u64;
+        let allocated_job_slots: u64 = self
+            .offered_jobs
+            .iter()
+            .chain(self.running_jobs.iter())
+            .map(|job| job.info.local_resources.job_slots)
+            .sum();
+        assert!(self.config.worker_settings.worker_max_parallel_jobs >= allocated_job_slots);
+        let available_job_slots =
+            self.config.worker_settings.worker_max_parallel_jobs - allocated_job_slots;
 
         // Calculate available cpus.
         let total_cpus = self.system_info.cpus().len() as i64;
@@ -354,7 +357,7 @@ impl Worker {
             .offered_jobs
             .iter()
             .chain(self.running_jobs.iter())
-            .map(|job| job.info.resources.cpus as i64)
+            .map(|job| job.info.local_resources.cpus as i64)
             .sum();
 
         let available_cpus = if self.config.worker_settings.dynamic_check_free_resources {
@@ -384,7 +387,7 @@ impl Worker {
             .offered_jobs
             .iter()
             .chain(self.running_jobs.iter())
-            .map(|job| job.info.resources.ram_mb as i64)
+            .map(|job| job.info.local_resources.ram_mb as i64)
             .sum();
 
         let available_ram_mb = if self.config.worker_settings.dynamic_check_free_resources {

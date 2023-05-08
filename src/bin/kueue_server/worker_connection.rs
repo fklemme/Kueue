@@ -87,7 +87,7 @@ impl WorkerConnection {
         log::info!("Worker connected: {}", self.worker_name);
 
         // Notify for newly available jobs.
-        let new_jobs = self.manager.lock().unwrap().new_jobs();
+        let notify_new_jobs = self.manager.lock().unwrap().notify_new_jobs();
 
         while !self.connection_closed {
             tokio::select! {
@@ -107,7 +107,7 @@ impl WorkerConnection {
                     }
                 }
                 // Or, get active when notified.
-                _ = new_jobs.notified() => {
+                _ = notify_new_jobs.notified() => {
                     // First, check if this worker is still alive.
                     if self.worker.lock().unwrap().info.timed_out(self.config.server_settings.worker_timeout_seconds) {
                         self.connection_closed = true; // end worker session
@@ -481,43 +481,15 @@ impl WorkerConnection {
             .cloned()
             .collect();
 
-        let available_job = self
-            .manager
-            .lock()
-            .unwrap()
-            .get_job_waiting_for_assignment(&excluded_jobs, &self.free_resources);
+        let available_job = self.manager.lock().unwrap().get_job_waiting_for_assignment(
+            self.worker_id,
+            &self.worker_name,
+            &excluded_jobs,
+            &self.free_resources,
+        );
 
         if let Some(job) = available_job {
-            let job_info = {
-                let mut job_lock = job.lock().unwrap();
-
-                // Update job status.
-                job_lock.info.status = if let JobStatus::Pending { issued } = job_lock.info.status {
-                    JobStatus::Offered {
-                        issued,
-                        offered: Utc::now(),
-                        worker: self.worker_name.clone(),
-                    }
-                } else {
-                    log::warn!(
-                        "Job waiting for assignment was not set to pending: {:?}",
-                        job_lock.info.status
-                    );
-                    JobStatus::Offered {
-                        issued: Utc::now(),
-                        offered: Utc::now(),
-                        worker: self.worker_name.clone(),
-                    }
-                };
-
-                // Set worker reference.
-                job_lock.worker_id = Some(self.worker_id);
-
-                // Notify observers of the job
-                job_lock.notify_observers();
-
-                job_lock.info.clone()
-            };
+            let job_info = job.lock().unwrap().info.clone();
 
             // Worker has one more job reserved. Prevents over-offering.
             self.worker

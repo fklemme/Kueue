@@ -14,7 +14,7 @@ use std::{
     fs::{create_dir_all, File},
     io::Write,
     net::SocketAddr,
-    path::PathBuf,
+    path::PathBuf, collections::BTreeMap,
 };
 use tokio::net::lookup_host;
 
@@ -32,6 +32,8 @@ pub struct Config {
     pub client_settings: ClientSettings,
     /// Setting related to the optional "restart_workers" crate.
     pub restart_workers: Option<RestartWorkers>,
+    /// Custom global resources defined in the config.
+    pub global_resources: Option<BTreeMap<String, u64>>,
 }
 
 /// Common settings shared among all crates.
@@ -91,6 +93,10 @@ pub struct ServerSettings {
     pub job_offer_timeout_seconds: u64,
     /// Time in minutes before a finished job is removed from the list of jobs.
     pub job_cleanup_after_minutes: u64,
+    /// Defines an global upper limit of parallel jobs across all workers. If
+    /// this limit is reached, no more jobs will be started on any worker, even
+    /// if enough other resources would be available.
+    pub global_max_parallel_jobs: u64,
 }
 
 impl ServerSettings {
@@ -103,7 +109,8 @@ impl ServerSettings {
             .set_default("server_settings.maintenance_interval_seconds", 60)?
             .set_default("server_settings.worker_timeout_seconds", 5 * 60)?
             .set_default("server_settings.job_offer_timeout_seconds", 60)?
-            .set_default("server_settings.job_cleanup_after_minutes", 48 * 60)
+            .set_default("server_settings.job_cleanup_after_minutes", 48 * 60)?
+            .set_default("server_settings.global_max_parallel_jobs", 100)
     }
 }
 
@@ -116,9 +123,9 @@ pub struct WorkerSettings {
     /// smaller than the server's `worker_timeout_seconds` setting.
     pub system_update_interval_seconds: u64,
     /// Defines an absolute upper limit of parallel jobs for this worker. If
-    /// this limit is reached, no more jobs will be started on the worker,
-    /// even if enough other resources would be available.
-    pub max_parallel_jobs: u64,
+    /// this limit is reached, no more jobs will be started on the worker, even
+    /// if enough other resources would be available.
+    pub worker_max_parallel_jobs: u64,
     /// When set to `true`, the current system utilization is considered when
     /// calculating available resources for job scheduling. Available resources
     /// will be calculated as "total system resources - max(busy resources,
@@ -143,7 +150,7 @@ impl WorkerSettings {
     ) -> Result<ConfigBuilder<St>, config::ConfigError> {
         builder
             .set_default("worker_settings.system_update_interval_seconds", 60)?
-            .set_default("worker_settings.max_parallel_jobs", 10)?
+            .set_default("worker_settings.worker_max_parallel_jobs", 10)?
             .set_default("worker_settings.dynamic_check_free_resources", true)?
             .set_default("worker_settings.dynamic_cpu_load_scale_factor", 1.0)
     }

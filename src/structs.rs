@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -19,8 +19,10 @@ pub struct JobInfo {
     pub cmd: Vec<String>,
     /// Working directory for the job to be executed in.
     pub cwd: PathBuf,
-    /// Required/reserved resources to run the command.
-    pub resources: Resources,
+    /// Required/reserved resources to run the command on the worker.
+    pub local_resources: Resources,
+    /// Required custom global resources (on the server), like licenses.
+    pub global_resources: Option<BTreeMap<String, u64>>,
     /// Current status of the job, e.g., running, finished, etc.
     pub status: JobStatus,
     /// If Some(path), redirect stdout to given file path.
@@ -41,15 +43,22 @@ impl JobInfo {
     pub fn new(
         cmd: Vec<String>,
         cwd: PathBuf,
-        resources: Resources,
+        local_resources: Resources,
+        global_resources: Option<BTreeMap<String, u64>>,
         stdout_path: Option<String>,
         stderr_path: Option<String>,
     ) -> Self {
+        // Replace empty global_resources with None.
+        let global_resources = match global_resources {
+            Some(gr) if gr.is_empty() => None,
+            other => other,
+        };
         JobInfo {
             job_id: next_job_id(),
             cmd,
             cwd,
-            resources,
+            local_resources,
+            global_resources,
             status: JobStatus::Pending { issued: Utc::now() },
             stdout_path,
             stderr_path,
@@ -58,11 +67,17 @@ impl JobInfo {
 
     /// Creates a new job based on the given job information.
     pub fn from(job_info: JobInfo) -> Self {
+        // Replace empty global_resources with None.
+        let global_resources = match job_info.global_resources {
+            Some(gr) if gr.is_empty() => None,
+            other => other,
+        };
         JobInfo {
             job_id: next_job_id(),
             cmd: job_info.cmd,
             cwd: job_info.cwd,
-            resources: job_info.resources,
+            local_resources: job_info.local_resources,
+            global_resources,
             status: JobStatus::Pending { issued: Utc::now() },
             stdout_path: job_info.stdout_path,
             stderr_path: job_info.stderr_path,

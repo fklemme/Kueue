@@ -16,7 +16,7 @@ pub struct Manager {
     jobs: BTreeMap<u64, Arc<Mutex<Job>>>,
     jobs_waiting_for_assignment: BTreeSet<u64>,
     workers: BTreeMap<u64, Weak<Mutex<Worker>>>,
-    new_jobs: Arc<Notify>,
+    notify_new_jobs: Arc<Notify>,
 }
 
 impl Manager {
@@ -26,7 +26,7 @@ impl Manager {
             jobs: BTreeMap::new(),
             jobs_waiting_for_assignment: BTreeSet::new(),
             workers: BTreeMap::new(),
-            new_jobs: Arc::new(Notify::new()),
+            notify_new_jobs: Arc::new(Notify::new()),
         }
     }
 
@@ -56,8 +56,8 @@ impl Manager {
     }
 
     /// Get a handle to the "new jobs" notifier.
-    pub fn new_jobs(&self) -> Arc<Notify> {
-        Arc::clone(&self.new_jobs)
+    pub fn notify_new_jobs(&self) -> Arc<Notify> {
+        Arc::clone(&self.notify_new_jobs)
     }
 
     /// Get job by ID.
@@ -90,9 +90,70 @@ impl Manager {
         worker_infos
     }
 
+    /// Get occupied global resources.
+    pub fn get_used_global_resources(&self) -> Option<BTreeMap<String, u64>> {
+        // Get resources used by offered and running jobs.
+        let mut used_resources = BTreeMap::new();
+
+        // Not very efficient... TODO
+        let job_infos: Vec<JobInfo> = self
+            .get_all_job_infos()
+            .into_iter()
+            .filter(|job_info| job_info.status.is_offered() || job_info.status.is_running())
+            .collect();
+
+        for job_info in job_infos {
+            if let Some(resources) = job_info.global_resources {
+                for (resource, amount) in resources {
+                    match used_resources.get_mut(&resource) {
+                        Some(value) => {
+                            *value += amount;
+                        }
+                        None => {
+                            used_resources.insert(resource, amount);
+                        }
+                    }
+                }
+            }
+        }
+
+        if !used_resources.is_empty() {
+            Some(used_resources)
+        } else {
+            None
+        }
+    }
+
+    /// Get available global resources.
+    pub fn get_available_global_resources(&self) -> Option<BTreeMap<String, u64>> {
+        if let Some(global_resources) = &self.config.global_resources {
+            let mut available_resources = global_resources.clone();
+
+            if let Some(mut used_resources) = self.get_used_global_resources() {
+                // Subtract used from total resources.
+                for (resource, free) in &mut available_resources {
+                    if let Some(used) = used_resources.get_mut(resource) {
+                        if free >= used {
+                            *free -= *used;
+                        } else {
+                            log::warn!("Global resource '{resource}' over-assigned!");
+                            *free = 0;
+                        }
+                    }
+                }
+            }
+
+            Some(available_resources)
+        } else {
+            None
+        }
+    }
+
     /// Get a job to be assigned to a worker.
     pub fn get_job_waiting_for_assignment(
         &mut self,
+        worker_id: u64,
+        worker_name: &str,
         exclude: &BTreeSet<u64>,
         resource_limit: &Resources,
     ) -> Option<Arc<Mutex<Job>>> {
@@ -100,18 +161,71 @@ impl Manager {
             // No jobs marked waiting for assignment.
             None
         } else {
+            // Get available global resources.
+            let available_resources = self.get_available_global_resources();
+
+            // Get jobs.
             let job_ids: Vec<u64> = self
                 .jobs_waiting_for_assignment
                 .iter()
                 .filter(|job_id| !exclude.contains(job_id))
                 .cloned()
                 .collect();
-            for job_id in job_ids {
+
+            'outer: for job_id in job_ids {
                 if let Some(job) = self.jobs.get(&job_id) {
-                    let job_resources = job.lock().unwrap().info.resources.clone();
-                    if job_resources.fit_into(resource_limit) {
+                    let mut job_lock = job.lock().unwrap();
+                    // Check local resources.
+                    if job_lock.info.local_resources.fit_into(resource_limit) {
+                        // Also check global resources.
+                        if let Some(job_resources) = &job_lock.info.global_resources {
+                            if let Some(free_resources) = &available_resources {
+                                for (resource, required) in job_resources {
+                                    match free_resources.get(resource) {
+                                        Some(free) if free >= required => {} // fulfilled
+                                        _ => {
+                                            // Requirement failed. Continue with next job in list.
+                                            continue 'outer;
+                                        }
+                                    }
+                                }
+                            } else {
+                                // This should never happen, since client_connection checks if requirements can be fulfilled.
+                                log::error!("Job {job_id} requires global resources but none are configured on the server!");
+                            }
+                        }
+
                         // Found matching job.
                         self.jobs_waiting_for_assignment.remove(&job_id);
+
+                        // To avoid the returned job being immediately picked
+                        // up again by the maintenance routine, we update the
+                        // status already at this point.
+                        job_lock.info.status =
+                            if let JobStatus::Pending { issued } = job_lock.info.status {
+                                JobStatus::Offered {
+                                    issued,
+                                    offered: Utc::now(),
+                                    worker: worker_name.to_string(),
+                                }
+                            } else {
+                                log::warn!(
+                                    "Job waiting for assignment was not set to pending: {:?}",
+                                    job_lock.info.status
+                                );
+                                JobStatus::Offered {
+                                    issued: Utc::now(),
+                                    offered: Utc::now(),
+                                    worker: worker_name.to_string(),
+                                }
+                            };
+
+                        // Set worker reference.
+                        job_lock.worker_id = Some(worker_id);
+
+                        // Notify observers of the job.
+                        job_lock.notify_observers();
+
                         return Some(Arc::clone(job));
                     }
                 }
@@ -334,7 +448,7 @@ impl Manager {
 
         // If jobs have been marked as pending, notify workers.
         if new_jobs_pending {
-            self.new_jobs.notify_waiters();
+            self.notify_new_jobs.notify_waiters();
         }
     }
 }
@@ -353,7 +467,7 @@ mod tests {
         let cmd = vec!["ls".to_string(), "-la".to_string()];
         let cwd: PathBuf = "/tmp".into();
         let resources = Resources::new(1, 8, 8 * 1024);
-        let job_info = JobInfo::new(cmd, cwd, resources, None, None);
+        let job_info = JobInfo::new(cmd, cwd, resources, None, None, None);
         manager.add_new_job(job_info);
         assert_eq!(manager.get_all_job_infos().len(), 1);
     }
@@ -365,7 +479,7 @@ mod tests {
         let cmd = vec!["ls".to_string(), "-la".to_string()];
         let cwd: PathBuf = "/tmp".into();
         let resources = Resources::new(1, 8, 8 * 1024);
-        let job_info = JobInfo::new(cmd, cwd, resources.clone(), None, None);
+        let job_info = JobInfo::new(cmd, cwd, resources.clone(), None, None, None);
         let job = manager.add_new_job(job_info);
 
         // Put job on exclude list.
@@ -373,16 +487,16 @@ mod tests {
         exclude.insert(job.lock().unwrap().info.job_id);
 
         // Now, we should not get it.
-        let job = manager.get_job_waiting_for_assignment(&exclude, &resources);
+        let job = manager.get_job_waiting_for_assignment(0, "no worker", &exclude, &resources);
         assert!(job.is_none());
 
         // Now we want any job. One is waiting to be assigned.
         exclude.clear();
-        let job = manager.get_job_waiting_for_assignment(&exclude, &resources);
+        let job = manager.get_job_waiting_for_assignment(0, "no worker", &exclude, &resources);
         assert!(job.is_some());
 
         // We want any job, again. But none are left.
-        let job = manager.get_job_waiting_for_assignment(&exclude, &resources);
+        let job = manager.get_job_waiting_for_assignment(0, "no worker", &exclude, &resources);
         assert!(job.is_none());
     }
 }

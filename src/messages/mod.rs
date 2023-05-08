@@ -3,6 +3,8 @@
 
 pub mod stream;
 
+use std::collections::BTreeMap;
+
 use crate::structs::{JobInfo, Resources, SystemInfo, WorkerInfo};
 use serde::{Deserialize, Serialize};
 
@@ -65,6 +67,7 @@ pub enum ClientToServerMessage {
     ShowWorker {
         worker_id: u64,
     },
+    ListResources,
     Bye,
 }
 
@@ -80,6 +83,7 @@ pub enum ServerToClientMessage {
     /// Let client know if authentication succeeded.
     AuthAccepted(bool),
     AcceptJob(JobInfo),
+    RejectJob{job_info: JobInfo, reason: String},
     JobList {
         job_infos: Vec<JobInfo>,
         jobs_pending: u64,
@@ -99,6 +103,10 @@ pub enum ServerToClientMessage {
     JobUpdated(JobInfo),
     WorkerList(Vec<WorkerInfo>),
     WorkerInfo(WorkerInfo),
+    ResourceList{
+        used_resources: Option<BTreeMap<String, u64>>,
+        total_resources: Option<BTreeMap<String, u64>>,
+    },
     /// Generic response, signaling the client if the requested action has
     /// succeeded or if something went wrong. This is used, for instance, when
     /// the client requests information about a job that does not exist.

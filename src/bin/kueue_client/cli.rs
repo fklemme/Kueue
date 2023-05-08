@@ -25,12 +25,18 @@ pub enum Command {
     /// printed to stdout. If `--wait` has been given as additional argument,
     /// the return code of the remotely executed job is printed to stdout instead.
     Cmd {
+        /// Job slots occupied by this command.
+        #[arg(short, long, default_value_t = 1)]
+        job_slots: u64,
         /// Required CPU cores to run the command.
         #[arg(short, long)]
         cpus: Option<u64>,
         /// Required RAM memory (in megabytes) to run the command.
         #[arg(short, long)]
         ram_mb: Option<u64>,
+        /// Additional resources, such as licenses.
+        #[arg(id = "resource", long)]
+        resources: Vec<String>,
         /// Redirect stdout to the given file path. If "null" is provided, stdout is discarded.
         #[arg(short = 'o', long)]
         stdout: Option<String>,
@@ -106,6 +112,8 @@ pub enum Command {
         /// ID of the worker to be queried.
         worker_id: u64,
     },
+    /// Show global resources configured on the server.
+    ListResources,
     /// Generate shell completion script for bash, zsh, etc.
     ///
     /// An easy long-term solution is to put `eval "$(kueue complete bash)"`

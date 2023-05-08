@@ -104,6 +104,59 @@ impl ClientConnection {
             ClientToServerMessage::IssueJob(job_info) => {
                 self.is_authenticated().await?;
 
+                // Check if job can ever be processed. (job slots)
+                if job_info.local_resources.job_slots
+                    > self.config.server_settings.global_max_parallel_jobs
+                {
+                    // Send reject to client.
+                    let message = ServerToClientMessage::RejectJob {
+                        job_info: *job_info,
+                        reason: "Job requires more slots than the server will allow at once! See global_max_parallel_jobs setting in config.".to_string()
+                    };
+                    self.stream.send(&message).await?;
+                    return Ok(());
+                }
+
+                // Check if job can ever be processed. (global resources)
+                let mut reject_reason = None;
+                if let Some(job_global_resources) = &job_info.global_resources {
+                    if let Some(config_global_resources) = &self.config.global_resources {
+                        for (resource, required_amount) in job_global_resources {
+                            match config_global_resources.get(resource) {
+                                Some(available_amount) if available_amount < required_amount => {
+                                    reject_reason = Some(format!(
+                                        "Required resource exceeds limits configured on the server: max. {resource}={available_amount}"
+                                    ));
+                                    break;
+                                }
+                                None => {
+                                    reject_reason = Some(format!(
+                                        "Required resource not configured on server: {resource}"
+                                    ));
+                                    break;
+                                }
+                                _ => {} // else, required resource is fine
+                            }
+                        }
+                        // everything is fine, global resources fit into server limits
+                    } else {
+                        reject_reason = Some(format!(
+                            "No custom global resources configured on the server! Requested resources: {job_global_resources:?}"
+                        ));
+                    }
+                };
+                if let Some(reason) = reject_reason {
+                    // Send reject to client.
+                    let message = ServerToClientMessage::RejectJob {
+                        job_info: *job_info,
+                        reason,
+                    };
+                    self.stream.send(&message).await?;
+                    return Ok(());
+                }
+
+                // If we passed all the checks, we can process the job request.
+
                 // Add new job. We create a new JobInfo instance to make sure to
                 // not adopt remote (non-unique) job ids or inconsistent states.
                 let job = self.manager.lock().unwrap().add_new_job(*job_info);
@@ -117,8 +170,8 @@ impl ClientConnection {
                     .await?;
 
                 // Notify workers.
-                let new_jobs = self.manager.lock().unwrap().new_jobs();
-                new_jobs.notify_waiters();
+                let notify_new_jobs = self.manager.lock().unwrap().notify_new_jobs();
+                notify_new_jobs.notify_waiters();
                 Ok(())
             }
             ClientToServerMessage::ListJobs {
@@ -363,6 +416,17 @@ impl ClientConnection {
                     }
                 };
                 self.stream.send(&message).await?;
+                Ok(())
+            }
+            ClientToServerMessage::ListResources => {
+                // Get global resources.
+                let used_resources = self.manager.lock().unwrap().get_used_global_resources();
+                let total_resources = self.config.global_resources.clone();
+
+                // Send response to client.
+                self.stream
+                    .send(&ServerToClientMessage::ResourceList { used_resources, total_resources})
+                    .await?;
                 Ok(())
             }
             ClientToServerMessage::Bye => {

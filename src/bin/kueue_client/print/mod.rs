@@ -3,7 +3,10 @@ pub mod format;
 use chrono::{DateTime, Utc};
 use console::{style, StyledObject};
 use kueue_lib::structs::{JobInfo, JobStatus, WorkerInfo};
-use std::{cmp::max, collections::BTreeSet};
+use std::{
+    cmp::max,
+    collections::{BTreeMap, BTreeSet},
+};
 
 fn format_cpu_cores(cpu_cores: u64) -> String {
     format!("{} x", cpu_cores)
@@ -11,6 +14,21 @@ fn format_cpu_cores(cpu_cores: u64) -> String {
 
 fn format_memory_mb(memory_mb: u64) -> String {
     format!("{} MB", memory_mb)
+}
+
+fn format_global_resources(global_resources: &Option<BTreeMap<String, u64>>) -> String {
+    if let Some(resources) = global_resources {
+        let mut global_resources_string = String::new();
+        for (resource, amount) in resources {
+            if !global_resources_string.is_empty() {
+                global_resources_string += ", ";
+            }
+            global_resources_string += &format!("{amount}x {resource}");
+        }
+        global_resources_string
+    } else {
+        "---".to_string()
+    }
 }
 
 fn format_worker(job_status: &JobStatus) -> String {
@@ -83,12 +101,17 @@ pub fn job_list(
             .unwrap();
         let max_cores_col_width = job_infos
             .iter()
-            .map(|job_info| format_cpu_cores(job_info.resources.cpus).len())
+            .map(|job_info| format_cpu_cores(job_info.local_resources.cpus).len())
             .max()
             .unwrap();
         let max_memory_col_width = job_infos
             .iter()
-            .map(|job_info| format_memory_mb(job_info.resources.ram_mb).len())
+            .map(|job_info| format_memory_mb(job_info.local_resources.ram_mb).len())
+            .max()
+            .unwrap();
+        let max_glob_res_col_width = job_infos
+            .iter()
+            .map(|job_info| format_global_resources(&job_info.global_resources).len())
             .max()
             .unwrap();
         let max_worker_col_width = job_infos
@@ -104,10 +127,11 @@ pub fn job_list(
 
         let min_col_widths = vec![
             max("id".len(), max_id_col_width),
-            "working dir".len(),
+            "working directory".len(),
             "command".len(),
             max("cpus".len(), max_cores_col_width),
             max("memory".len(), max_memory_col_width),
+            "other".len(), // global resources
             "worker".len(),
             "status".len(),
         ];
@@ -117,12 +141,13 @@ pub fn job_list(
             max_cmd_col_width,
             0, // cpu cores
             0, // memory
+            max_glob_res_col_width,
             max_worker_col_width,
             max_status_col_width,
         ];
 
         let col_widths = format::col_widths(min_col_widths, max_col_widths);
-        let (id_col, cwd_col, cmd_col, cores_col, memory_col, worker_col, status_col) = (
+        let (id_col, cwd_col, cmd_col, cores_col, memory_col, glob_res_col, worker_col, status_col) = (
             col_widths[0],
             col_widths[1],
             col_widths[2],
@@ -130,24 +155,28 @@ pub fn job_list(
             col_widths[4],
             col_widths[5],
             col_widths[6],
+            col_widths[7],
         );
 
         footer_width = col_widths.iter().sum::<usize>() + 3 * col_widths.len() + 1;
 
         // Print header
         println!(
-            "| {: ^id_col$} | {: <cwd_col$} | {: <cmd_col$} | {: ^cores_col$} | {: ^memory_col$} | {: <worker_col$} | {: <status_col$} |",
+            "| {: <id_col$} | {: <cwd_col$} | {: <cmd_col$} | \
+            {: <cores_col$} | {: <memory_col$} | {: <glob_res_col$} | \
+            {: <worker_col$} | {: <status_col$} |",
             style("id").bold().underlined(),
-            style("working dir").bold().underlined(),
+            style("working directory").bold().underlined(),
             style("command").bold().underlined(),
             style("cpus").bold().underlined(),
             style("memory").bold().underlined(),
+            style("other").bold().underlined(),
             style("worker").bold().underlined(),
             style("status").bold().underlined(),
         );
 
         for job_info in job_infos {
-            // working dir
+            // working directory
             let working_dir = job_info.cwd.to_string_lossy();
             let working_dir = format::dots_front(working_dir.to_string(), cwd_col);
 
@@ -155,8 +184,9 @@ pub fn job_list(
             let command = job_info.cmd.join(" ");
             let command = format::dots_back(command, cmd_col);
 
-            let cpu_cores = format_cpu_cores(job_info.resources.cpus);
-            let memory_mb = format_memory_mb(job_info.resources.ram_mb);
+            let cpu_cores = format_cpu_cores(job_info.local_resources.cpus);
+            let memory_mb = format_memory_mb(job_info.local_resources.ram_mb);
+            let glob_res = format_global_resources(&job_info.global_resources);
 
             // worker
             let worker = format_worker(&job_info.status);
@@ -181,8 +211,17 @@ pub fn job_list(
 
             // Print line.
             println!(
-                "| {: >id_col$} | {: <cwd_col$} | {: <cmd_col$} | {: >cores_col$} | {: >memory_col$} | {: <worker_col$} | {: <status_col$} |",
-                job_info.job_id, working_dir, command, cpu_cores, memory_mb, worker, status
+                "| {: >id_col$} | {: <cwd_col$} | {: <cmd_col$} | \
+                {: >cores_col$} | {: >memory_col$} | {: <glob_res_col$} | \
+                {: <worker_col$} | {: <status_col$} |",
+                job_info.job_id,
+                working_dir,
+                command,
+                cpu_cores,
+                memory_mb,
+                glob_res,
+                worker,
+                status
             );
         }
     }
@@ -249,9 +288,21 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
     println!("job id: {}", job_info.job_id);
     println!("command: {}", job_info.cmd.join(" "));
     println!("working directory: {}", job_info.cwd.to_string_lossy());
-    println!("required CPU cores: {}", job_info.resources.cpus);
-    println!("required RAM: {} megabytes", job_info.resources.ram_mb);
+    println!("required job slots: {}", job_info.local_resources.job_slots);
+    println!("required CPU cores: {}", job_info.local_resources.cpus);
+    println!(
+        "required RAM: {} megabytes",
+        job_info.local_resources.ram_mb
+    );
     println!(); // line break
+
+    if let Some(global_resources) = job_info.global_resources {
+        println!("{}", style("additional resources:").bold());
+        for (resource, amount) in global_resources {
+            println!("   {amount}x {resource}");
+        }
+        println!(); // line break
+    }
 
     match &job_info.status {
         JobStatus::Pending { issued } => {
@@ -436,7 +487,7 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
 
         let min_col_widths = vec![
             max("id".len(), max_id_col_width),
-            "worker name".len(),
+            "name".len(),
             "operating system".len(),
             max("cpus".len(), max_cores_col_width),
             max("avg freq".len(), max_freq_col_width),
@@ -506,12 +557,12 @@ pub fn worker_list(worker_list: Vec<WorkerInfo>) {
 
         // Print header
         println!(
-            "| {: ^id_col$} | {: <worker_col$} | {: <os_col$} \
-            | {: ^cores_col$} | {: ^freq_col$} | {: ^memory_col$} \
-            | {: ^jobs_col$} | {: ^busy_col$} | {: ^load_col$} \
-            | {: ^uptime_col$} |",
+            "| {: <id_col$} | {: <worker_col$} | {: <os_col$} \
+            | {: <cores_col$} | {: <freq_col$} | {: <memory_col$} \
+            | {: <jobs_col$} | {: <busy_col$} | {: <load_col$} \
+            | {: <uptime_col$} |",
             style("id").bold().underlined(),
-            style("worker name").bold().underlined(),
+            style("name").bold().underlined(),
             style("operating system").bold().underlined(),
             style("cpus").bold().underlined(),
             style("avg freq").bold().underlined(),
@@ -656,4 +707,40 @@ pub fn worker_info(worker_info: WorkerInfo) {
         style("total occupation").bold(),
         format_resource_load(worker_info.resource_load(), 2)
     );
+}
+
+pub fn resource_list(
+    used_resources: Option<BTreeMap<String, u64>>,
+    total_resources: Option<BTreeMap<String, u64>>,
+) {
+    if let Some(total_res) = total_resources {
+        let max_res_len = total_res.keys().map(|key| key.len()).max().unwrap_or(0);
+        let res_col_width = max("resource".len(), max_res_len);
+
+        // Print header
+        println!(
+            "| {: <res_col_width$} | {: <4} | {: <5} |",
+            style("resource").bold().underlined(),
+            style("used").bold().underlined(),
+            style("total").bold().underlined(),
+        );
+
+        for (resource, total) in total_res {
+            let used = if let Some(used_res) = &used_resources {
+                match used_res.get(&resource) {
+                    Some(used) if *used == total => style(format!("{used}")).red(),
+                    Some(used) => style(format!("{used}")).yellow(),
+                    None => style("0".to_string()).green(),
+                }
+            } else {
+                style("0".to_string()).green()
+            };
+            println!(
+                "| {: <res_col_width$} | {: >4} | {: >5} |",
+                resource, used, total
+            );
+        }
+    } else {
+        println!("No resources configured on the server.");
+    }
 }

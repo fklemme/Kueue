@@ -115,6 +115,24 @@ programs start in foreground, so you might use a tool like
 [screen](https://linux.die.net/man/1/screen) to send the processes to the
 background and keep them alive while you're not logged in.
 
+## Global resources (e.g. license management)
+
+Kueue can handle "global" resources that must be respected among all workers at the same time, such as licenses. We demonstrate how to use the feature by example. To get started, add a new table of resources to your config, named `[global_resources]`. Afterward, specify one resource per line, like in the following example.
+
+    [global_resources]
+    primelib = 31
+    genus = 3
+
+In this example, we specified two types of licenses and an amount for each license that can be used by jobs at the same time. Let's assume that `my_script.sh` requires one `genus` license to run. This can be achieve with the following command:
+
+    kueue cmd --resource genus ./my_script.sh
+
+In the following example, our script requires not only one `genus` license but also 4 `primelib` licenses:
+
+    kueue cmd --resource genus --resource primelib=4 ./my_script.sh
+
+By providing required global resources accordingly, Kueue can schedule jobs conflict-free.
+
 ## Restart workers
 
 Kueue comes with a simple tool named `kueue_restart_workers` that checks the
