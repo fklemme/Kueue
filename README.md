@@ -82,6 +82,10 @@ it might already be installed. On Ubuntu, the following packages will suffice:
 
     sudo apt install pkg-config libssl-dev
 
+On Fedora, the following package solved the missing dependencies:
+
+    sudo dnf install openssl-devel
+
 ### Installing Kueue
 
 Finally, use Cargo (which is included in the Rust installation) to install (or
