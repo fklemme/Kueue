@@ -64,7 +64,7 @@ impl ClientConnection {
                             }
                         }
                         Err(e) => {
-                            log::error!("{}", e);
+                            log::error!("Error while receiving message: {}", e);
                             self.connection_closed = true; // end client session
                         }
                     }
@@ -79,7 +79,7 @@ impl ClientConnection {
                         let message = ServerToClientMessage::JobUpdated(job.lock().unwrap().info.clone());
                         if let Err(e) = self.stream.send(&message).await {
                             log::error!("Failed to send job notification: {}", e);
-                                self.connection_closed = true; // end client session
+                            self.connection_closed = true; // end client session
                         }
                     } else {
                         log::error!("Notifying job not found: {}", job_id);
@@ -425,7 +425,10 @@ impl ClientConnection {
 
                 // Send response to client.
                 self.stream
-                    .send(&ServerToClientMessage::ResourceList { used_resources, total_resources})
+                    .send(&ServerToClientMessage::ResourceList {
+                        used_resources,
+                        total_resources,
+                    })
                     .await?;
                 Ok(())
             }

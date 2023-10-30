@@ -28,11 +28,10 @@ impl Server {
         let maintenance_interval_seconds = config.server_settings.maintenance_interval_seconds;
         tokio::spawn(async move {
             loop {
-                // TODO: Put this into the config as well.
                 sleep(Duration::from_secs(maintenance_interval_seconds)).await;
                 log::trace!("Performing job maintenance...");
                 manager_handle.lock().unwrap().run_maintenance();
-                // TODO: Put something to allow shutdown.
+                // TODO: Put something to allow graceful shutdown.
             }
         });
 
@@ -79,12 +78,12 @@ impl Server {
             let (stream, addr) = listener.accept().await?;
             log::trace!("New connection from {}!", addr);
 
-            // New reference-counted pointer to job manager
+            // New reference-counted pointer to job manager.
             let manager = Arc::clone(&self.manager);
             let config = self.config.clone();
 
             tokio::spawn(async move {
-                // Process each connection concurrently
+                // Process each connection concurrently.
                 handle_connection(stream, manager, config).await;
                 log::trace!("Closed connection to {}!", addr);
             });
@@ -93,11 +92,11 @@ impl Server {
 }
 
 async fn handle_connection(stream: TcpStream, manager: Arc<Mutex<Manager>>, config: Config) {
-    // Read hello message to distinguish between client and worker
+    // Read hello message to distinguish between client and worker.
     let mut stream = MessageStream::new(stream);
     match stream.receive::<HelloMessage>().await {
         Ok(HelloMessage::HelloFromClient) => {
-            // Handle client connection
+            // Handle client connection.
             match stream.send(&ServerToClientMessage::WelcomeClient).await {
                 Ok(()) => {
                     log::trace!("Established connection to client!");
@@ -108,7 +107,7 @@ async fn handle_connection(stream: TcpStream, manager: Arc<Mutex<Manager>>, conf
             }
         }
         Ok(HelloMessage::HelloFromWorker { worker_name }) => {
-            // Handle worker connection
+            // Handle worker connection.
             match stream.send(&ServerToWorkerMessage::WelcomeWorker).await {
                 Ok(()) => {
                     log::trace!("Established connection to worker '{}'!", worker_name);
@@ -120,7 +119,7 @@ async fn handle_connection(stream: TcpStream, manager: Arc<Mutex<Manager>>, conf
             }
             log::warn!("Connection to worker {} closed!", worker_name);
         }
-        // Warn, because this should not be common.
+        // Connected client failed to identify correctly.
         Err(e) => log::error!("Failed to read HelloMessage: {}", e),
     }
 }
