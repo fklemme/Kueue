@@ -101,12 +101,12 @@ pub fn job_list(
             .unwrap();
         let max_cores_col_width = job_infos
             .iter()
-            .map(|job_info| format_cpu_cores(job_info.local_resources.cpus).len())
+            .map(|job_info| format_cpu_cores(job_info.worker_resources.cpus).len())
             .max()
             .unwrap();
         let max_memory_col_width = job_infos
             .iter()
-            .map(|job_info| format_memory_mb(job_info.local_resources.ram_mb).len())
+            .map(|job_info| format_memory_mb(job_info.worker_resources.ram_mb).len())
             .max()
             .unwrap();
         let max_glob_res_col_width = job_infos
@@ -184,8 +184,8 @@ pub fn job_list(
             let command = job_info.cmd.join(" ");
             let command = format::dots_back(command, cmd_col);
 
-            let cpu_cores = format_cpu_cores(job_info.local_resources.cpus);
-            let memory_mb = format_memory_mb(job_info.local_resources.ram_mb);
+            let cpu_cores = format_cpu_cores(job_info.worker_resources.cpus);
+            let memory_mb = format_memory_mb(job_info.worker_resources.ram_mb);
             let glob_res = format_global_resources(&job_info.global_resources);
 
             // worker
@@ -288,11 +288,11 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
     println!("job id: {}", job_info.job_id);
     println!("command: {}", job_info.cmd.join(" "));
     println!("working directory: {}", job_info.cwd.to_string_lossy());
-    println!("required job slots: {}", job_info.local_resources.job_slots);
-    println!("required CPU cores: {}", job_info.local_resources.cpus);
+    println!("required job slots: {}", job_info.worker_resources.job_slots);
+    println!("required CPU cores: {}", job_info.worker_resources.cpus);
     println!(
         "required RAM: {} megabytes",
-        job_info.local_resources.ram_mb
+        job_info.worker_resources.ram_mb
     );
     println!(); // line break
 

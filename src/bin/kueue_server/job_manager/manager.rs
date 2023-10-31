@@ -175,8 +175,8 @@ impl Manager {
             'outer: for job_id in job_ids {
                 if let Some(job) = self.jobs.get(&job_id) {
                     let mut job_lock = job.lock().unwrap();
-                    // Check local resources.
-                    if job_lock.info.local_resources.fit_into(resource_limit) {
+                    // Check worker resources.
+                    if job_lock.info.worker_resources.fit_into(resource_limit) {
                         // Also check global resources.
                         if let Some(job_resources) = &job_lock.info.global_resources {
                             if let Some(free_resources) = &available_resources {

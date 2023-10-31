@@ -65,7 +65,7 @@ impl MessageStream {
 
             // Read more data from stream
             match self.stream.read(&mut self.read_buffer).await {
-                Ok(bytes_read) if bytes_read == 0 => return Err(MessageError::ConnectionClosed),
+                Ok(0) => return Err(MessageError::ConnectionClosed),
                 Ok(bytes_read) => {
                     // Move read bytes into message buffer and continue loop
                     self.msg_buffer.extend(&self.read_buffer[..bytes_read]);

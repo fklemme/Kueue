@@ -40,7 +40,7 @@ pub enum ClientToServerMessage {
     /// Issue a new job. The job's ID and status will be ignored by the server.
     /// The server responds with a AcceptJob message and provide updated
     /// details. This command requires authentication.
-    IssueJob(Box<JobInfo>),
+    IssueJob(JobInfo),
     ListJobs {
         num_jobs: u64,
         pending: bool,

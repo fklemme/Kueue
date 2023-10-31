@@ -72,7 +72,7 @@ impl Client {
                 // Collect job parameters.
                 let cwd = std::env::current_dir()?;
                 let cwd = canonicalize(cwd)?;
-                let local_resources = Resources::new(
+                let worker_resources = Resources::new(
                     job_slots,
                     cpus.unwrap_or(self.config.client_settings.job_default_cpus),
                     ram_mb.unwrap_or(self.config.client_settings.job_default_ram_mb),
@@ -102,8 +102,8 @@ impl Client {
 
                 // Issue new job.
                 let job_info =
-                    JobInfo::new(cmd, cwd, local_resources, global_resources, stdout, stderr);
-                let message = ClientToServerMessage::IssueJob(Box::new(job_info));
+                    JobInfo::new(cmd, cwd, worker_resources, global_resources, stdout, stderr);
+                let message = ClientToServerMessage::IssueJob(job_info);
                 self.stream.send(&message).await?;
 
                 // Await acceptance.

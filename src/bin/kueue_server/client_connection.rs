@@ -105,12 +105,12 @@ impl ClientConnection {
                 self.is_authenticated().await?;
 
                 // Check if job can ever be processed. (job slots)
-                if job_info.local_resources.job_slots
+                if job_info.worker_resources.job_slots
                     > self.config.server_settings.global_max_parallel_jobs
                 {
                     // Send reject to client.
                     let message = ServerToClientMessage::RejectJob {
-                        job_info: *job_info,
+                        job_info,
                         reason: "Job requires more slots than the server will allow at once! See global_max_parallel_jobs setting in config.".to_string()
                     };
                     self.stream.send(&message).await?;
@@ -148,7 +148,7 @@ impl ClientConnection {
                 if let Some(reason) = reject_reason {
                     // Send reject to client.
                     let message = ServerToClientMessage::RejectJob {
-                        job_info: *job_info,
+                        job_info,
                         reason,
                     };
                     self.stream.send(&message).await?;
@@ -159,7 +159,7 @@ impl ClientConnection {
 
                 // Add new job. We create a new JobInfo instance to make sure to
                 // not adopt remote (non-unique) job ids or inconsistent states.
-                let job = self.manager.lock().unwrap().add_new_job(*job_info);
+                let job = self.manager.lock().unwrap().add_new_job(job_info);
                 let job_info = job.lock().unwrap().info.clone();
 
                 log::debug!("New job {} received from client!", job_info.job_id);

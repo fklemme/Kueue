@@ -20,7 +20,7 @@ pub struct JobInfo {
     /// Working directory for the job to be executed in.
     pub cwd: PathBuf,
     /// Required/reserved resources to run the command on the worker.
-    pub local_resources: Resources,
+    pub worker_resources: Resources,
     /// Required custom global resources (on the server), like licenses.
     pub global_resources: Option<BTreeMap<String, u64>>,
     /// Current status of the job, e.g., running, finished, etc.
@@ -43,7 +43,7 @@ impl JobInfo {
     pub fn new(
         cmd: Vec<String>,
         cwd: PathBuf,
-        local_resources: Resources,
+        worker_resources: Resources,
         global_resources: Option<BTreeMap<String, u64>>,
         stdout_path: Option<String>,
         stderr_path: Option<String>,
@@ -57,7 +57,7 @@ impl JobInfo {
             job_id: next_job_id(),
             cmd,
             cwd,
-            local_resources,
+            worker_resources,
             global_resources,
             status: JobStatus::Pending { issued: Utc::now() },
             stdout_path,
@@ -76,7 +76,7 @@ impl JobInfo {
             job_id: next_job_id(),
             cmd: job_info.cmd,
             cwd: job_info.cwd,
-            local_resources: job_info.local_resources,
+            worker_resources: job_info.worker_resources,
             global_resources,
             status: JobStatus::Pending { issued: Utc::now() },
             stdout_path: job_info.stdout_path,
@@ -261,7 +261,7 @@ impl WorkerInfo {
 
     /// Returns the percentage of resources occupied on the worker. For multiple
     /// resources, the maximum occupation is returned. E.g., if some memory is
-    /// still available but all cpus are take, 100% occupation is returned.
+    /// still available but all cpus are taken, 100% occupation is returned.
     pub fn resource_load(&self) -> f64 {
         // TODO: Should job slots be considered in this calculation?
         if self.free_resources.job_slots == 0 {
