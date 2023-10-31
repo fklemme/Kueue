@@ -40,5 +40,5 @@ simple_logger = "4.0"
 ssh2 = "0.9"
 sysinfo = "0.29"
 terminal_size = "0.3"
-tokio = { version = "1.26", features = ["full"] }
+tokio = { version = "1.32", features = ["full"] }
 toml = "0.8"
