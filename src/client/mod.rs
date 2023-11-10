@@ -1,15 +1,15 @@
+pub mod cli;
+mod print;
+
 use crate::{
-    cli::{Cli, CmdArgs, Command},
-    print,
-};
-use anyhow::{anyhow, bail, Result};
-use base64::{engine::general_purpose, Engine};
-use kueue_lib::{
     config::Config,
     messages::stream::MessageStream,
     messages::{ClientToServerMessage, HelloMessage, ServerToClientMessage},
     structs::{JobInfo, JobStatus, Resources},
 };
+use anyhow::{anyhow, bail, Result};
+use base64::{engine::general_purpose, Engine};
+use cli::{Cli, CmdArgs, Command};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, fs::canonicalize};
 use tokio::net::TcpStream;
@@ -166,7 +166,7 @@ impl Client {
                 // Query jobs.
                 let message = ClientToServerMessage::ListJobs {
                     // Current space (height) in the terminal to show jobs.
-                    num_jobs: num_jobs.unwrap_or(print::format::term_size().1 as u64 - 4),
+                    num_jobs: num_jobs.unwrap_or(print::term_size().1 as u64 - 4),
                     pending,
                     offered,
                     running,
@@ -326,7 +326,10 @@ impl Client {
 
                 // Await results.
                 match self.stream.receive::<ServerToClientMessage>().await? {
-                    ServerToClientMessage::ResourceList { used_resources, total_resources } => {
+                    ServerToClientMessage::ResourceList {
+                        used_resources,
+                        total_resources,
+                    } => {
                         print::resource_list(used_resources, total_resources);
                     }
                     other => {

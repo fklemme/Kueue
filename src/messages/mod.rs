@@ -83,7 +83,10 @@ pub enum ServerToClientMessage {
     /// Let client know if authentication succeeded.
     AuthAccepted(bool),
     AcceptJob(JobInfo),
-    RejectJob{job_info: JobInfo, reason: String},
+    RejectJob {
+        job_info: JobInfo,
+        reason: String,
+    },
     JobList {
         job_infos: Vec<JobInfo>,
         jobs_pending: u64,
@@ -103,7 +106,7 @@ pub enum ServerToClientMessage {
     JobUpdated(JobInfo),
     WorkerList(Vec<WorkerInfo>),
     WorkerInfo(WorkerInfo),
-    ResourceList{
+    ResourceList {
         used_resources: Option<BTreeMap<String, u64>>,
         total_resources: Option<BTreeMap<String, u64>>,
     },
@@ -114,6 +117,9 @@ pub enum ServerToClientMessage {
         success: bool,
         text: String,
     },
+    /// Close connection to the client. The server will only actively
+    /// close the connection when the server is shutting down.
+    Bye,
 }
 
 /// Contains all messages sent by the worker to the server.
@@ -153,4 +159,7 @@ pub enum ServerToWorkerMessage {
     ConfirmJobOffer(JobInfo),
     WithdrawJobOffer(JobInfo),
     KillJob(JobInfo),
+    /// Close connection to the worker. The server will only actively
+    /// close the connection when the server is shutting down.
+    Bye,
 }

@@ -11,10 +11,11 @@ use directories::ProjectDirs;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     fs::{create_dir_all, File},
     io::Write,
     net::SocketAddr,
-    path::PathBuf, collections::BTreeMap,
+    path::PathBuf,
 };
 use tokio::net::lookup_host;
 

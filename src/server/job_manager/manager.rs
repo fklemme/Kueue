@@ -1,32 +1,37 @@
-use crate::job_manager::{Job, Worker};
-use anyhow::{bail, Result};
-use chrono::Utc;
-use kueue_lib::{
+use crate::{
     config::Config,
+    server::job_manager::{Job, Worker},
     structs::{JobInfo, JobStatus, Resources, WorkerInfo},
 };
+use anyhow::{bail, Result};
+use chrono::Utc;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex, Weak},
 };
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::{mpsc, watch, Notify};
 
 pub struct Manager {
     config: Config,
     jobs: BTreeMap<u64, Arc<Mutex<Job>>>,
     jobs_waiting_for_assignment: BTreeSet<u64>,
     workers: BTreeMap<u64, Weak<Mutex<Worker>>>,
-    notify_new_jobs: Arc<Notify>,
+    pub notify_new_jobs: Arc<Notify>,
+    pub shutdown_tx: Arc<watch::Sender<&'static str>>,
+    pub shutdown_rx: watch::Receiver<&'static str>,
 }
 
 impl Manager {
     pub fn new(config: Config) -> Self {
+        let (shutdown_tx, shutdown_rx) = watch::channel("up");
         Manager {
             config,
             jobs: BTreeMap::new(),
             jobs_waiting_for_assignment: BTreeSet::new(),
             workers: BTreeMap::new(),
             notify_new_jobs: Arc::new(Notify::new()),
+            shutdown_tx: Arc::new(shutdown_tx),
+            shutdown_rx,
         }
     }
 
@@ -45,19 +50,14 @@ impl Manager {
 
     /// Adds a new job to be processed.
     pub fn add_new_job(&mut self, job_info: JobInfo) -> Arc<Mutex<Job>> {
-        // Add new job. We create a new JobInfo instance to make sure to
-        // not adopt remote (non-unique) job ids or inconsistent states.
+        // We create a new JobInfo instance to make sure to not
+        // adopt remote (non-unique) job ids or inconsistent states.
         let job = Job::from(job_info);
         let job_id = job.info.job_id;
         let job = Arc::new(Mutex::new(job));
         self.jobs.insert(job_id, Arc::clone(&job));
         self.jobs_waiting_for_assignment.insert(job_id);
         job
-    }
-
-    /// Get a handle to the "new jobs" notifier.
-    pub fn notify_new_jobs(&self) -> Arc<Notify> {
-        Arc::clone(&self.notify_new_jobs)
     }
 
     /// Get job by ID.
@@ -67,11 +67,10 @@ impl Manager {
 
     /// Collect job information about all jobs.
     pub fn get_all_job_infos(&self) -> Vec<JobInfo> {
-        let mut job_infos = Vec::new();
-        for job in self.jobs.values() {
-            job_infos.push(job.lock().unwrap().info.clone());
-        }
-        job_infos
+        self.jobs
+            .values()
+            .map(|job| job.lock().unwrap().info.clone())
+            .collect()
     }
 
     /// Get worker by ID.
@@ -81,13 +80,11 @@ impl Manager {
 
     /// Collect worker information about all workers.
     pub fn get_all_worker_infos(&self) -> Vec<WorkerInfo> {
-        let mut worker_infos = Vec::new();
-        for worker in self.workers.values() {
-            if let Some(worker) = worker.upgrade() {
-                worker_infos.push(worker.lock().unwrap().info.clone());
-            }
-        }
-        worker_infos
+        self.workers
+            .values()
+            .filter_map(Weak::upgrade)
+            .map(|worker| worker.lock().unwrap().info.clone())
+            .collect()
     }
 
     /// Get occupied global resources.
@@ -125,15 +122,15 @@ impl Manager {
     }
 
     /// Get available global resources.
-    pub fn get_available_global_resources(&self) -> Option<BTreeMap<String, u64>> {
+    pub fn get_free_global_resources(&self) -> Option<BTreeMap<String, u64>> {
         if let Some(global_resources) = &self.config.global_resources {
-            let mut available_resources = global_resources.clone();
+            let mut free_resources = global_resources.clone();
 
-            if let Some(mut used_resources) = self.get_used_global_resources() {
+            if let Some(used_resources) = self.get_used_global_resources() {
                 // Subtract used from total resources.
-                for (resource, free) in &mut available_resources {
-                    if let Some(used) = used_resources.get_mut(resource) {
-                        if free >= used {
+                for (resource, free) in &mut free_resources {
+                    if let Some(used) = used_resources.get(resource) {
+                        if *free >= *used {
                             *free -= *used;
                         } else {
                             log::warn!("Global resource '{resource}' over-assigned!");
@@ -143,7 +140,7 @@ impl Manager {
                 }
             }
 
-            Some(available_resources)
+            Some(free_resources)
         } else {
             None
         }
@@ -162,7 +159,7 @@ impl Manager {
             None
         } else {
             // Get available global resources.
-            let available_resources = self.get_available_global_resources();
+            let free_resources = self.get_free_global_resources();
 
             // Get jobs.
             let job_ids: Vec<u64> = self
@@ -175,11 +172,11 @@ impl Manager {
             'outer: for job_id in job_ids {
                 if let Some(job) = self.jobs.get(&job_id) {
                     let mut job_lock = job.lock().unwrap();
-                    // Check worker resources.
+                    // Check required worker resources.
                     if job_lock.info.worker_resources.fit_into(resource_limit) {
                         // Also check global resources.
                         if let Some(job_resources) = &job_lock.info.global_resources {
-                            if let Some(free_resources) = &available_resources {
+                            if let Some(free_resources) = &free_resources {
                                 for (resource, required) in job_resources {
                                     match free_resources.get(resource) {
                                         Some(free) if free >= required => {} // fulfilled
@@ -308,8 +305,9 @@ impl Manager {
             .retain(|_, job| !clean_pred(&job.lock().unwrap().info.status));
     }
 
-    /// Inspect every job and "repair" if needed.
+    /// Perform regular maintenance.
     pub fn run_maintenance(&mut self) {
+        // Inspect every job and "repair" if needed.
         let mut jobs_to_be_removed: Vec<u64> = Vec::new();
         let mut new_jobs_pending = false;
 
@@ -441,7 +439,7 @@ impl Manager {
             }
         }
 
-        // Clean up workers.
+        // Clean up disconnected workers.
         for id in workers_to_be_removed {
             self.workers.remove(&id);
         }
@@ -455,8 +453,6 @@ impl Manager {
 
 #[cfg(test)]
 mod tests {
-    use kueue_lib::structs::Resources;
-
     use super::*;
     use std::path::PathBuf;
 

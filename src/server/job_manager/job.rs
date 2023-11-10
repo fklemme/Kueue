@@ -1,4 +1,4 @@
-use kueue_lib::structs::JobInfo;
+use crate::structs::JobInfo;
 use tokio::sync::mpsc;
 
 pub struct Job {

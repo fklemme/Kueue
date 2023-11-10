@@ -2,18 +2,15 @@
 //!
 //! This binary create implements the Kueue command line client.
 
-//#![warn(clippy::missing_docs_in_private_items)]
-
-mod cli;
-mod client;
-mod print;
+#![warn(clippy::missing_docs_in_private_items)]
 
 use anyhow::{anyhow, bail, Result};
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
-use cli::Cli;
-use client::Client;
-use kueue_lib::config::Config;
+use kueue_lib::{
+    client::{cli, cli::Cli, Client},
+    config::Config,
+};
 use simple_logger::SimpleLogger;
 use std::io::stdout;
 
@@ -42,8 +39,6 @@ async fn main() -> Result<()> {
     SimpleLogger::new()
         .with_level(config.get_log_level()?.to_level_filter())
         .init()?;
-
-    log::debug!("{:?}", config);
 
     // Run client.
     let mut client = Client::new(args, config).await?;

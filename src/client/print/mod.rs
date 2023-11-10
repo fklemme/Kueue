@@ -1,8 +1,9 @@
-pub mod format;
+mod format;
 
+use crate::structs::{JobInfo, JobStatus, WorkerInfo};
 use chrono::{DateTime, Utc};
 use console::{style, StyledObject};
-use kueue_lib::structs::{JobInfo, JobStatus, WorkerInfo};
+pub use format::term_size;
 use std::{
     cmp::max,
     collections::{BTreeMap, BTreeSet},
@@ -84,7 +85,7 @@ pub fn job_list(
     job_avg_run_time_seconds: i64,
     remaining_jobs_eta_seconds: i64,
 ) {
-    let mut footer_width = format::term_size().0;
+    let mut footer_width = term_size().0;
 
     if !job_infos.is_empty() {
         // Get maximum column widths for space calculation.
@@ -288,7 +289,10 @@ pub fn job_info(job_info: JobInfo, stdout_text: Option<String>, stderr_text: Opt
     println!("job id: {}", job_info.job_id);
     println!("command: {}", job_info.cmd.join(" "));
     println!("working directory: {}", job_info.cwd.to_string_lossy());
-    println!("required job slots: {}", job_info.worker_resources.job_slots);
+    println!(
+        "required job slots: {}",
+        job_info.worker_resources.job_slots
+    );
     println!("required CPU cores: {}", job_info.worker_resources.cpus);
     println!(
         "required RAM: {} megabytes",

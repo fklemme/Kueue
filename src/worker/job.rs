@@ -1,9 +1,9 @@
 //! This module takes care of executing the jobs on the worker.
 
+use crate::structs::JobInfo;
 use anyhow::{bail, Result};
 use chrono::{Duration, Utc};
 use futures::future::try_join3;
-use kueue_lib::structs::JobInfo;
 use std::{
     path::{Path, PathBuf},
     process::Stdio,

@@ -1,15 +1,18 @@
 //! This module handles the communication with the server.
 
-use crate::job::Job;
-use anyhow::{bail, Result};
-use base64::{engine::general_purpose, Engine};
-use chrono::Utc;
-use kueue_lib::{
+mod job;
+
+use crate::{
     config::Config,
     messages::stream::{MessageError, MessageStream},
     messages::{HelloMessage, ServerToWorkerMessage, WorkerToServerMessage},
     structs::{JobStatus, LoadInfo, Resources, SystemInfo},
 };
+use anyhow::{bail, Result};
+use base64::{engine::general_purpose, Engine};
+use chrono::Utc;
+use futures::future::BoxFuture;
+use job::Job;
 use sha2::{Digest, Sha256};
 use std::{
     cmp::{max, min},
@@ -18,7 +21,7 @@ use std::{
 use sysinfo::{CpuExt, System, SystemExt};
 use tokio::{
     net::TcpStream,
-    sync::Notify,
+    sync::{watch, Notify},
     time::{sleep, Duration},
 };
 
@@ -38,10 +41,13 @@ pub struct Worker {
     notify_job_status: Arc<Notify>,
     /// Handle to query system information.
     system_info: System,
-    /// Jobs offered to the worker but not yet confirmed or started.
-    offered_jobs: Vec<Job>,
+    /// Jobs accepted by the worker but not yet confirmed or started.
+    accepted_jobs: Vec<Job>,
     /// Jobs currently running on the worker.
     running_jobs: Vec<Job>,
+    running: bool,
+    shutdown_tx: Arc<watch::Sender<&'static str>>,
+    shutdown_rx: watch::Receiver<&'static str>,
 }
 
 impl Worker {
@@ -49,7 +55,7 @@ impl Worker {
     pub async fn new(config: Config) -> Result<Self> {
         // Use hostname as worker name.
         let fqdn: String = gethostname::gethostname().to_string_lossy().into();
-        let hostname = fqdn.split(|c| c == '.').next().unwrap().to_string();
+        let hostname = fqdn.split('.').next().unwrap().to_string();
 
         // Connect to the server.
         let server_addr = config.get_server_address().await?;
@@ -58,6 +64,8 @@ impl Worker {
         // Initialize system resources.
         let system_info = System::new_all();
 
+        let (shutdown_tx, shutdown_rx) = watch::channel("up");
+
         Ok(Worker {
             config,
             worker_name: hostname,
@@ -65,9 +73,17 @@ impl Worker {
             notify_system_update: Arc::new(Notify::new()),
             notify_job_status: Arc::new(Notify::new()),
             system_info,
-            offered_jobs: Vec::new(),
+            accepted_jobs: Vec::new(),
             running_jobs: Vec::new(),
+            running: true,
+            shutdown_tx: Arc::new(shutdown_tx),
+            shutdown_rx,
         })
+    }
+
+    pub fn async_shutdown(&self) -> BoxFuture<'static, ()> {
+        let shutdown_tx = Arc::clone(&self.shutdown_tx);
+        Box::pin(async move { shutdown_tx.send("shutdown").unwrap() })
     }
 
     /// Perform message and job handling. This function will run indefinitely.
@@ -84,15 +100,16 @@ impl Worker {
             self.config.worker_settings.system_update_interval_seconds;
         tokio::spawn(async move {
             loop {
+                // Send the first update immediately.
                 notify_system_update.notify_one();
                 sleep(Duration::from_secs(system_update_interval_seconds)).await;
             }
         });
 
-        log::info!("Successfully connected to server!");
+        log::info!("Established connection to server!");
 
         // Main loop
-        loop {
+        while self.running {
             tokio::select! {
                 // Read and handle incoming messages.
                 message = self.stream.receive::<ServerToWorkerMessage>() => {
@@ -114,8 +131,18 @@ impl Worker {
                 _ = self.notify_job_status.notified() => {
                     self.update_job_status().await?;
                 }
+                // Or, close the connection if worker is shutting down.
+                _ = self.shutdown_rx.changed() => {
+                    log::info!("Closing connection to server!");
+                    if let Err(e) = self.stream.send(&WorkerToServerMessage::Bye).await {
+                        log::error!("Failed to send bye: {}", e);
+                    }
+                    self.running = false; // stop worker
+                }
             }
         }
+
+        Ok(())
     }
 
     /// Perform hello/welcome handshake with the server.
@@ -194,7 +221,11 @@ impl Worker {
             ServerToWorkerMessage::OfferJob(job_info) => {
                 // Reject job when the worker cannot see the working directory.
                 if !job_info.cwd.is_dir() {
-                    log::debug!("Rejected job {}!", job_info.job_id);
+                    log::debug!(
+                        "Rejected job {} because working directory {} is not found!",
+                        job_info.job_id,
+                        job_info.cwd.to_string_lossy()
+                    );
 
                     // Reject job offer.
                     return self
@@ -208,7 +239,7 @@ impl Worker {
                     log::debug!("Accepted job {}!", job_info.job_id);
 
                     // Remember accepted job for later confirmation.
-                    self.offered_jobs.push(Job::new(
+                    self.accepted_jobs.push(Job::new(
                         job_info.clone(),
                         Arc::clone(&self.notify_job_status),
                     ));
@@ -226,14 +257,14 @@ impl Worker {
                 }
             }
             ServerToWorkerMessage::ConfirmJobOffer(job_info) => {
-                let offered_job_index = self
-                    .offered_jobs
+                let accepted_job_index = self
+                    .accepted_jobs
                     .iter()
                     .position(|job| job.info.job_id == job_info.job_id);
-                match offered_job_index {
+                match accepted_job_index {
                     Some(index) => {
                         // Move job to running processes.
-                        let mut job = self.offered_jobs.remove(index);
+                        let mut job = self.accepted_jobs.remove(index);
                         // Also update job status. (Should now be "running".)
                         job.info.status = job_info.status;
                         self.running_jobs.push(job);
@@ -271,7 +302,7 @@ impl Worker {
                         }
 
                         // TODO: There is some checking we could do here. We do
-                        // not want jobs to remain in offered_jobs indefinitely!
+                        // not want jobs to remain in accepted_jobs indefinitely!
                     }
                     None => {
                         log::error!(
@@ -284,14 +315,14 @@ impl Worker {
             }
             ServerToWorkerMessage::WithdrawJobOffer(job_info) => {
                 // Remove job from offered list
-                let offered_job_index = self
-                    .offered_jobs
+                let accepted_job_index = self
+                    .accepted_jobs
                     .iter()
                     .position(|job| job.info.job_id == job_info.job_id);
-                match offered_job_index {
+                match accepted_job_index {
                     Some(index) => {
                         // Remove job from list
-                        let job = self.offered_jobs.remove(index);
+                        let job = self.accepted_jobs.remove(index);
                         log::debug!("Withdrawn job: {:?}", job);
                         Ok(())
                     }
@@ -330,6 +361,11 @@ impl Worker {
                     }
                 }
             }
+            ServerToWorkerMessage::Bye => {
+                log::debug!("Connection closed by server!");
+                self.running = false; // stop worker
+                Ok(())
+            }
         }
     }
 
@@ -341,7 +377,7 @@ impl Worker {
 
         // Calculate available job slots.
         let allocated_job_slots: u64 = self
-            .offered_jobs
+            .accepted_jobs
             .iter()
             .chain(self.running_jobs.iter())
             .map(|job| job.info.worker_resources.job_slots)
@@ -354,7 +390,7 @@ impl Worker {
         let total_cpus = self.system_info.cpus().len() as i64;
 
         let allocated_cpus: i64 = self
-            .offered_jobs
+            .accepted_jobs
             .iter()
             .chain(self.running_jobs.iter())
             .map(|job| job.info.worker_resources.cpus as i64)
@@ -384,7 +420,7 @@ impl Worker {
         let total_ram_mb = (self.system_info.total_memory() / 1024 / 1024) as i64;
 
         let allocated_ram_mb: i64 = self
-            .offered_jobs
+            .accepted_jobs
             .iter()
             .chain(self.running_jobs.iter())
             .map(|job| job.info.worker_resources.ram_mb as i64)
@@ -440,7 +476,7 @@ impl Worker {
         };
 
         // Collect hardware information.
-        let hw_info = SystemInfo {
+        let system_info = SystemInfo {
             kernel: self
                 .system_info
                 .kernel_version()
@@ -457,7 +493,7 @@ impl Worker {
 
         // Send to server.
         self.stream
-            .send(&WorkerToServerMessage::UpdateSystemInfo(hw_info))
+            .send(&WorkerToServerMessage::UpdateSystemInfo(system_info))
             .await
     }
 

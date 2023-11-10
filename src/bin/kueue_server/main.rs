@@ -1,16 +1,16 @@
-//#![warn(clippy::missing_docs_in_private_items)]
+//! # Kueue_server
+//!
+//! This binary create implements the Kueue server.
 
-mod client_connection;
-mod job_manager;
-mod server;
-mod worker_connection;
+#![warn(clippy::missing_docs_in_private_items)]
 
 use anyhow::{anyhow, bail, Result};
 use clap::Parser;
-use kueue_lib::config::Config;
-use server::Server;
+use futures::future::join;
+use kueue_lib::{config::Config, server::Server};
 use simple_logger::SimpleLogger;
 use std::path::PathBuf;
+use tokio::signal::unix::{signal, SignalKind};
 
 /// Command line interface for the server.
 #[derive(Parser, Debug)]
@@ -39,7 +39,20 @@ async fn main() -> Result<()> {
         .with_level(config.get_log_level()?.to_level_filter())
         .init()?;
 
-    // Run server.
-    let server = Server::new(config);
-    server.run().await
+    // Setup server.
+    let mut server = Server::new(config);
+    let shutdown = server.async_shutdown();
+
+    // Handle interrupt signal.
+    let mut sigint = signal(SignalKind::interrupt())?;
+    let interrupt = async move {
+        if let Some(()) = sigint.recv().await {
+            log::debug!("Shutdown signal received!");
+            shutdown.await
+        }
+    };
+
+    // Run server until interrupted.
+    join(server.run(), interrupt).await;
+    Ok(())
 }

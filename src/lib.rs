@@ -15,24 +15,57 @@
 //! The [client](../kueue/index.html), [server](../kueue_server/index.html), and
 //! [worker](../kueue_worker/index.html) crates are documented separately.
 
-#![warn(clippy::missing_docs_in_private_items)]
+//#![warn(clippy::missing_docs_in_private_items)]
 
+pub mod client;
 pub mod config;
 pub mod messages;
+pub mod server;
 pub mod structs;
+pub mod worker;
 
 #[cfg(test)]
 mod tests {
     use crate::{
         config::Config,
         messages::{ClientToServerMessage, HelloMessage},
+        server::Server,
+        worker::Worker,
     };
+    use futures::future::join_all;
+    use simple_logger::SimpleLogger;
+    use tokio::time::{sleep, Duration};
 
-    #[test]
-    fn general_test_setup() {
-        // TODO: Is it possible to have some kind of integration test here?
-        let _config = Config::new(None);
-        // TODO...
+    #[tokio::test]
+    async fn general_test_setup() {
+        // Run tests with `cargo test --lib -- --nocapture` to see output.
+
+        // TODO: Customize config for tests?
+        let config = Config::new(None).unwrap();
+
+        SimpleLogger::new()
+            .with_level(config.get_log_level().unwrap().to_level_filter())
+            .init()
+            .unwrap();
+
+        // Start server and worker.
+        let mut handles = Vec::new();
+        let server_config = config.clone();
+        let mut server = Server::new(server_config);
+        let shutdown = server.async_shutdown();
+        handles.push(tokio::spawn(async move { server.run().await }));
+        sleep(Duration::from_millis(1000)).await;
+        handles.push(tokio::spawn(async move {
+            let mut worker = Worker::new(config).await.unwrap();
+            worker.run().await.unwrap()
+        }));
+
+        // TODO: Do the things!
+        sleep(Duration::from_millis(1000)).await;
+
+        // Shutdown server and worker.
+        shutdown.await;
+        join_all(handles).await;
     }
 
     #[test]

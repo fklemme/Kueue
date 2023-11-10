@@ -1,20 +1,20 @@
-use crate::job_manager::{Manager, Worker};
-use anyhow::{bail, Result};
-use base64::{engine::general_purpose, Engine};
-use chrono::Utc;
-use kueue_lib::{
+use crate::{
     config::Config,
     messages::{
         stream::{MessageError, MessageStream},
         ServerToWorkerMessage, WorkerToServerMessage,
     },
-    structs::{JobInfo, JobStatus, Resources},
+    server::job_manager::{Manager, Worker},
+    structs::{JobInfo, JobStatus, Resources, SystemInfo},
 };
+use anyhow::{bail, Result};
+use base64::{engine::general_purpose, Engine};
+use chrono::Utc;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeSet,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
 };
 use tokio::sync::mpsc;
 
@@ -22,24 +22,25 @@ pub struct WorkerConnection {
     worker_id: u64,
     worker_name: String,
     stream: MessageStream,
+    config: Arc<RwLock<Config>>,
     manager: Arc<Mutex<Manager>>,
-    config: Config,
     worker: Arc<Mutex<Worker>>,
     free_resources: Resources,
     rejected_jobs: BTreeSet<u64>,
     deferred_jobs: BTreeSet<u64>,
     kill_job_rx: mpsc::Receiver<u64>,
-    connection_closed: bool,
     authenticated: bool,
     salt: String,
+    connection_closed: bool,
 }
 
 impl WorkerConnection {
+    /// Construct a new WorkerConnection.
     pub fn new(
         worker_name: String,
         stream: MessageStream,
+        config: Arc<RwLock<Config>>,
         manager: Arc<Mutex<Manager>>,
-        config: Config,
     ) -> Self {
         let (kill_job_tx, kill_job_rx) = mpsc::channel::<u64>(10);
         let worker = manager
@@ -59,19 +60,20 @@ impl WorkerConnection {
             worker_id,
             worker_name,
             stream,
-            manager,
             config,
+            manager,
             worker,
             free_resources: Resources::new(0, 0, 0),
             rejected_jobs: BTreeSet::new(),
             deferred_jobs: BTreeSet::new(),
             kill_job_rx,
-            connection_closed: false,
             authenticated: false,
             salt,
+            connection_closed: false,
         }
     }
 
+    /// Run worker connection, handling communication with the remote worker.
     pub async fn run(&mut self) {
         // Hello/Welcome messages are already exchanged at this point.
 
@@ -84,10 +86,13 @@ impl WorkerConnection {
             return;
         }
 
-        log::info!("Worker connected: {}", self.worker_name);
+        log::info!("Established connection to worker '{}'!", self.worker_name);
 
         // Notify for newly available jobs.
-        let notify_new_jobs = self.manager.lock().unwrap().notify_new_jobs();
+        let (notify_new_jobs, mut shutdown_rx) = {
+            let manager = self.manager.lock().unwrap();
+            (manager.notify_new_jobs.clone(), manager.shutdown_rx.clone())
+        };
 
         while !self.connection_closed {
             tokio::select! {
@@ -106,10 +111,10 @@ impl WorkerConnection {
                         }
                     }
                 }
-                // Or, get active when notified.
+                // Or, get active when notified about new jobs.
                 _ = notify_new_jobs.notified() => {
                     // First, check if this worker is still alive.
-                    if self.worker.lock().unwrap().info.timed_out(self.config.server_settings.worker_timeout_seconds) {
+                    if self.worker.lock().unwrap().info.timed_out(self.config.read().unwrap().server_settings.worker_timeout_seconds) {
                         self.connection_closed = true; // end worker session
                     } else {
                         // Offer new job, if no job is currently offered.
@@ -139,6 +144,14 @@ impl WorkerConnection {
                         log::error!("Job to be killed with ID={} not found!", job_id);
                     }
                 }
+                // Or, close the connection if server is shutting down.
+                _ = shutdown_rx.changed() => {
+                    log::info!("Closing connection to worker!");
+                    if let Err(e) = self.stream.send(&ServerToWorkerMessage::Bye).await {
+                        log::error!("Failed to send bye: {}", e);
+                    }
+                    self.connection_closed = true; // end worker session
+                }
             }
         }
     }
@@ -147,13 +160,8 @@ impl WorkerConnection {
     async fn handle_message(&mut self, message: WorkerToServerMessage) -> Result<()> {
         match message {
             WorkerToServerMessage::AuthResponse(response) => self.on_auth_response(response).await,
-            WorkerToServerMessage::UpdateSystemInfo(hw_info) => {
-                let mut worker_lock = self.worker.lock().unwrap();
-                // Update information in shared worker object.
-                worker_lock.info.system_info = hw_info;
-                // This happens regularly, indicating that the worker is still alive.
-                worker_lock.info.last_updated = Utc::now();
-                Ok(()) // No response to worker needed.
+            WorkerToServerMessage::UpdateSystemInfo(system_info) => {
+                self.on_update_system_info(system_info)
             }
             WorkerToServerMessage::UpdateJobStatus(job_info) => self.on_update_job_status(job_info),
             WorkerToServerMessage::UpdateJobResults {
@@ -162,28 +170,7 @@ impl WorkerConnection {
                 stderr_text,
             } => self.on_update_job_results(job_id, stdout_text, stderr_text),
             WorkerToServerMessage::UpdateResources(resources) => {
-                self.check_authenticated()?;
-
-                // Update resources.
-                self.free_resources = resources.clone();
-
-                // Forget all deferred jobs.
-                self.deferred_jobs.clear();
-
-                let no_job_offered = {
-                    let mut worker_lock = self.worker.lock().unwrap();
-
-                    // Keep copy of free resources in info.
-                    worker_lock.info.free_resources = resources;
-
-                    worker_lock.info.jobs_offered.is_empty()
-                };
-
-                // Offer new job.
-                if no_job_offered {
-                    self.offer_pending_job().await?;
-                }
-                Ok(())
+                self.on_update_resources(resources).await
             }
             WorkerToServerMessage::AcceptJobOffer(job_info) => {
                 self.on_accept_job_offer(job_info).await
@@ -195,7 +182,7 @@ impl WorkerConnection {
                 self.on_reject_job_offer(job_info).await
             }
             WorkerToServerMessage::Bye => {
-                log::trace!("Bye worker!");
+                log::trace!("Connection closed by worker!");
                 self.connection_closed = true;
                 Ok(())
             }
@@ -215,7 +202,14 @@ impl WorkerConnection {
     /// Called upon receiving WorkerToServerMessage::AuthResponse.
     async fn on_auth_response(&mut self, response: String) -> Result<()> {
         // Calculate baseline result.
-        let salted_secret = self.config.common_settings.shared_secret.clone() + &self.salt;
+        let salted_secret = self
+            .config
+            .read()
+            .unwrap()
+            .common_settings
+            .shared_secret
+            .clone()
+            + &self.salt;
         let salted_secret = salted_secret.into_bytes();
         let mut hasher = Sha256::new();
         hasher.update(salted_secret);
@@ -237,6 +231,16 @@ impl WorkerConnection {
         }
     }
 
+    /// Called upon receiving WorkerToServerMessage::UpdateSystemInfo.
+    fn on_update_system_info(&self, system_info: SystemInfo) -> Result<()> {
+        let mut worker_lock = self.worker.lock().unwrap();
+        // Update information in shared worker object.
+        worker_lock.info.system_info = system_info;
+        // This happens regularly, indicating that the worker is still alive.
+        worker_lock.info.last_updated = Utc::now();
+        Ok(()) // No response to worker needed.
+    }
+
     /// Called upon receiving WorkerToServerMessage::UpdateJobStatus.
     fn on_update_job_status(&self, job_info: JobInfo) -> Result<()> {
         self.check_authenticated()?;
@@ -251,7 +255,6 @@ impl WorkerConnection {
                     // Update job and worker if the job has finished.
                     if job_info.status.is_finished() || job_info.status.is_canceled() {
                         log::debug!("Job {} finished on {}!", job_info.job_id, self.worker_name);
-                        job.lock().unwrap().info.status = job_info.status.clone();
                         self.worker
                             .lock()
                             .unwrap()
@@ -259,9 +262,13 @@ impl WorkerConnection {
                             .jobs_running
                             .remove(&job_info.job_id);
 
+                        let mut job = job.lock().unwrap();
+                        job.info.status = job_info.status.clone();
+
                         // Notify observers of the job
-                        job.lock().unwrap().notify_observers();
+                        job.notify_observers();
                     } else {
+                        // At the moment, the worker will only send updates on completed jobs.
                         log::error!("Expected updated job to be finished: {:?}", job_info);
                     }
                 }
@@ -310,6 +317,32 @@ impl WorkerConnection {
             }
         } else {
             log::error!("Updated job not found: ID={}", job_id);
+        }
+        Ok(())
+    }
+
+    /// Called upon receiving WorkerToServerMessage::UpdateResources.
+    async fn on_update_resources(&mut self, resources: Resources) -> Result<()> {
+        self.check_authenticated()?;
+
+        // Update resources.
+        self.free_resources = resources.clone();
+
+        // Forget all deferred jobs.
+        self.deferred_jobs.clear();
+
+        let no_job_offered = {
+            let mut worker_lock = self.worker.lock().unwrap();
+
+            // Keep copy of free resources in info.
+            worker_lock.info.free_resources = resources;
+
+            worker_lock.info.jobs_offered.is_empty()
+        };
+
+        // Offer new job.
+        if no_job_offered {
+            self.offer_pending_job().await?;
         }
         Ok(())
     }

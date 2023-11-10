@@ -4,15 +4,12 @@
 
 #![warn(clippy::missing_docs_in_private_items)]
 
-mod job;
-mod worker;
-
 use anyhow::{anyhow, bail, Result};
 use clap::Parser;
-use kueue_lib::config::Config;
+use kueue_lib::{config::Config, worker::Worker};
 use simple_logger::SimpleLogger;
 use std::path::PathBuf;
-use worker::Worker;
+use tokio::signal::unix::{signal, SignalKind};
 
 /// Command line interface for the worker.
 #[derive(Parser, Debug)]
@@ -41,7 +38,19 @@ async fn main() -> Result<()> {
         .with_level(config.get_log_level()?.to_level_filter())
         .init()?;
 
-    // Run worker.
+    // Setup worker.
     let mut worker = Worker::new(config).await?;
+    let shutdown = worker.async_shutdown();
+
+    // Handle interrupt signal.
+    let mut sigint = signal(SignalKind::interrupt())?;
+    tokio::spawn(async move {
+        if let Some(()) = sigint.recv().await {
+            log::debug!("Shutdown signal received!");
+            shutdown.await
+        }
+    });
+
+    // Run worker until interrupted.
     worker.run().await
 }
