@@ -6,7 +6,7 @@ use crate::{
     config::Config,
     messages::stream::{MessageError, MessageStream},
     messages::{HelloMessage, ServerToWorkerMessage, WorkerToServerMessage},
-    structs::{JobStatus, LoadInfo, Resources, SystemInfo},
+    structs::{JobInfo, JobStatus, LoadInfo, Resources, SystemInfo},
 };
 use anyhow::{bail, Result};
 use base64::{engine::general_purpose, Engine};
@@ -96,13 +96,12 @@ impl Worker {
 
         // Send regular updates about system, load, and resources to the server.
         let notify_system_update = Arc::clone(&self.notify_system_update);
-        let system_update_interval_seconds =
-            self.config.worker_settings.system_update_interval_seconds;
+        let update_interval = self.config.worker_settings.system_update_interval_seconds;
         tokio::spawn(async move {
             loop {
                 // Send the first update immediately.
                 notify_system_update.notify_one();
-                sleep(Duration::from_secs(system_update_interval_seconds)).await;
+                sleep(Duration::from_secs(update_interval)).await;
             }
         });
 
@@ -218,153 +217,168 @@ impl Worker {
                 log::warn!("Received duplicate authentication acceptance!");
                 Ok(())
             }
-            ServerToWorkerMessage::OfferJob(job_info) => {
-                // Reject job when the worker cannot see the working directory.
-                if !job_info.cwd.is_dir() {
-                    log::debug!(
-                        "Rejected job {} because working directory {} is not found!",
-                        job_info.job_id,
-                        job_info.cwd.to_string_lossy()
-                    );
-
-                    // Reject job offer.
-                    return self
-                        .stream
-                        .send(&WorkerToServerMessage::RejectJobOffer(job_info))
-                        .await;
-                }
-
-                // Accept job if required resources can be acquired.
-                if self.resources_available(&job_info.worker_resources) {
-                    log::debug!("Accepted job {}!", job_info.job_id);
-
-                    // Remember accepted job for later confirmation.
-                    self.accepted_jobs.push(Job::new(
-                        job_info.clone(),
-                        Arc::clone(&self.notify_job_status),
-                    ));
-                    // Notify server about accepted job offer.
-                    self.stream
-                        .send(&WorkerToServerMessage::AcceptJobOffer(job_info))
-                        .await
-                } else {
-                    log::debug!("Deferred job {}!", job_info.job_id);
-
-                    // Defer job offer (until resources become available).
-                    self.stream
-                        .send(&WorkerToServerMessage::DeferJobOffer(job_info))
-                        .await
-                }
-            }
+            ServerToWorkerMessage::OfferJob(job_info) => self.on_offer_job(job_info).await,
             ServerToWorkerMessage::ConfirmJobOffer(job_info) => {
-                let accepted_job_index = self
-                    .accepted_jobs
-                    .iter()
-                    .position(|job| job.info.job_id == job_info.job_id);
-                match accepted_job_index {
-                    Some(index) => {
-                        // Move job to running processes.
-                        let mut job = self.accepted_jobs.remove(index);
-                        // Also update job status. (Should now be "running".)
-                        job.info.status = job_info.status;
-                        self.running_jobs.push(job);
-
-                        // TODO: Also compare entire "job_info"s for consistency?
-
-                        // Run job as child process
-                        match self.running_jobs.last_mut().unwrap().run().await {
-                            Ok(()) => {
-                                log::debug!("Started job {}!", job_info.job_id);
-
-                                // Inform server about available resources.
-                                // This information triggers the server to
-                                // send new job offers to this worker.
-                                let message = WorkerToServerMessage::UpdateResources(
-                                    self.get_available_resources(),
-                                );
-                                self.stream.send(&message).await
-                            }
-                            Err(e) => {
-                                log::error!("Failed to start job: {}", e);
-                                let job = self.running_jobs.last_mut().unwrap();
-                                {
-                                    let mut job_result = job.result.lock().unwrap();
-                                    job_result.finished = true;
-                                    job_result.exit_code = -43;
-                                    job_result.run_time = chrono::Duration::seconds(0);
-                                    job_result.comment = format!("Failed to start job: {}", e);
-                                }
-
-                                // Update server. This will also send an update on
-                                // available resources and thus trigger new job offers.
-                                self.update_job_status().await
-                            }
-                        }
-
-                        // TODO: There is some checking we could do here. We do
-                        // not want jobs to remain in accepted_jobs indefinitely!
-                    }
-                    None => {
-                        log::error!(
-                            "Confirmed job with ID={} that has not been offered previously!",
-                            job_info.job_id
-                        );
-                        Ok(()) // Error occurred, but we can continue running.
-                    }
-                }
+                self.on_confirm_job_offer(job_info).await
             }
             ServerToWorkerMessage::WithdrawJobOffer(job_info) => {
-                // Remove job from offered list
-                let accepted_job_index = self
-                    .accepted_jobs
-                    .iter()
-                    .position(|job| job.info.job_id == job_info.job_id);
-                match accepted_job_index {
-                    Some(index) => {
-                        // Remove job from list
-                        let job = self.accepted_jobs.remove(index);
-                        log::debug!("Withdrawn job: {:?}", job);
-                        Ok(())
-                    }
-                    None => {
-                        log::error!(
-                            "Withdrawn job with ID={} that has not been offered previously!",
-                            job_info.job_id
-                        );
-                        Ok(()) // Error occurred, but we can continue running.
-                    }
-                }
+                self.on_withdraw_job_offer(job_info).await
             }
-            ServerToWorkerMessage::KillJob(job_info) => {
-                let running_job_index = self
-                    .running_jobs
-                    .iter()
-                    .position(|job| job.info.job_id == job_info.job_id);
-                match running_job_index {
-                    Some(index) => {
-                        // Signal kill.
-                        let job = self.running_jobs.get_mut(index).unwrap();
-                        job.notify_kill_job.notify_one();
-                        // Also update job status. (Should now be "canceled".)
-                        job.info.status = job_info.status;
-                        // After the job has been killed, "notify_job_status"
-                        // is notified, causing "update_job_status" to remove
-                        // the job from "running_jobs" and inform the server.
-                        Ok(())
-                    }
-                    None => {
-                        log::error!(
-                            "Job to be killed with ID={} is not running on this worker!",
-                            job_info.job_id
-                        );
-                        Ok(()) // Error occurred, but we can continue running.
-                    }
-                }
-            }
+            ServerToWorkerMessage::KillJob(job_info) => self.on_kill_job(job_info).await,
             ServerToWorkerMessage::Bye => {
                 log::debug!("Connection closed by server!");
                 self.running = false; // stop worker
                 Ok(())
+            }
+        }
+    }
+
+    /// Called upon receiving ServerToWorkerMessage::OfferJob.
+    async fn on_offer_job(&mut self, job_info: JobInfo) -> Result<(), MessageError> {
+        // Reject job when the worker cannot see the working directory.
+        if !job_info.cwd.is_dir() {
+            log::debug!(
+                "Rejected job {} because working directory {} is not found!",
+                job_info.job_id,
+                job_info.cwd.to_string_lossy()
+            );
+
+            // Reject job offer.
+            return self
+                .stream
+                .send(&WorkerToServerMessage::RejectJobOffer(job_info))
+                .await;
+        }
+
+        // Accept job if required resources can be acquired.
+        if self.resources_available(&job_info.worker_resources) {
+            log::debug!("Accepted job {}!", job_info.job_id);
+
+            // Remember accepted job for later confirmation.
+            self.accepted_jobs.push(Job::new(
+                job_info.clone(),
+                Arc::clone(&self.notify_job_status),
+            ));
+            // Notify server about accepted job offer.
+            self.stream
+                .send(&WorkerToServerMessage::AcceptJobOffer(job_info))
+                .await
+        } else {
+            log::debug!("Deferred job {}!", job_info.job_id);
+
+            // Defer job offer (until resources become available).
+            self.stream
+                .send(&WorkerToServerMessage::DeferJobOffer(job_info))
+                .await
+        }
+    }
+
+    /// Called upon receiving ServerToWorkerMessage::ConfirmJobOffer.
+    async fn on_confirm_job_offer(&mut self, job_info: JobInfo) -> Result<(), MessageError> {
+        let accepted_job_index = self
+            .accepted_jobs
+            .iter()
+            .position(|job| job.info.job_id == job_info.job_id);
+        match accepted_job_index {
+            Some(index) => {
+                // Move job to running processes.
+                let mut job = self.accepted_jobs.remove(index);
+                // Also update job status. (Should now be "running".)
+                job.info.status = job_info.status;
+                self.running_jobs.push(job);
+
+                // TODO: Also compare entire "job_info"s for consistency?
+
+                // Run job as child process
+                match self.running_jobs.last_mut().unwrap().run().await {
+                    Ok(()) => {
+                        log::debug!("Started job {}!", job_info.job_id);
+
+                        // Inform server about available resources.
+                        // This information triggers the server to
+                        // send new job offers to this worker.
+                        let message =
+                            WorkerToServerMessage::UpdateResources(self.get_available_resources());
+                        self.stream.send(&message).await
+                    }
+                    Err(e) => {
+                        log::error!("Failed to start job: {}", e);
+                        let job = self.running_jobs.last_mut().unwrap();
+                        {
+                            let mut job_result = job.result.lock().unwrap();
+                            job_result.finished = true;
+                            job_result.exit_code = -43;
+                            job_result.run_time = chrono::Duration::seconds(0);
+                            job_result.comment = format!("Failed to start job: {}", e);
+                        }
+
+                        // Update server. This will also send an update on
+                        // available resources and thus trigger new job offers.
+                        self.update_job_status().await
+                    }
+                }
+
+                // TODO: There is some checking we could do here. We do
+                // not want jobs to remain in accepted_jobs indefinitely!
+            }
+            None => {
+                log::error!(
+                    "Confirmed job with ID={} that has not been offered previously!",
+                    job_info.job_id
+                );
+                Ok(()) // Error occurred, but we can continue running.
+            }
+        }
+    }
+
+    /// Called upon receiving ServerToWorkerMessage::WithdrawJobOffer.
+    async fn on_withdraw_job_offer(&mut self, job_info: JobInfo) -> Result<(), MessageError> {
+        // Remove job from offered list
+        let accepted_job_index = self
+            .accepted_jobs
+            .iter()
+            .position(|job| job.info.job_id == job_info.job_id);
+        match accepted_job_index {
+            Some(index) => {
+                // Remove job from list
+                let job = self.accepted_jobs.remove(index);
+                log::debug!("Withdrawn job: {:?}", job);
+                Ok(())
+            }
+            None => {
+                log::error!(
+                    "Withdrawn job with ID={} that has not been offered previously!",
+                    job_info.job_id
+                );
+                Ok(()) // Error occurred, but we can continue running.
+            }
+        }
+    }
+
+    /// Called upon receiving ServerToWorkerMessage::KillJob.
+    async fn on_kill_job(&mut self, job_info: JobInfo) -> Result<(), MessageError> {
+        let running_job_index = self
+            .running_jobs
+            .iter()
+            .position(|job| job.info.job_id == job_info.job_id);
+        match running_job_index {
+            Some(index) => {
+                // Signal kill.
+                let job = self.running_jobs.get_mut(index).unwrap();
+                job.notify_kill_job.notify_one();
+                // Also update job status. (Should now be "canceled".)
+                job.info.status = job_info.status;
+                // After the job has been killed, "notify_job_status"
+                // is notified, causing "update_job_status" to remove
+                // the job from "running_jobs" and inform the server.
+                Ok(())
+            }
+            None => {
+                log::error!(
+                    "Job to be killed with ID={} is not running on this worker!",
+                    job_info.job_id
+                );
+                Ok(()) // Error occurred, but we can continue running.
             }
         }
     }
