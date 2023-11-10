@@ -32,7 +32,6 @@ mod tests {
         server::Server,
         worker::Worker,
     };
-    use futures::future::join_all;
     use simple_logger::SimpleLogger;
     use tokio::time::{sleep, Duration};
 
@@ -49,23 +48,23 @@ mod tests {
             .unwrap();
 
         // Start server and worker.
-        let mut handles = Vec::new();
         let server_config = config.clone();
         let mut server = Server::new(server_config);
         let shutdown = server.async_shutdown();
-        handles.push(tokio::spawn(async move { server.run().await }));
-        sleep(Duration::from_millis(1000)).await;
-        handles.push(tokio::spawn(async move {
+        let server_handle = tokio::spawn(async move { server.run().await });
+        sleep(Duration::from_millis(250)).await;
+        let worker_handle = tokio::spawn(async move {
             let mut worker = Worker::new(config).await.unwrap();
-            worker.run().await.unwrap()
-        }));
+            worker.run().await
+        });
 
         // TODO: Do the things!
         sleep(Duration::from_millis(1000)).await;
 
         // Shutdown server and worker.
         shutdown.await;
-        join_all(handles).await;
+        assert!(server_handle.await.is_ok());
+        assert!(worker_handle.await.is_ok());
     }
 
     #[test]
