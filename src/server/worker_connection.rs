@@ -16,7 +16,7 @@ use std::{
     collections::BTreeSet,
     sync::{Arc, Mutex, RwLock},
 };
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, task::yield_now};
 
 pub struct WorkerConnection {
     worker_id: u64,
@@ -24,6 +24,7 @@ pub struct WorkerConnection {
     stream: MessageStream,
     config: Arc<RwLock<Config>>,
     manager: Arc<Mutex<Manager>>,
+    /// Shared state in the job_manager, storing information about the worker.
     worker: Arc<Mutex<Worker>>,
     free_resources: Resources,
     rejected_jobs: BTreeSet<u64>,
@@ -119,6 +120,9 @@ impl WorkerConnection {
                     } else {
                         // Offer new job, if no job is currently offered.
                         if self.worker.lock().unwrap().info.jobs_offered.is_empty() {
+                            // Give less-busy workers the chance to pick up the job.
+                            self.yield_if_busy().await;
+                            // Now, check for available jobs and pick up the next one.
                             if let Err(e) = self.offer_pending_job().await {
                                 log::error!("Failed to offer new job: {}", e);
                                 self.connection_closed = true; // end worker session
@@ -504,6 +508,24 @@ impl WorkerConnection {
             bail!("Rejected job not found: {:?}", job_info);
         }
         Ok(())
+    }
+
+    async fn yield_if_busy(&self) {
+        let info = self.worker.lock().unwrap().info.clone();
+
+        // FIXME: Not sure how well this will work...
+        if info.resource_load() > 0.1 {
+            yield_now().await
+        }
+        if info.resource_load() > 0.25 {
+            yield_now().await
+        }
+        if info.resource_load() > 0.5 {
+            yield_now().await
+        }
+        if info.resource_load() > 0.75 {
+            yield_now().await
+        }
     }
 
     async fn offer_pending_job(&mut self) -> Result<(), MessageError> {
