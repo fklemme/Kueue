@@ -64,7 +64,9 @@ impl CommonSettings {
             .collect();
 
         // TODO: Raise default levels when more mature.
-        let default_log_level = if cfg!(debug_assertions) {
+        let default_log_level = if cfg!(test) {
+            "trace"
+        } else if cfg!(debug_assertions) {
             "debug"
         } else {
             "info"
@@ -105,8 +107,13 @@ impl ServerSettings {
     fn default_settings<St: BuilderState>(
         builder: ConfigBuilder<St>,
     ) -> Result<ConfigBuilder<St>, config::ConfigError> {
+        let default_binds = if cfg!(test) | cfg!(debug_assertions) {
+            "127.0.0.1"
+        } else {
+            "0.0.0.0 [::]"
+        };
         builder
-            .set_default("server_settings.bind_addresses", "0.0.0.0 [::]")?
+            .set_default("server_settings.bind_addresses", default_binds)?
             .set_default("server_settings.maintenance_interval_seconds", 60)?
             .set_default("server_settings.worker_timeout_seconds", 5 * 60)?
             .set_default("server_settings.job_offer_timeout_seconds", 60)?
