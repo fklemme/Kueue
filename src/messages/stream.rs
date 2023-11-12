@@ -1,17 +1,18 @@
-//! Read and write messages from and to the network.
+//! Read and write messages from and to the an underlying stream.
 
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 
 /// MessageStream builds a high-level abstraction of sending messages over the
-/// network on top of a TcpStream. It takes ownership of a given TcpStream and
-/// instantiates buffers to account for caching (yet) incomplete messages.
-pub struct MessageStream {
-    /// The underlying TcpStream.
-    stream: TcpStream,
-    /// Buffers bytes read from the TcpStream. The buffer starts with a
+/// network on top of a stream, e.g. `tokio::net::TcpStream`. It takes ownership
+/// of a given stream and instantiates buffers to account for caching (yet)
+/// incomplete messages. The implementation is generalized for any stream type,
+/// so it can be re-used in tests without requiring TCP network connections.
+pub struct MessageStream<Stream> {
+    /// The underlying stream object.
+    stream: Stream,
+    /// Buffers bytes read from the stream. The buffer starts with a
     /// fixed size of INIT_READ_BUFFER_LEN and doubles in size whenever
     /// its capacitance is reached while receiving data from the network.
     read_buffer: Vec<u8>,
@@ -26,16 +27,18 @@ pub struct MessageStream {
 /// memory consumption.
 const INIT_READ_BUFFER_LEN: usize = 32 * 1024;
 
-impl MessageStream {
-    /// Create a high-level message stream abstraction on top of a TcpStream.
-    pub fn new(stream: TcpStream) -> Self {
+impl<Stream> MessageStream<Stream> {
+    /// Create a high-level message stream abstraction on top of a stream.
+    pub fn new(stream: Stream) -> Self {
         MessageStream {
             stream,
             read_buffer: vec![0; INIT_READ_BUFFER_LEN],
             msg_buffer: Vec::new(),
         }
     }
+}
 
+impl<Stream: AsyncWriteExt + Unpin> MessageStream<Stream> {
     /// Send a message over the network.
     pub async fn send<T: Serialize + Debug>(&mut self, message: &T) -> Result<(), MessageError> {
         log::trace!("Sending message: {:?}", message);
@@ -49,25 +52,27 @@ impl MessageStream {
             }
         }
     }
+}
 
+impl<Stream: AsyncReadExt + Unpin> MessageStream<Stream> {
     /// Receive a message from the network.
     pub async fn receive<T: for<'a> Deserialize<'a> + Debug>(&mut self) -> Result<T, MessageError> {
         loop {
-            // Parse message from message buffer
+            // Parse message from message buffer.
             match self.parse_message::<T>() {
                 Ok(message) => {
                     log::trace!("Received message: {:?}", message);
                     return Ok(message);
                 }
-                Err(ParseError::EofWhileParsing) => {} // no return -> continue reading from stream
-                Err(_) => return Err(MessageError::ReceiveFailed), // give up and propagate error
+                Err(ParseError::EofWhileParsing) => {} // no return -> continue reading from stream and try again later.
+                Err(ParseError::ParsingFailed) => return Err(MessageError::ReceiveFailed), // give up and propagate error.
             }
 
-            // Read more data from stream
+            // Read more data from stream.
             match self.stream.read(&mut self.read_buffer).await {
                 Ok(0) => return Err(MessageError::ConnectionClosed),
                 Ok(bytes_read) => {
-                    // Move read bytes into message buffer and continue loop
+                    // Move read bytes into message buffer and continue loop.
                     self.msg_buffer.extend(&self.read_buffer[..bytes_read]);
 
                     if bytes_read == self.read_buffer.len() {
@@ -87,7 +92,9 @@ impl MessageStream {
             }
         }
     }
+}
 
+impl<Stream> MessageStream<Stream> {
     /// Deserialize the next message.
     fn parse_message<T: for<'a> Deserialize<'a>>(&mut self) -> Result<T, ParseError> {
         // Try to parse T from msg_buffer
@@ -121,7 +128,7 @@ impl MessageStream {
 }
 
 /// Errors related to the MessageStream.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum MessageError {
     /// Failed to write the message to the network.
     SendFailed,
@@ -131,6 +138,7 @@ pub enum MessageError {
     ConnectionClosed,
 }
 
+// Needed for `anyhow` crate.
 impl std::error::Error for MessageError {}
 
 impl std::fmt::Display for MessageError {
@@ -141,7 +149,7 @@ impl std::fmt::Display for MessageError {
 
 /// ParseError is used internally to distinguish between
 /// incomplete and (syntactically) failed parsing attempts.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum ParseError {
     /// The end of input was reached before parsing could be completed.
     EofWhileParsing,
@@ -149,6 +157,7 @@ enum ParseError {
     ParsingFailed,
 }
 
+// Needed for `anyhow` crate.
 impl std::error::Error for ParseError {}
 
 impl std::fmt::Display for ParseError {

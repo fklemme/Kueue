@@ -2,7 +2,7 @@ use crate::{
     config::Config,
     messages::stream::MessageStream,
     messages::{ClientToServerMessage, ServerToClientMessage},
-    server::job_manager::Manager,
+    server::shared_state::Manager,
     structs::{JobInfo, JobStatus},
 };
 use anyhow::{bail, Result};
@@ -12,29 +12,35 @@ use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use sha2::{Digest, Sha256};
 use std::{
     cmp::max,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
 };
-use tokio::sync::mpsc;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    sync::mpsc::{channel, Receiver, Sender},
+};
+use tokio_util::sync::CancellationToken;
 
-pub struct ClientConnection {
-    stream: MessageStream,
+pub struct ClientConnection<Stream> {
+    stream: MessageStream<Stream>,
     config: Arc<RwLock<Config>>,
-    manager: Arc<Mutex<Manager>>,
-    job_updated_tx: mpsc::Sender<u64>,
-    job_updated_rx: mpsc::Receiver<u64>,
+    manager: Arc<RwLock<Manager>>,
+    cancel: CancellationToken,
+    job_updated_tx: Sender<u64>,
+    job_updated_rx: Receiver<u64>,
     authenticated: bool,
     salt: String,
     connection_closed: bool,
 }
 
-impl ClientConnection {
+impl<Stream: AsyncReadExt + AsyncWriteExt + Unpin> ClientConnection<Stream> {
     /// Construct a new ClientConnection.
     pub fn new(
-        stream: MessageStream,
+        stream: MessageStream<Stream>,
         config: Arc<RwLock<Config>>,
-        manager: Arc<Mutex<Manager>>,
+        manager: Arc<RwLock<Manager>>,
+        cancel: CancellationToken,
     ) -> Self {
-        let (job_updated_tx, job_updated_rx) = mpsc::channel::<u64>(100);
+        let (job_updated_tx, job_updated_rx) = channel::<u64>(100);
 
         // Salt is generated for each client connection.
         let salt: String = thread_rng()
@@ -47,6 +53,7 @@ impl ClientConnection {
             stream,
             config,
             manager,
+            cancel,
             job_updated_tx,
             job_updated_rx,
             authenticated: false,
@@ -58,8 +65,6 @@ impl ClientConnection {
     /// Run client connection, handling communication with the remote client.
     pub async fn run(&mut self) {
         // Hello/Welcome messages are already exchanged at this point.
-
-        let mut shutdown_rx = self.manager.lock().unwrap().shutdown_rx.clone();
 
         while !self.connection_closed {
             tokio::select! {
@@ -81,7 +86,7 @@ impl ClientConnection {
                 // Or, get active when observed job is updated.
                 Some(job_id) = self.job_updated_rx.recv() => {
                     // Get job.
-                    let job = self.manager.lock().unwrap().get_job(job_id);
+                    let job = self.manager.read().unwrap().get_job(job_id);
 
                     if let Some(job) = job {
                         // Send job update to client.
@@ -96,7 +101,7 @@ impl ClientConnection {
                     };
                 }
                 // Or, close the connection if server is shutting down.
-                _ = shutdown_rx.changed() => {
+                _ = self.cancel.cancelled() => {
                     log::info!("Closing connection to client!");
                     if let Err(e) = self.stream.send(&ServerToClientMessage::Bye).await {
                         log::error!("Failed to send bye: {}", e);
@@ -267,7 +272,7 @@ impl ClientConnection {
 
         // Add new job.
         let job_info = {
-            let mut manager = self.manager.lock().unwrap();
+            let mut manager = self.manager.write().unwrap();
             let job = manager.add_new_job(job_info);
             let job_info = job.lock().unwrap().info.clone();
 
@@ -298,7 +303,7 @@ impl ClientConnection {
         canceled: bool,
     ) -> Result<()> {
         // Get job and worker lists.
-        let mut job_infos = self.manager.lock().unwrap().get_all_job_infos();
+        let mut job_infos = self.manager.read().unwrap().get_all_job_infos();
 
         // Count total number of pending/offered/running/etc jobs.
         let jobs_pending = job_infos
@@ -424,7 +429,7 @@ impl ClientConnection {
     /// Called upon receiving ClientToServerMessage::ShowJob.
     async fn on_show_job(&mut self, job_id: u64) -> Result<()> {
         // Get job.
-        let job = self.manager.lock().unwrap().get_job(job_id);
+        let job = self.manager.read().unwrap().get_job(job_id);
 
         let message = if let Some(job) = job {
             let job_lock = job.lock().unwrap();
@@ -446,7 +451,7 @@ impl ClientConnection {
     /// Called upon receiving ClientToServerMessage::ObserveJob.
     async fn on_observe_job(&mut self, job_id: u64) -> Result<()> {
         // Get job.
-        let job = self.manager.lock().unwrap().get_job(job_id);
+        let job = self.manager.read().unwrap().get_job(job_id);
 
         let message = if let Some(job) = job {
             // Register as an observer.
@@ -470,7 +475,7 @@ impl ClientConnection {
         self.is_authenticated().await?;
 
         // Cancel job and send message back to client.
-        let result = self.manager.lock().unwrap().cancel_job(job_id, kill);
+        let result = self.manager.write().unwrap().cancel_job(job_id, kill);
         let message = match result {
             Ok(Some(tx)) => {
                 // Signal kill to the worker.
@@ -499,7 +504,7 @@ impl ClientConnection {
     async fn on_clean_jobs(&mut self, all: bool) -> Result<()> {
         self.is_authenticated().await?;
 
-        self.manager.lock().unwrap().clean_jobs(all);
+        self.manager.write().unwrap().clean_jobs(all);
         let message = ServerToClientMessage::RequestResponse {
             success: true,
             text: "Removed finished and canceled jobs!".to_string(),
@@ -511,7 +516,7 @@ impl ClientConnection {
     /// Called upon receiving ClientToServerMessage::ListWorkers.
     async fn on_list_workers(&mut self) -> Result<()> {
         // Get worker list.
-        let worker_list = self.manager.lock().unwrap().get_all_worker_infos();
+        let worker_list = self.manager.read().unwrap().get_all_worker_infos();
 
         // Send response to client.
         self.stream
@@ -523,7 +528,7 @@ impl ClientConnection {
     /// Called upon receiving ClientToServerMessage::ShowWorker.
     async fn on_show_worker(&mut self, worker_id: u64) -> Result<()> {
         // Get worker.
-        let worker = self.manager.lock().unwrap().get_worker(worker_id);
+        let worker = self.manager.read().unwrap().get_worker(worker_id);
 
         let message = if let Some(worker) = worker {
             if let Some(worker) = worker.upgrade() {
@@ -548,7 +553,7 @@ impl ClientConnection {
     /// Called upon receiving ClientToServerMessage::ListResources.
     async fn on_list_resources(&mut self) -> Result<()> {
         // Get global resources.
-        let used_resources = self.manager.lock().unwrap().get_used_global_resources();
+        let used_resources = self.manager.read().unwrap().get_used_global_resources();
         let total_resources = self.config.read().unwrap().global_resources.clone();
 
         // Send response to client.

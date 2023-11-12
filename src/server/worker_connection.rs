@@ -4,7 +4,7 @@ use crate::{
         stream::{MessageError, MessageStream},
         ServerToWorkerMessage, WorkerToServerMessage,
     },
-    server::job_manager::{Manager, Worker},
+    server::shared_state::{Manager, Worker},
     structs::{JobInfo, JobStatus, Resources, SystemInfo},
 };
 use anyhow::{bail, Result};
@@ -16,36 +16,43 @@ use std::{
     collections::BTreeSet,
     sync::{Arc, Mutex, RwLock},
 };
-use tokio::{sync::mpsc, task::yield_now};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    sync::mpsc::{channel, Receiver},
+    task::yield_now,
+};
+use tokio_util::sync::CancellationToken;
 
-pub struct WorkerConnection {
+pub struct WorkerConnection<Stream> {
     worker_id: u64,
     worker_name: String,
-    stream: MessageStream,
+    stream: MessageStream<Stream>,
     config: Arc<RwLock<Config>>,
-    manager: Arc<Mutex<Manager>>,
-    /// Shared state in the job_manager, storing information about the worker.
+    manager: Arc<RwLock<Manager>>,
+    cancel: CancellationToken,
+    /// Information about the worker in the shared state.
     worker: Arc<Mutex<Worker>>,
     free_resources: Resources,
     rejected_jobs: BTreeSet<u64>,
     deferred_jobs: BTreeSet<u64>,
-    kill_job_rx: mpsc::Receiver<u64>,
+    kill_job_rx: Receiver<u64>,
     authenticated: bool,
     salt: String,
     connection_closed: bool,
 }
 
-impl WorkerConnection {
+impl<Stream: AsyncReadExt + AsyncWriteExt + Unpin> WorkerConnection<Stream> {
     /// Construct a new WorkerConnection.
     pub fn new(
         worker_name: String,
-        stream: MessageStream,
+        stream: MessageStream<Stream>,
         config: Arc<RwLock<Config>>,
-        manager: Arc<Mutex<Manager>>,
+        manager: Arc<RwLock<Manager>>,
+        cancel: CancellationToken,
     ) -> Self {
-        let (kill_job_tx, kill_job_rx) = mpsc::channel::<u64>(10);
+        let (kill_job_tx, kill_job_rx) = channel::<u64>(10);
         let worker = manager
-            .lock()
+            .write()
             .unwrap()
             .add_new_worker(worker_name.clone(), kill_job_tx);
         let worker_id = worker.lock().unwrap().info.worker_id;
@@ -63,6 +70,7 @@ impl WorkerConnection {
             stream,
             config,
             manager,
+            cancel,
             worker,
             free_resources: Resources::new(0, 0, 0),
             rejected_jobs: BTreeSet::new(),
@@ -90,10 +98,8 @@ impl WorkerConnection {
         log::info!("Established connection to worker '{}'!", self.worker_name);
 
         // Notify for newly available jobs.
-        let (notify_new_jobs, mut shutdown_rx) = {
-            let manager = self.manager.lock().unwrap();
-            (manager.notify_new_jobs.clone(), manager.shutdown_rx.clone())
-        };
+
+        let notify_new_jobs = self.manager.read().unwrap().notify_new_jobs.clone();
 
         while !self.connection_closed {
             tokio::select! {
@@ -133,7 +139,7 @@ impl WorkerConnection {
                 // Or, when signaled to kill a job on the worker.
                 Some(job_id) = self.kill_job_rx.recv() => {
                     // Kill job.
-                    let job = self.manager.lock().unwrap().get_job(job_id);
+                    let job = self.manager.read().unwrap().get_job(job_id);
                     if let Some(job) = job {
                         let job_info = job.lock().unwrap().info.clone();
                         let message = ServerToWorkerMessage::KillJob(job_info);
@@ -149,7 +155,7 @@ impl WorkerConnection {
                     }
                 }
                 // Or, close the connection if server is shutting down.
-                _ = shutdown_rx.changed() => {
+                _ = self.cancel.cancelled() => {
                     log::info!("Closing connection to worker!");
                     if let Err(e) = self.stream.send(&ServerToWorkerMessage::Bye).await {
                         log::error!("Failed to send bye: {}", e);
@@ -250,7 +256,7 @@ impl WorkerConnection {
         self.check_authenticated()?;
 
         // Update job information from the worker.
-        let job = self.manager.lock().unwrap().get_job(job_info.job_id);
+        let job = self.manager.read().unwrap().get_job(job_info.job_id);
         if let Some(job) = job {
             // See if job is associated with worker.
             let worker_id = job.lock().unwrap().worker_id;
@@ -300,7 +306,7 @@ impl WorkerConnection {
         self.check_authenticated()?;
 
         // Update job results with whatever the worker sends us.
-        let job = self.manager.lock().unwrap().get_job(job_id);
+        let job = self.manager.read().unwrap().get_job(job_id);
         if let Some(job) = job {
             let mut job_lock = job.lock().unwrap();
 
@@ -355,7 +361,7 @@ impl WorkerConnection {
     async fn on_accept_job_offer(&mut self, job_info: JobInfo) -> Result<()> {
         self.check_authenticated()?;
 
-        let job = self.manager.lock().unwrap().get_job(job_info.job_id);
+        let job = self.manager.read().unwrap().get_job(job_info.job_id);
         if let Some(job) = job {
             let job_info = {
                 // Perform small check and update job status.
@@ -410,7 +416,7 @@ impl WorkerConnection {
     async fn on_defer_job_offer(&mut self, job_info: JobInfo) -> Result<()> {
         self.check_authenticated()?;
 
-        let job = self.manager.lock().unwrap().get_job(job_info.job_id);
+        let job = self.manager.read().unwrap().get_job(job_info.job_id);
         if let Some(job) = job {
             // Perform small check and update job status.
             {
@@ -462,7 +468,7 @@ impl WorkerConnection {
     async fn on_reject_job_offer(&mut self, job_info: JobInfo) -> Result<()> {
         self.check_authenticated()?;
 
-        let job = self.manager.lock().unwrap().get_job(job_info.job_id);
+        let job = self.manager.read().unwrap().get_job(job_info.job_id);
         if let Some(job) = job {
             // Perform small check and update job status.
             {
@@ -511,19 +517,18 @@ impl WorkerConnection {
     }
 
     async fn yield_if_busy(&self) {
-        let info = self.worker.lock().unwrap().info.clone();
+        let load = self.worker.lock().unwrap().info.resource_load();
 
-        // FIXME: Not sure how well this will work...
-        if info.resource_load() > 0.1 {
+        if load > 0.1 {
             yield_now().await
         }
-        if info.resource_load() > 0.25 {
+        if load > 0.25 {
             yield_now().await
         }
-        if info.resource_load() > 0.5 {
+        if load > 0.5 {
             yield_now().await
         }
-        if info.resource_load() > 0.75 {
+        if load > 0.75 {
             yield_now().await
         }
     }
@@ -536,12 +541,16 @@ impl WorkerConnection {
             .cloned()
             .collect();
 
-        let available_job = self.manager.lock().unwrap().get_job_waiting_for_assignment(
-            self.worker_id,
-            &self.worker_name,
-            &excluded_jobs,
-            &self.free_resources,
-        );
+        let available_job = self
+            .manager
+            .write()
+            .unwrap()
+            .get_job_waiting_for_assignment(
+                self.worker_id,
+                &self.worker_name,
+                &excluded_jobs,
+                &self.free_resources,
+            );
 
         if let Some(job) = available_job {
             let job_info = job.lock().unwrap().info.clone();

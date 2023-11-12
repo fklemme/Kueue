@@ -32,7 +32,7 @@ pub struct Worker {
     /// Name of the worker. Used as an identifier for the user.
     worker_name: String,
     /// Message stream, connected to the server.
-    stream: MessageStream,
+    stream: MessageStream<TcpStream>,
     /// Regularly notified by a timer to trigger sending a message
     /// about updated system and hardware information to the server.
     notify_system_update: Arc<Notify>,

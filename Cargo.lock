@@ -234,9 +234,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.4.7"
+version = "4.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac495e00dcec98c83465d5ad66c5c4fabd652fd6686e7c6269b117e729a6f17b"
+checksum = "2275f18819641850fa26c89acc84d465c1bf91ce57bc2748b28c420473352f64"
 dependencies = [
  "clap_builder",
  "clap_derive 4.4.7",
@@ -244,9 +244,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.4.7"
+version = "4.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c77ed9a32a62e6ca27175d00d29d05ca32e396ea1eb5fb01d8256b669cec7663"
+checksum = "07cdf1b148b25c1e1f7a42225e30a0d99a615cd4637eae7365548dd4529b95bc"
 dependencies = [
  "anstream",
  "anstyle",
@@ -260,7 +260,7 @@ version = "4.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bffe91f06a11b4b9420f62103854e90867812cd5d01557f853c5ee8e791b12ae"
 dependencies = [
- "clap 4.4.7",
+ "clap 4.4.8",
 ]
 
 [[package]]
@@ -742,7 +742,7 @@ dependencies = [
  "anyhow",
  "base64 0.21.5",
  "chrono",
- "clap 4.4.7",
+ "clap 4.4.8",
  "clap_complete",
  "config",
  "console",
@@ -760,6 +760,7 @@ dependencies = [
  "sysinfo",
  "terminal_size",
  "tokio",
+ "tokio-util",
  "toml 0.8.8",
 ]
 
@@ -1545,6 +1546,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.39",
+]
+
+[[package]]
+name = "tokio-util"
+version = "0.7.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5419f34732d9eb6ee4c3578b7989078579b7f039cbbb9ca2c4da015749371e15"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "futures-sink",
+ "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]

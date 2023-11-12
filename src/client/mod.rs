@@ -17,7 +17,7 @@ use tokio::net::TcpStream;
 pub struct Client {
     args: Cli,
     config: Config,
-    stream: MessageStream,
+    stream: MessageStream<TcpStream>,
 }
 
 impl Client {

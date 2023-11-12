@@ -1,6 +1,6 @@
 use crate::{
     config::Config,
-    server::job_manager::{Job, Worker},
+    server::shared_state::{Job, Worker},
     structs::{JobInfo, JobStatus, Resources, WorkerInfo},
 };
 use anyhow::{bail, Result};
@@ -9,7 +9,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex, Weak},
 };
-use tokio::sync::{mpsc, watch, Notify};
+use tokio::sync::{mpsc, Notify};
 
 pub struct Manager {
     config: Config,
@@ -17,21 +17,16 @@ pub struct Manager {
     jobs_waiting_for_assignment: BTreeSet<u64>,
     workers: BTreeMap<u64, Weak<Mutex<Worker>>>,
     pub notify_new_jobs: Arc<Notify>,
-    pub shutdown_tx: Arc<watch::Sender<&'static str>>,
-    pub shutdown_rx: watch::Receiver<&'static str>,
 }
 
 impl Manager {
     pub fn new(config: Config) -> Self {
-        let (shutdown_tx, shutdown_rx) = watch::channel("up");
-        Manager {
+        Self {
             config,
             jobs: BTreeMap::new(),
             jobs_waiting_for_assignment: BTreeSet::new(),
             workers: BTreeMap::new(),
             notify_new_jobs: Arc::new(Notify::new()),
-            shutdown_tx: Arc::new(shutdown_tx),
-            shutdown_rx,
         }
     }
 
