@@ -6,10 +6,10 @@
 
 use anyhow::{anyhow, bail, Result};
 use clap::Parser;
-use kueue_lib::{config::Config, worker::Worker};
+use kueue_lib::{config::Config, worker::TcpWorker};
 use simple_logger::SimpleLogger;
 use std::path::PathBuf;
-use tokio::signal::unix::{signal, SignalKind};
+use tokio::signal::ctrl_c;
 
 /// Command line interface for the worker.
 #[derive(Parser, Debug)]
@@ -38,19 +38,13 @@ async fn main() -> Result<()> {
         .with_level(config.get_log_level()?.to_level_filter())
         .init()?;
 
-    // Setup worker.
-    let mut worker = Worker::new(config).await?;
-    let shutdown = worker.async_shutdown();
+    // Start worker and connect to server.
+    let mut worker = TcpWorker::new(config);
+    worker.start().await.map_err(|e| anyhow!("Failed to start worker: {}", e))?;
 
-    // Handle interrupt signal.
-    let mut sigint = signal(SignalKind::interrupt())?;
-    tokio::spawn(async move {
-        if let Some(()) = sigint.recv().await {
-            log::debug!("Shutdown signal received!");
-            shutdown.await
-        }
-    });
+    // Shutdown when receiving interrupt signal.
+    ctrl_c().await?;
+    worker.stop().await?;
 
-    // Run worker until interrupted.
-    worker.run().await
+    Ok(())
 }

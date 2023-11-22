@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 /// HelloFromWorker. The variants help the server to distinguish between client
 /// and worker connections. The server will respond with the corresponding
 /// "welcome" message.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub enum HelloMessage {
     /// Initiate a new client connection with the HelloFromClient message.
     /// The server confirms the connection with the WelcomeClient message.
@@ -27,7 +27,7 @@ pub enum HelloMessage {
 }
 
 /// Contains all messages sent by the client to the server.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub enum ClientToServerMessage {
     /// Request authentication challenge. This is required to issue or remove
     /// jobs. The server will reply with a AuthChallenge that must answered
@@ -72,7 +72,7 @@ pub enum ClientToServerMessage {
 }
 
 /// Contains all messages sent by the server to a client.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub enum ServerToClientMessage {
     /// Respond with WelcomeClient after HelloFromClient.
     WelcomeClient,
@@ -123,7 +123,7 @@ pub enum ServerToClientMessage {
 }
 
 /// Contains all messages sent by the worker to the server.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub enum WorkerToServerMessage {
     /// Send Sha256(secret + salt) back to server.
     AuthResponse(String),
@@ -145,7 +145,7 @@ pub enum WorkerToServerMessage {
 }
 
 /// Contains all messages sent by the server to a worker.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub enum ServerToWorkerMessage {
     // Respond with WelcomeWorker after HelloFromWorker
     WelcomeWorker,

@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// MessageStream builds a high-level abstraction of sending messages over the
@@ -39,7 +40,7 @@ impl<Stream> MessageStream<Stream> {
 }
 
 impl<Stream: AsyncWriteExt + Unpin> MessageStream<Stream> {
-    /// Send a message over the network.
+    /// Send a message over the stream.
     pub async fn send<T: Serialize + Debug>(&mut self, message: &T) -> Result<(), MessageError> {
         log::trace!("Sending message: {:?}", message);
         let buffer = serde_json::to_vec(message).unwrap();
@@ -55,7 +56,7 @@ impl<Stream: AsyncWriteExt + Unpin> MessageStream<Stream> {
 }
 
 impl<Stream: AsyncReadExt + Unpin> MessageStream<Stream> {
-    /// Receive a message from the network.
+    /// Receive a message from the stream.
     pub async fn receive<T: for<'a> Deserialize<'a> + Debug>(&mut self) -> Result<T, MessageError> {
         loop {
             // Parse message from message buffer.
@@ -70,13 +71,13 @@ impl<Stream: AsyncReadExt + Unpin> MessageStream<Stream> {
 
             // Read more data from stream.
             match self.stream.read(&mut self.read_buffer).await {
-                Ok(0) => return Err(MessageError::ConnectionClosed),
+                Ok(0) => return Err(MessageError::StreamClosed),
                 Ok(bytes_read) => {
                     // Move read bytes into message buffer and continue loop.
                     self.msg_buffer.extend(&self.read_buffer[..bytes_read]);
 
                     if bytes_read == self.read_buffer.len() {
-                        // The entire read buffer was occupied to fetch bytes from the network.
+                        // The entire read buffer was occupied while fetching bytes from the stream.
                         // Enlarge the size of the read buffer to reduce unnecessary parsing attempts.
                         log::debug!(
                             "Enlarging read buffer to {} KB.",
@@ -128,40 +129,27 @@ impl<Stream> MessageStream<Stream> {
 }
 
 /// Errors related to the MessageStream.
-#[derive(Clone, Debug)]
+#[derive(Debug, Error, PartialEq)]
 pub enum MessageError {
-    /// Failed to write the message to the network.
+    /// Failed to write the message to the stream.
+    #[error("failed to send message")]
     SendFailed,
-    /// Failed to receive a message from the network.
+    /// Failed to receive a message from the stream.
+    #[error("failed to receive message")]
     ReceiveFailed,
-    /// Network connection has been closed.
-    ConnectionClosed,
-}
-
-// Needed for `anyhow` crate.
-impl std::error::Error for MessageError {}
-
-impl std::fmt::Display for MessageError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
+    /// Stream has been closed.
+    #[error("stream closed")]
+    StreamClosed,
 }
 
 /// ParseError is used internally to distinguish between
 /// incomplete and (syntactically) failed parsing attempts.
-#[derive(Clone, Debug)]
+#[derive(Debug, Error, PartialEq)]
 enum ParseError {
     /// The end of input was reached before parsing could be completed.
+    #[error("encountered EOF while parsing message")]
     EofWhileParsing,
     /// Parsing of the message failed.
+    #[error("failed to parse message")]
     ParsingFailed,
-}
-
-// Needed for `anyhow` crate.
-impl std::error::Error for ParseError {}
-
-impl std::fmt::Display for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
 }

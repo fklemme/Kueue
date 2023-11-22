@@ -10,7 +10,7 @@ use std::{
 
 /// All information resembling a job. Only the outputs
 /// of stdout and stderr are stored separately.
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct JobInfo {
     /// Unique job ID, assigned by the server.
     pub job_id: u64,
@@ -87,7 +87,7 @@ impl JobInfo {
 
 /// Represents a combination of resources, either
 /// available on a worker or required by a job.
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Resources {
     /// Available job slots on the worker. For jobs, this should be always `1`.
     pub job_slots: u64,
@@ -117,7 +117,7 @@ impl Resources {
 }
 
 /// Represents the state of a job.
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum JobStatus {
     /// The job is waiting to be assigned to a worker.
     Pending {
@@ -207,7 +207,7 @@ impl JobStatus {
 }
 
 /// Stores all information about a worker.
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct WorkerInfo {
     /// Unique worker ID, assigned by the server.
     pub worker_id: u64,
@@ -285,7 +285,7 @@ impl WorkerInfo {
 }
 
 /// System and hardware information of a worker.
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct SystemInfo {
     /// OS kernel version.
     pub kernel: String,
@@ -315,7 +315,7 @@ impl Default for SystemInfo {
 }
 
 /// CPU load of a worker machine.
-#[derive(Default, Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct LoadInfo {
     /// One-minute average load.
     pub one: f64,
