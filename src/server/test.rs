@@ -1,6 +1,6 @@
 use crate::{
     config::Config,
-    server::{common::handle_connection, shared_state::Manager},
+    server::{handle_connection, shared_state::Manager},
 };
 use anyhow::{bail, Result};
 use std::sync::{Arc, RwLock};
@@ -74,6 +74,7 @@ mod tests {
         },
         server::test::TestServer,
     };
+    use simple_logger::SimpleLogger;
     use tokio::io::duplex;
 
     #[tokio::test]
@@ -81,6 +82,11 @@ mod tests {
         // Setup test config and test stream.
         let config = Config::new(None).unwrap();
         let (server_stream, client_stream) = duplex(1024);
+
+        SimpleLogger::new()
+            .with_level(config.get_log_level().unwrap().to_level_filter())
+            .init()
+            .unwrap();
 
         // Setup server.
         let mut server = TestServer::new(config);

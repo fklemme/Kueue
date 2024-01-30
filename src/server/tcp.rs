@@ -1,12 +1,12 @@
 use crate::{
     config::Config,
-    server::{common::listen_on, shared_state::Manager},
+    server::{handle_connection, shared_state::Manager},
 };
 use anyhow::{bail, Result};
 use std::sync::{Arc, RwLock};
 use tokio::{
     net::TcpListener,
-    sync::mpsc::{channel, Receiver},
+    sync::mpsc::{channel, Receiver, Sender},
     time::{sleep, Duration},
 };
 use tokio_util::sync::CancellationToken;
@@ -125,10 +125,36 @@ impl TcpServer {
     }
 }
 
+/// Runs asynchronously and accepts new TCP connections.
+pub async fn listen_on(
+    listener: TcpListener,
+    config: Arc<RwLock<Config>>,
+    shared: Arc<RwLock<Manager>>,
+    cancel_token: CancellationToken,
+    keep_alive: Sender<()>,
+) -> Result<()> {
+    loop {
+        tokio::select! {
+            _ = cancel_token.cancelled() => { return Ok(()); }
+            result = listener.accept() => {
+                let (stream, address) = result?;
+                log::trace!("Established connection from {}!", address);
+
+                tokio::spawn(handle_connection(
+                    stream,
+                    config.clone(),
+                    shared.clone(),
+                    cancel_token.clone(),
+                    keep_alive.clone(),
+                ));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{config::Config, server::TcpServer};
-    use tokio::time::{sleep, Duration};
 
     #[tokio::test]
     async fn start_and_stop_tcp_server() {
@@ -138,9 +164,7 @@ mod tests {
 
         // Network connections don't work in all test/build environments.
         // Therefore, we perform more detailed tests and interactions with
-        // a `TestServer` implementation that operates on local buffers.
-        sleep(Duration::from_millis(100)).await;
-
+        // a `TestServer` implementation that operates on local streams.
         assert!(server.stop().await.is_ok());
     }
 }
